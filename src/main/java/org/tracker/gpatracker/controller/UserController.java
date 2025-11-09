@@ -16,14 +16,14 @@ public class UserController {
     @Autowired
     private UserService service;
 
+
     @PostMapping("/register")
     public Users register(@RequestBody Users user){
-
         return service.register(user);
     }
 
     @PostMapping("/login")
-    public String login(@RequestBody Users users){
-        return service.verifyLogin(users);
+    public String login(@RequestBody Users user){
+        return service.verifyLogin(user);
     }
 }

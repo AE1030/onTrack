@@ -34,7 +34,7 @@ public class SecurityConfig {
         return http
                 .csrf(customizer -> customizer.disable())
                 .authorizeHttpRequests(request -> request
-                        .requestMatchers("/register","/login").permitAll()//These are the resources that don't need authentication
+                        .requestMatchers("/login","/register", "/hello").permitAll()//These are the resources that don't need authentication
                         .anyRequest().authenticated()) //Any other request needs authentication
                 //.formLogin(Customizer.withDefaults()) //this is designed for a stateful session;because our session is stateless this is why in the browser we are stuck in a loop. It also contains an html code that contains the login form.
                 .httpBasic(Customizer.withDefaults()) //This is designed for a stateless session like a REST API(postman) which relies on JWT tokens.
@@ -56,7 +56,7 @@ public class SecurityConfig {
     public AuthenticationProvider authenticationProvider(){
         DaoAuthenticationProvider provider = new DaoAuthenticationProvider();
         provider.setUserDetailsService(userDetailsService);
-        provider.setPasswordEncoder(new BCryptPasswordEncoder(12));
+        provider.setPasswordEncoder(passwordencoder());
         return provider;
     }
 

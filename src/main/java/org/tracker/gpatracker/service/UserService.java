@@ -4,6 +4,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.tracker.gpatracker.model.UserRoles;
@@ -64,17 +65,23 @@ public class UserService {
     }
 
     public String verifyLogin(Users user) {
-
-        //here we are passing in an unathenticated user and authenticating them
-        Authentication auth =
-                authManager.authenticate(new UsernamePasswordAuthenticationToken(user.getUsername(), user.getPassword()));
-
-
-        if (auth.isAuthenticated()) {
+        //If the user is not authenticated the authManager.authenticate returns an unchecked error
+        //unchecked errors don't need to be handled
+        //but we neeed to catch and handle the error if we want to output login failed to the user
+        try {
+            Authentication auth =
+                    authManager.authenticate(
+                            new UsernamePasswordAuthenticationToken(
+                                    user.getUsername(),
+                                    user.getPassword()
+                            )
+                    );
             return jwtService.generateToken(user.getUsername());
-        } else {
+        } catch (AuthenticationException e) {
             return "Login Failed";
+
         }
+
 
     }
 }

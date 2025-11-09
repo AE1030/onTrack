@@ -26,6 +26,7 @@ public class JwtFilter extends OncePerRequestFilter {
     @Autowired
     ApplicationContext context;
     @Override
+
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
         //from client I will get this in the http header:
         // Bearer the_token_here
@@ -36,7 +37,15 @@ public class JwtFilter extends OncePerRequestFilter {
             token = authHeader.substring(7);
             username = jwtService.extractUserName(token);
         }
-        if (username != null && SecurityContextHolder.getContext().getAuthentication() == null){//check if the username is not empty and that the user has been authenticated
+
+        /*This code checks if a valid JWT username exists and no user is currently authenticated.
+        If so, it loads the user’s details from the database (MyUserDetailService).
+        It then validates the JWT token against that user.
+        iff the token is valid, it creates an authentication object
+        (UsernamePasswordAuthenticationToken) and stores it in the SecurityContextHolder,
+        effectively logging the user in for the current request.*/
+
+        if (username != null && SecurityContextHolder.getContext().getAuthentication() == null){//check if the username is not empty and that the user is not already logged for this request (does this by checking the application context)
 
 
             UserDetails userDetails = context.getBean(MyUserDetailService.class).loadUserByUsername(username); //use application context to get the bean to avoid creating been in the application context and outside in the jvm
@@ -45,8 +54,10 @@ public class JwtFilter extends OncePerRequestFilter {
                 authToken.setDetails(new WebAuthenticationDetailsSource() .buildDetails(request));
                 SecurityContextHolder.getContext().setAuthentication(authToken);
             }
-            //now that we have validated our token move on to the next filter
-            filterChain.doFilter(request, response);
+
         }
+        //go on to the next filter in the security chain
+        filterChain.doFilter(request, response);
+
     }
 }
