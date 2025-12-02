@@ -29,12 +29,14 @@ public class SecurityConfig {
     @Autowired
     private JwtFilter jwtFilter;
 
+  
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         return http
                 .csrf(customizer -> customizer.disable())
                 .authorizeHttpRequests(request -> request
-                        .requestMatchers("/login","/register", "/hello").permitAll()//These are the resources that don't need authentication
+                        .requestMatchers("/login","/register","/upload").permitAll()//These are the resources that don't need authentication
                         .anyRequest().authenticated()) //Any other request needs authentication
                 //.formLogin(Customizer.withDefaults()) //this is designed for a stateful session;because our session is stateless this is why in the browser we are stuck in a loop. It also contains an html code that contains the login form.
                 .httpBasic(Customizer.withDefaults()) //This is designed for a stateless session like a REST API(postman) which relies on JWT tokens.
@@ -70,6 +72,4 @@ public class SecurityConfig {
     public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
         return config.getAuthenticationManager();
     }
-
-
 }
