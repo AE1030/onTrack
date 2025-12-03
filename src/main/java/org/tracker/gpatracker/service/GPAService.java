@@ -1,11 +1,15 @@
 package org.tracker.gpatracker.service;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
+import org.tracker.gpatracker.model.Course;
+import org.tracker.gpatracker.repository.CourseRepo;
 import org.tracker.gpatracker.service.GPAUtils.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 @Service
 public class GPAService {
@@ -33,6 +37,9 @@ public class GPAService {
         termFound = false;
     }
 
+    @Autowired
+    CourseRepo repo;
+
     public Double processFile(MultipartFile file) {
         try{
             line = TextConverter.convertPDFtoTxt(file);
@@ -53,13 +60,20 @@ public class GPAService {
             }
 
             if (codeFinder.containsCourse(currentLine)) {
-                String code = codeFinder.getCourse(currentLine); //check for multi term course and adjust accordingly :)
+                String code = codeFinder.normalizeMultiYearCourse(codeFinder.getCourse(currentLine));
+
                 /*For multi term courses I will have it as A/B for both semesters, this shouldnt affect anything with transcript upload
                 * For manual uplaod I will have to take the total credits and divide them by 2 for A/B courses:)*/
                 String units = null;
                 String grade = null;
                 if(termFound){
-                    currentCourses.add(code);
+                    Optional<Course> course = repo.findBycourseCode(code);
+                    if (course.isEmpty()) {
+                        log.info("Skipping course {} because it does not exist in CourseRepo", code);
+                    }
+                    else{
+                        currentCourses.add(code);
+                    }
                 }
                 // search current line plus next six lines (window of 7) for units/grade
                 for (int j = i; j <= i + 7 && j < line.length; j++) {
@@ -69,17 +83,17 @@ public class GPAService {
                     }
                     if (grade == null && gradeFinder.containsGrade(candidate)) {
                         grade = gradeFinder.getGrade(candidate);
-                        if (!gradeFinder.containsLetterGrade(candidate)) {
-                            // Skip this course entirely if the first grade we see is non-letter
-                            grade = null;
-                            break;
-                        }
                     }
                     if (units != null && grade != null) {
                         break;
                     }
                 }
                 if (units != null && grade != null) {
+                    Optional<Course> course = repo.findBycourseCode(code);
+                    if (course.isEmpty()) {
+                        log.info("Skipping course {} because it does not exist in CourseRepo", code);
+                        continue;
+                    }
                     GPABuilder gpaBuilder = new GPABuilder(); // new instance per course/grade pair
                     gpaBuilder.setCode(code);
                     gpaBuilder.setUnits(units);
@@ -88,7 +102,6 @@ public class GPAService {
                 }
             }
         }
-
         System.out.println(courseList);
         System.out.println(currentCourses);
 
@@ -96,6 +109,6 @@ public class GPAService {
             throw new RuntimeException("No course/grade/units pairs found in uploaded file.");
         }
         log.info("Parsed course entries: {}", courseList.size());
-        return gpaCalc.getGPA(courseList, gradeDict.getMacGradeDict());
+        return gpaCalc.getGPA(courseList, gradeDict.getStandardGradeDict());
     }
 }

@@ -42,12 +42,8 @@ public class fileUpload {
 
         // If all checks pass, proceed with processing the file
 
-
         Double result = service.processFile(file);
         return ResponseEntity.ok(String.valueOf(result)); //want to return the actual file
-
-
-
 
     }
 }

@@ -34,6 +34,7 @@ public class GPACalc {
         BigDecimal gpa = pointsEarned.divide(pointsAttm, 3, RoundingMode.HALF_UP);
         return gpa.setScale(1, RoundingMode.HALF_UP).doubleValue();
 
+
     }
 
 }
