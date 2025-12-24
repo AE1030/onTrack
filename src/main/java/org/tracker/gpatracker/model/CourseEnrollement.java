@@ -1,6 +1,7 @@
 package org.tracker.gpatracker.model;
 
 import jakarta.persistence.*;
+import org.tracker.gpatracker.accounts.model.Student;
 
 @Entity
 public class CourseEnrollement {
@@ -18,7 +19,6 @@ public class CourseEnrollement {
     @JoinColumn(name = "course_id")
     private Course students;
 
-    //add additional attributes if needed
     public CourseEnrollement() {
     }
 

@@ -1,4 +1,4 @@
-package org.tracker.gpatracker.Configuration;
+package org.tracker.gpatracker.security.configuration;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -12,19 +12,16 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.security.crypto.password.NoOpPasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-import org.tracker.gpatracker.model.Users;
 
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
-    // Security configuration details would go here
 
     @Autowired
-    private UserDetailsService userDetailsService; //Injecting the user detail service interface
+    private UserDetailsService userDetailsService; //MyUserDetailService
 
     @Autowired
     private JwtFilter jwtFilter;
@@ -36,7 +33,7 @@ public class SecurityConfig {
         return http
                 .csrf(customizer -> customizer.disable())
                 .authorizeHttpRequests(request -> request
-                        .requestMatchers("/login","/register","/upload").permitAll()//These are the resources that don't need authentication
+                        .requestMatchers("/login","/register", "/verify","/verify/resend").permitAll()//These are the resources that don't need authentication
                         .anyRequest().authenticated()) //Any other request needs authentication
                 //.formLogin(Customizer.withDefaults()) //this is designed for a stateful session;because our session is stateless this is why in the browser we are stuck in a loop. It also contains an html code that contains the login form.
                 .httpBasic(Customizer.withDefaults()) //This is designed for a stateless session like a REST API(postman) which relies on JWT tokens.

@@ -7,7 +7,6 @@ package org.tracker.gpatracker.model;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Embeddable;
-import org.springframework.context.annotation.Configuration;
 //Note: Implementing Serializable (an interface) is necessary for composite keys in JPA to ensure that the key can be serialized and deserialized correctly, which is essential for the persistence context to manage entity states effectively.
 //In short: Serialization = Object → Bytes
 /*Common use cases
@@ -26,10 +25,10 @@ import java.util.Objects;
 public class CourseEnrollementKey implements Serializable {
 
     @Column(name = "student_id")
-    Long studentId;
+    private Long studentId;
 
     @Column(name = "course_id")
-    Long courseId;
+    private Long courseId;
 
     public CourseEnrollementKey() {
     }

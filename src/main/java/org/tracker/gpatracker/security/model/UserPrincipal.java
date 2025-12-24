@@ -1,4 +1,4 @@
-package org.tracker.gpatracker.model;
+package org.tracker.gpatracker.security.model;
 
 
 import org.springframework.security.core.GrantedAuthority;
@@ -6,19 +6,20 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 
 import java.util.Collection;
-import java.util.Collections;
+import java.util.stream.Collectors;
 
 public class UserPrincipal implements UserDetails {
 
-    //Also how would I implement roles here? in the econ project we made everyone a regular user.
-
-    private Users user; //Recall the remote example
+    private Users user;
     public UserPrincipal(Users user) {
         this.user = user;
     }
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
-        return Collections.singleton (new SimpleGrantedAuthority(user.getuserRoles().getRoleName())); //In a more complex application, you might fetch user roles from the database using mapping
+        return user.getRoles()
+                .stream()
+                .map(role -> new SimpleGrantedAuthority(role.getRoleName()))
+                .collect(Collectors.toSet());
     }
 
     @Override
@@ -28,10 +29,10 @@ public class UserPrincipal implements UserDetails {
 
     @Override
     public String getUsername() {
-        return user.getUsername();
+        return user.getEmail();
     }
 
-    //The following methods will be set to true but in a real applications we have to check all these things below
+
     @Override
     public boolean isAccountNonExpired() {
         return true;
@@ -39,7 +40,7 @@ public class UserPrincipal implements UserDetails {
 
     @Override
     public boolean isAccountNonLocked() {
-        return true;
+        return !user.isAccountLocked();
     }
 
     @Override
@@ -49,8 +50,9 @@ public class UserPrincipal implements UserDetails {
 
     @Override
     public boolean isEnabled() {
-        return true;
+        return user.isAccountEnabled() & user.isEmailVerified();
     }
+    public Long getId() {return user.getId();}
 }
 
 

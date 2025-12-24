@@ -2,8 +2,6 @@ package org.tracker.gpatracker.model;
 
 import jakarta.persistence.*;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Set;
 
 @Entity
@@ -14,15 +12,13 @@ public class Course {
     private String courseCode;
     private String courseName;
     private Long courseCredits;
-
     public Course() {
     }
 
     //Relationship between student and course
     //CourseEnrollement entity now owns this relationship which started off as a many-to-many relationship
-    //from the CourseEnrollement perspective this is a many to one relationhip so we have to inverse it here
+    //from the CourseEnrollement perspective this is a many to one relationship so we have to inverse it here
     //neither course nor student is the owning side
-
     @OneToMany(mappedBy= "students")
     Set<CourseEnrollement> enroll;
 

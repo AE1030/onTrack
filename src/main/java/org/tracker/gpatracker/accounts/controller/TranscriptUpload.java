@@ -1,4 +1,4 @@
-package org.tracker.gpatracker.controller;
+package org.tracker.gpatracker.accounts.controller;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -7,15 +7,15 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
-import org.tracker.gpatracker.service.GPAService;
+import org.tracker.gpatracker.accounts.service.TranscriptService;
 
 import java.io.IOException;
 
 @RestController("api/file")
-public class fileUpload {
+public class TranscriptUpload {
 
     @Autowired
-    GPAService service;
+    TranscriptService service;
 
     // 100 MB max for example **double check this number here****
     private static final long MAX_FILE_SIZE = 100 * 1024 * 1024;
@@ -43,7 +43,7 @@ public class fileUpload {
         // If all checks pass, proceed with processing the file
 
         Double result = service.processFile(file);
-        return ResponseEntity.ok(String.valueOf(result)); //want to return the actual file
+        return ResponseEntity.ok(String.valueOf(result));
 
     }
 }

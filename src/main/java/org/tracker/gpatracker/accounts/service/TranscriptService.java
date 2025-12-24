@@ -1,4 +1,4 @@
-package org.tracker.gpatracker.service;
+package org.tracker.gpatracker.accounts.service;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,8 +12,8 @@ import java.util.List;
 import java.util.Optional;
 
 @Service
-public class GPAService {
-    private static final Logger log = LoggerFactory.getLogger(GPAService.class);
+public class TranscriptService {
+    private static final Logger log = LoggerFactory.getLogger(TranscriptService.class);
     private final GradeFinder gradeFinder;
     private final CodeFinder codeFinder;
     private final GradeDict gradeDict;
@@ -26,7 +26,7 @@ public class GPAService {
     private final String currentTerm;
     private Boolean termFound;
 
-    public GPAService(){
+    public TranscriptService(){
         gradeFinder = new GradeFinder();
         codeFinder = new CodeFinder();
         gradeDict = new GradeDict();
@@ -39,6 +39,9 @@ public class GPAService {
 
     @Autowired
     CourseRepo repo;
+
+    @Autowired
+    StudentService studentService;
 
     public Double processFile(MultipartFile file) {
         try{
@@ -63,7 +66,7 @@ public class GPAService {
                 String code = codeFinder.normalizeMultiYearCourse(codeFinder.getCourse(currentLine));
 
                 /*For multi term courses I will have it as A/B for both semesters, this shouldnt affect anything with transcript upload
-                * For manual uplaod I will have to take the total credits and divide them by 2 for A/B courses:)*/
+                * For manual upload I will have to take the total credits and divide them by 2 for A/B courses:)*/
                 String units = null;
                 String grade = null;
                 if(termFound){
@@ -72,6 +75,7 @@ public class GPAService {
                         log.info("Skipping course {} because it does not exist in CourseRepo", code);
                     }
                     else{
+                        studentService.addCurrentCourses(course);
                         currentCourses.add(code);
                     }
                 }
@@ -89,7 +93,7 @@ public class GPAService {
                     }
                 }
                 if (units != null && grade != null) {
-                    Optional<Course> course = repo.findBycourseCode(code);
+                    Optional<Course> course = repo.findBycourseCode(code); //FLAUD LOGIC --> COURSE COULD HAVE EXISTED IN THE PAST AND NOT BE FOUND DUE TO DATA ONLY HAVING CURRENT ACADEMIC YEAR
                     if (course.isEmpty()) {
                         log.info("Skipping course {} because it does not exist in CourseRepo", code);
                         continue;

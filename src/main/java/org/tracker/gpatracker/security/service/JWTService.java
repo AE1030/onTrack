@@ -1,4 +1,4 @@
-package org.tracker.gpatracker.service;
+package org.tracker.gpatracker.security.service;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;

@@ -9,8 +9,7 @@ import java.util.Optional;
 
 
 @Repository
-public interface CourseRepo extends JpaRepository<Course, Integer>{
-    Course findById(Long course_id);
+public interface CourseRepo extends JpaRepository<Course, Long>{
     Optional<Course> findBycourseCode(String courseCode);
 
 }

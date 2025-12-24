@@ -1,6 +1,8 @@
-package org.tracker.gpatracker.model;
+package org.tracker.gpatracker.accounts.model;
 
 import jakarta.persistence.*;
+import org.tracker.gpatracker.model.CourseEnrollement;
+import org.tracker.gpatracker.security.model.Users;
 
 import java.util.Set;
 
@@ -23,17 +25,6 @@ public class Student {
     //neither course nor student is the owning side
     @OneToMany(mappedBy = "courses")
     Set <CourseEnrollement> enroll;
-
-
-    //required no args constructor by the entity annotation
-    public Student() {
-    }
-    public Student(long id, float gpa, float targetGpa, Users user) {
-        this.id = id;
-        this.gpa = gpa;
-        this.targetGpa = targetGpa;
-        this.user = user;
-    }
 
     public long getId() {
         return id;
