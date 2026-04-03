@@ -1,0 +1,21 @@
+google:
+  oauth:
+    client-id: "test-client-id"
+    client-secret: "test-client-secret"
+    redirect-uri: "http://localhost:8080/api/calendar/google/callback"
+    scopes:
+      - openid
+      - email
+      - https://www.googleapis.com/auth/calendar.events
+calendar:
+  link-token:
+    # Dummy secret — not used in production
+    secret: "dGVzdER1bW15TGlua1Rva2VuU2VjcmV0S2V5MTIzNDU2Nzg5MA=="
+    ttl-seconds: 300
+    issuer: onTrack
+  oauth:
+    success-redirect: /api/calendar/google/success
+
+# Dummy key to satisfy ResendConfig bean condition — not used in tests
+resend:
+  api-key: test-dummy-key

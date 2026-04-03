@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8" />
+    <title>Verify your email</title>
+</head>
+<body>
+<p th:text="'Hello ' + ${username} + ','">Hello,</p>
+<p>Thanks for registering with onTrack. Please verify your email address to activate your account.</p>
+<p>
+    <a th:href="${verificationURL}">Verify Email</a>
+</p>
+<p>If the button above does not work, copy and paste this link into your browser:</p>
+<p th:text="${verificationURL}">verification link</p>
+</body>
+</html>

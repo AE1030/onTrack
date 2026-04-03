@@ -1,0 +1,39 @@
+name: Frontend Deploy
+ 
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'frontend/**'
+ 
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+ 
+    defaults:
+      run:
+        working-directory: frontend
+ 
+    steps:
+      - uses: actions/checkout@v4
+ 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+ 
+      - name: Install dependencies
+        run: npm install
+ 
+      - name: Build Expo Web
+        run: npm run build:web
+ 
+      - name: Deploy to Firebase Hosting
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.GCP_SA_KEY }}
+          channelId: live
+          projectId: gen-lang-client-0316039122
+          entryPoint: frontend

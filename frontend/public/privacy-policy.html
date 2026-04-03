@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Privacy Policy — onTrack</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: #F5F1F3;
+      color: #3B0A1D;
+      -webkit-font-smoothing: antialiased;
+      line-height: 1.7;
+    }
+
+    /* ── Header ──────────────────────────────────── */
+    .header {
+      background: linear-gradient(135deg, #3B0A1D 0%, #7A003C 60%, #a81854 100%);
+      padding: 48px 32px 56px;
+      text-align: center;
+    }
+    .header a {
+      display: inline-flex; align-items: flex-end;
+      text-decoration: none; margin-bottom: 24px;
+    }
+    .logo-on  { font-weight: 900; font-size: 28px; color: #F2B94A; line-height: 1; }
+    .logo-track { font-weight: 900; font-size: 28px; color: #fff; line-height: 1; }
+    .logo-dot { width: 7px; height: 7px; border-radius: 50%; background: #F2B94A; margin-left: 2px; margin-bottom: 12px; }
+    .header h1 {
+      font-weight: 900; font-size: clamp(28px, 4vw, 40px);
+      color: #fff; letter-spacing: -0.02em; margin-bottom: 8px;
+    }
+    .header p {
+      font-size: 15px; color: rgba(255, 255, 255, 0.7);
+    }
+
+    /* ── Content ──────────────────────────────────── */
+    .content {
+      max-width: 760px; margin: -24px auto 0; padding: 0 24px 80px;
+    }
+    .card {
+      background: #fff; border-radius: 20px; padding: 48px 44px;
+      box-shadow: 0 8px 32px rgba(59, 10, 29, 0.08);
+    }
+    .card h2 {
+      font-weight: 800; font-size: 20px; color: #3B0A1D;
+      margin: 36px 0 12px; letter-spacing: -0.01em;
+    }
+    .card h2:first-child { margin-top: 0; }
+    .card p {
+      font-size: 15px; color: #555; margin-bottom: 12px;
+    }
+    .card ul {
+      margin: 8px 0 16px 20px; font-size: 15px; color: #555;
+    }
+    .card li { margin-bottom: 8px; }
+    .card a {
+      color: #7A003C; text-decoration: none; font-weight: 600;
+      transition: color 0.2s;
+    }
+    .card a:hover { color: #a81854; }
+    .card .highlight-box {
+      background: rgba(122, 0, 60, 0.04);
+      border-left: 3px solid #7A003C;
+      border-radius: 0 12px 12px 0;
+      padding: 16px 20px; margin: 20px 0;
+      font-size: 14px; color: #3B0A1D;
+    }
+
+    /* ── Footer ──────────────────────────────────── */
+    .footer {
+      text-align: center; padding: 24px 32px 32px;
+      font-size: 13px; color: #aaa;
+    }
+    .footer a { color: #7A003C; text-decoration: none; font-weight: 600; }
+    .footer a:hover { color: #a81854; }
+    .back-link {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 14px; font-weight: 600; color: #7A003C;
+      text-decoration: none; margin-bottom: 16px;
+      transition: color 0.2s;
+    }
+    .back-link:hover { color: #a81854; }
+
+    @media (max-width: 600px) {
+      .card { padding: 32px 24px; }
+      .header { padding: 36px 24px 44px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <a href="/">
+      <span class="logo-on">on</span><span class="logo-track">Track</span><span class="logo-dot"></span>
+    </a>
+    <h1>Privacy Policy</h1>
+    <p>Last updated: March 24, 2026</p>
+  </div>
+
+  <div class="content">
+    <div class="card">
+
+      <h2>Introduction</h2>
+      <p>onTrack is committed to protecting your privacy. This Privacy Policy explains how we collect, use, and safeguard your information when you use our application. By using onTrack, you agree to the practices described in this policy.</p>
+
+      <h2>Information We Collect</h2>
+      <p>We collect the following types of information to provide our services:</p>
+      <ul>
+        <li><strong>Account information:</strong> Your name, email address, and password when you create an account.</li>
+        <li><strong>Academic data:</strong> Course information, grades, GPA calculations, and assessment details that you input or upload.</li>
+        <li><strong>Uploaded documents:</strong> Transcripts and syllabuses that you upload for processing.</li>
+      </ul>
+
+      <h2>Transcript Uploads</h2>
+      <p>When you upload a transcript, we process it solely to extract course codes, grades, and credit information for your academic tracking. We want to be transparent about this process:</p>
+      <div class="highlight-box">
+        We do not log or store any sensitive information from your transcript uploads beyond the extracted course data (course codes, grades, and credits). The raw transcript file is processed in memory and is not permanently stored on our servers.
+      </div>
+
+      <h2>Data Encryption &amp; Security</h2>
+      <p>We take the security of your data seriously and employ multiple layers of protection:</p>
+      <ul>
+        <li><strong>Password security:</strong> All user passwords are hashed using BCrypt, a one-way cryptographic hashing algorithm. We never store your password in plain text. Even in the event of a data breach, your actual password cannot be recovered from the stored hash.</li>
+        <li><strong>Grade encryption:</strong> All grading information (grades, GPA data, and assessment scores) is encrypted at rest using AES-256-GCM encryption. This means your academic performance data is stored in an unreadable, encrypted format in our database.</li>
+        <li><strong>Transport security:</strong> All data transmitted between your device and our servers is encrypted using HTTPS/TLS.</li>
+      </ul>
+
+      <h2>In the Event of a Data Breach</h2>
+      <p>We have designed our data storage with a security-first approach. In the unlikely event of a data breach:</p>
+      <div class="highlight-box">
+        No private or sensitive information would be exposed in a readable format. Passwords are irreversibly hashed with BCrypt, and all grading data is encrypted with AES-256-GCM. An attacker gaining access to our database would only see encrypted, unreadable data.
+      </div>
+
+      <h2>How We Use Your Information</h2>
+      <p>We use the information we collect exclusively to:</p>
+      <ul>
+        <li>Provide and maintain the onTrack application and its features.</li>
+        <li>Calculate and display your GPA and academic analytics.</li>
+        <li>Generate your academic calendar from uploaded syllabuses.</li>
+        <li>Authenticate your account and maintain your session.</li>
+      </ul>
+      <p>We do not sell, trade, or share your personal information with third parties for marketing or advertising purposes.</p>
+
+      <h2>Third-Party Services</h2>
+      <p>We use the following third-party services in the operation of onTrack:</p>
+      <ul>
+        <li><strong>Google Gemini API:</strong> Used to process and extract information from uploaded syllabuses. Only the content of the uploaded PDF is sent to the API for processing.</li>
+        <li><strong>Google Calendar API:</strong> Used optionally to sync your academic calendar events, only when you explicitly enable this feature.</li>
+      </ul>
+
+      <h2>Data Retention</h2>
+      <p>Your data is retained for as long as your account is active. You may request deletion of your account and all associated data at any time by contacting us.</p>
+
+      <h2>Open Source</h2>
+      <p>onTrack is fully open source. You can review our entire codebase, including how we handle your data, on our GitHub repository:</p>
+      <p><a href="https://github.com/AE1030/onTrack" target="_blank" rel="noopener noreferrer">https://github.com/AE1030/onTrack</a></p>
+
+      <h2>Contact</h2>
+      <p>If you have any questions or concerns about this Privacy Policy or how your data is handled, you can reach us at <a href="mailto:elmanufa@mcmaster.ca">elmanufa@mcmaster.ca</a> or via <a href="https://www.linkedin.com/in/ahmed-elmanufi-866906283" target="_blank" rel="noopener noreferrer">LinkedIn</a>.</p>
+
+    </div>
+  </div>
+
+  <div class="footer">
+    <a href="/" class="back-link">&larr; Back to onTrack</a>
+    <p>&copy; 2026 onTrackmac. All rights reserved.</p>
+  </div>
+
+</body>
+</html>

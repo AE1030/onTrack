@@ -1,0 +1,51 @@
+name: Backend SonarCloud Analysis
+on:
+  push:
+    paths:
+      - 'backend/**'
+  pull_request:
+    paths:
+      - 'backend/**'
+jobs:
+  sonar:
+    runs-on: ubuntu-latest
+    env:
+      CI: true
+    services:
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Cache Maven packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-maven-${{ hashFiles('backend/pom.xml') }}
+
+      - name: Build and Test
+        run: mvn clean verify -e
+        env:
+          SPRING_PROFILES_ACTIVE: test
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarqube-scan-action@v5
+        with:
+          projectBaseDir: backend
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

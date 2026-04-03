@@ -1,0 +1,16 @@
+google:
+  oauth:
+    client-id: "${GOOGLE_OAUTH_CLIENT_ID}"
+    client-secret: "${GOOGLE_OAUTH_CLIENT_SECRET}"
+    redirect-uri: "${GOOGLE_OAUTH_REDIRECT_URI}"
+    scopes:
+      - openid
+      - email
+      - https://www.googleapis.com/auth/calendar.events
+calendar:
+  link-token:
+    secret: "${CALENDAR_LINK_TOKEN_SECRET}"
+    ttl-seconds: 300
+    issuer: onTrack
+  oauth:
+    success-redirect: ${CALENDAR_OAUTH_SUCCESS_REDIRECT:/api/calendar/google/success}
