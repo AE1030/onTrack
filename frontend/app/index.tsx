@@ -124,7 +124,7 @@ export default function Home() {
 
   if (!loggedIn) {
     // No auth param on web → redirect to landing page
-    if (Platform.OS === "web" && authScreen === "login" && !new URLSearchParams(window.location.search).has("auth")) {
+    if (!__DEV__ && Platform.OS === "web" && authScreen === "login" && !new URLSearchParams(window.location.search).has("auth")) {
       window.location.href = "/";
       return null;
     }

@@ -44,6 +44,10 @@ public class UserController {
         user.setEmail(loginDTO.getEmail());
         user.setPassword(loginDTO.getPassword());
         String result = service.verifyLogin(user);
+        if ("Email Not Verified".equals(result)) {
+            logger.warn("POST /login — email not verified for: {}", loginDTO.getEmail().substring(loginDTO.getEmail().indexOf('@')));
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Email not verified");
+        }
         if ("Login Failed".equals(result)) {
             logger.warn("POST /login — failed for email domain: {}", loginDTO.getEmail().substring(loginDTO.getEmail().indexOf('@')));
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Invalid email or password");

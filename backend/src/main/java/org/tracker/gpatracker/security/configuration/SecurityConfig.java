@@ -30,7 +30,7 @@ public class SecurityConfig {
     private final RateLimitFilter rateLimitFilter;
 
     @org.springframework.beans.factory.annotation.Value("${CORS_ALLOWED_ORIGIN}")
-    private String corsAllowedOrigin;
+    private String[] corsAllowedOrigins;
 
     @org.springframework.beans.factory.annotation.Value("${site.base.url.https}")
     private String baseUrl;
@@ -70,7 +70,9 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         // Configure allowed origins, methods, headers, etc.
-        configuration.setAllowedOrigins(List.of(corsAllowedOrigin, baseUrl)); // frontend + backend (for server-rendered forms)
+        List<String> origins = new java.util.ArrayList<>(List.of(corsAllowedOrigins));
+        origins.add(baseUrl); // backend URL for server-rendered forms
+        configuration.setAllowedOrigins(origins);
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));
         configuration.setAllowCredentials(true); // If you need to send cookies/credentials

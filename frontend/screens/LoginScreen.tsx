@@ -15,6 +15,8 @@ import { setToken } from "../src/utils/tokenStorage";
 import { API_BASE_URL } from "../src/config/api";
 import OnTrackLogo from "./components/OnTrackLogo";
 
+const VERIFY_RESEND_URL = `${API_BASE_URL.replace(/\/$/, "")}/verify/resend`;
+
 type Props = {
   onLoginSuccess: () => void;
   onGoToRegister: () => void;
@@ -28,6 +30,9 @@ export default function LoginScreen({ onLoginSuccess, onGoToRegister, onGoToForg
   const [error, setError] = useState<string | null>(null);
   const [focusedField, setFocusedField] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [resendMessage, setResendMessage] = useState<string | null>(null);
   const passwordRef = useRef<TextInput>(null);
 
   const login = async () => {
@@ -49,7 +54,12 @@ export default function LoginScreen({ onLoginSuccess, onGoToRegister, onGoToForg
         }
       );
 
-      if (res.status === 401 || res.status === 403) {
+      if (res.status === 403) {
+        setNeedsVerification(true);
+        return;
+      }
+
+      if (res.status === 401) {
         throw new Error("Invalid credentials");
       }
 
@@ -73,7 +83,82 @@ export default function LoginScreen({ onLoginSuccess, onGoToRegister, onGoToForg
     }
   };
 
+  const resendVerification = async () => {
+    setResending(true);
+    setResendMessage(null);
+    try {
+      const res = await fetch(VERIFY_RESEND_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      if (res.ok) {
+        setResendMessage("Verification email sent");
+      } else {
+        const text = await res.text();
+        setResendMessage(text || "Failed to resend. Please try again.");
+      }
+    } catch {
+      setResendMessage("Could not connect to server.");
+    } finally {
+      setResending(false);
+    }
+  };
+
   const hasError = !!error;
+
+  if (needsVerification) {
+    return (
+      <KeyboardAvoidingView
+        style={styles.screen}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <View style={styles.card}>
+          <View style={styles.logoWrapper}>
+            <OnTrackLogo size={36} />
+          </View>
+          <Text style={styles.verifyTitle}>Verify your email</Text>
+          <Text style={styles.verifyBody}>
+            Your email{" "}
+            <Text style={styles.verifyEmail}>{email}</Text>{" "}
+            has not been verified yet. Please check your inbox for a
+            verification link or resend it below.
+          </Text>
+          <Pressable
+            style={({ pressed }) => [
+              styles.button,
+              resending && styles.buttonDisabled,
+              !resending && pressed && styles.buttonPressed,
+            ]}
+            onPress={resendVerification}
+            disabled={resending}
+            accessibilityRole="button"
+            accessibilityLabel={resending ? "Resending email" : "Resend verification email"}
+          >
+            <Text style={styles.buttonText}>
+              {resending ? "Sending..." : "Resend verification email"}
+            </Text>
+          </Pressable>
+
+          {resendMessage && (
+            <Text style={styles.resendMessage}>{resendMessage}</Text>
+          )}
+
+          <Pressable
+            onPress={() => {
+              setNeedsVerification(false);
+              setResendMessage(null);
+            }}
+            style={styles.footerLinks}
+          >
+            <Text style={styles.linkText}>
+              Back to <Text style={styles.linkBold}>Log in</Text>
+            </Text>
+          </Pressable>
+        </View>
+      </KeyboardAvoidingView>
+    );
+  }
 
   return (
     <KeyboardAvoidingView
@@ -276,6 +361,30 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
     alignItems: "center",
     gap: spacing.sm,
+  },
+  verifyTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: colors.boldText,
+    textAlign: "center",
+    marginBottom: spacing.sm,
+  },
+  verifyBody: {
+    fontSize: 14,
+    color: colors.bodyText,
+    textAlign: "center",
+    lineHeight: 20,
+    marginBottom: spacing.lg,
+  },
+  verifyEmail: {
+    fontWeight: "600",
+    color: colors.boldText,
+  },
+  resendMessage: {
+    fontSize: 13,
+    color: colors.bodyText,
+    textAlign: "center",
+    marginTop: spacing.sm,
   },
   linkText: {
     fontSize: 14,

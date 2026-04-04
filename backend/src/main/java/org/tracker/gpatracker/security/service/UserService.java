@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.authentication.DisabledException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -277,9 +278,10 @@ public class UserService {
             UserPrincipal principal = (UserPrincipal) auth.getPrincipal();
             return jwtService.generateToken(principal.getUsername());
 
+        } catch (DisabledException e) {
+            return "Email Not Verified";
         } catch (AuthenticationException e) {
             return "Login Failed";
-
         }
     }
 }
