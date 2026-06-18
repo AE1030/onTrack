@@ -14,3 +14,7 @@ calendar:
     issuer: onTrack
   oauth:
     success-redirect: ${CALENDAR_OAUTH_SUCCESS_REDIRECT:/api/calendar/google/success}
+d2l:
+  host: avenue.mcmaster.ca
+  api-version: "1.45"
+  refresh-path: /d2l/lp/auth/login/ProcessLoginActions.d2l

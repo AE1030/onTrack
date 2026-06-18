@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.server.ResponseStatusException;
+import org.tracker.gpatracker.d2l.exceptions.D2LSessionExpiredException;
 import org.tracker.gpatracker.security.exception.InvalidTokenException;
 
 import java.util.Map;
@@ -84,6 +85,12 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(InvalidTokenException.class)
     public ResponseEntity<Map<String, Object>> handleInvalidToken(InvalidTokenException ex) {
         return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage(), "status", 400));
+    }
+
+    @ExceptionHandler(D2LSessionExpiredException.class)
+    public ResponseEntity<Map<String, Object>> handleD2LSessionExpired(D2LSessionExpiredException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(Map.of("error", "D2L session expired, re-login required", "status", 409));
     }
 
     @ExceptionHandler(Exception.class)

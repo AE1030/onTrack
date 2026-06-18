@@ -57,6 +57,9 @@ public class BigDecimalGradeEncryptionConverter
             if (value.startsWith("${") && value.endsWith("}")) {
                 String envVar = value.substring(2, value.length() - 1);
                 String envValue = System.getenv(envVar);
+                if (envValue == null) {
+                    envValue = System.getProperty(envVar);
+                }
                 return envValue != null ? envValue.trim() : "";
             }
             return value;
