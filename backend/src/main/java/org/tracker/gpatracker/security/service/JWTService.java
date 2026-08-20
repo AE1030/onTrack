@@ -25,8 +25,30 @@ public class JWTService {
         this.expiryMs = expiryMs;
     }
 
-    public String generateToken(String username) {
+    /** Claim carrying the {@code Users} id — the auth identity. */
+    public static final String CLAIM_USER_ID = "uid";
+
+    /** Claim carrying the {@code Student} id — the tenant that owns domain rows. */
+    public static final String CLAIM_STUDENT_ID = "sid";
+
+    /**
+     * Mint a token carrying the caller's identity as <em>signed</em> claims.
+     *
+     * <p>The tenant id must never come from anything the client controls. Putting it in the
+     * signed payload means the server can trust it without a per-request database lookup —
+     * previously {@code StudentService.getStudentID()} re-queried on every call, several times
+     * within a single request.
+     *
+     * @param studentId may be null only for accounts with no {@code Student} row yet; login
+     *                  requires a verified email and verification creates that row, so in
+     *                  practice this is always populated at issue time.
+     */
+    public String generateToken(String username, Long userId, Long studentId) {
         Map<String, Object> claims = new HashMap<>();
+        claims.put(CLAIM_USER_ID, userId);
+        if (studentId != null) {
+            claims.put(CLAIM_STUDENT_ID, studentId);
+        }
         return Jwts.builder()
                 .claims()
                 .add(claims)
@@ -37,6 +59,26 @@ public class JWTService {
                 .signWith(getKey())
                 .compact();
 
+    }
+
+    /** The {@code Users} id from the signed payload, or null on a token minted before this claim existed. */
+    public Long extractUserId(String token) {
+        return extractIdClaim(token, CLAIM_USER_ID);
+    }
+
+    /** The {@code Student} id from the signed payload, or null on a token minted before this claim existed. */
+    public Long extractStudentId(String token) {
+        return extractIdClaim(token, CLAIM_STUDENT_ID);
+    }
+
+    /**
+     * Reads a numeric claim defensively. JSON has one number type, so a value that fits in an
+     * int deserialises as Integer while a larger one deserialises as Long — reading either as
+     * {@code Long.class} directly would throw for small ids.
+     */
+    private Long extractIdClaim(String token, String name) {
+        Object value = extractClaim(token, claims -> claims.get(name));
+        return (value instanceof Number number) ? number.longValue() : null;
     }
 
     private SecretKey getKey() {

@@ -2,23 +2,21 @@ package org.tracker.gpatracker.syllabus.model;
 
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
+import org.springframework.data.mongodb.core.index.CompoundIndex;
 import org.tracker.gpatracker.syllabus.exception.SyllabusErrorType;
-
-import java.time.Instant;
+import org.tracker.gpatracker.tenancy.mongo.UserOwnedDocument;
 
 @Document(collection = "syllabusExtractionJobs")
-public class SyllabusExtractionJob {
+@CompoundIndex(name = "idx_extraction_job_student", def = "{'studentId': 1}")
+public class SyllabusExtractionJob extends UserOwnedDocument {
     @Id
     private String id;
-    private Long studentId;
     private String courseCode;
     private String term;
     private JobStatus status;
     private SyllabusErrorType errorType;
     private String error;
     private Integer remainingUploads;
-    private Instant createdAt;
-    private Instant updatedAt;
 
     public String getId() {
         return id;
@@ -26,14 +24,6 @@ public class SyllabusExtractionJob {
 
     public void setId(String id) {
         this.id = id;
-    }
-
-    public Long getStudentId() {
-        return studentId;
-    }
-
-    public void setStudentId(Long studentId) {
-        this.studentId = studentId;
     }
 
     public String getCourseCode() {
@@ -82,21 +72,5 @@ public class SyllabusExtractionJob {
 
     public void setRemainingUploads(Integer remainingUploads) {
         this.remainingUploads = remainingUploads;
-    }
-
-    public Instant getCreatedAt() {
-        return createdAt;
-    }
-
-    public void setCreatedAt(Instant createdAt) {
-        this.createdAt = createdAt;
-    }
-
-    public Instant getUpdatedAt() {
-        return updatedAt;
-    }
-
-    public void setUpdatedAt(Instant updatedAt) {
-        this.updatedAt = updatedAt;
     }
 }

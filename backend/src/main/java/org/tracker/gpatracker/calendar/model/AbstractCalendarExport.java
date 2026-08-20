@@ -1,19 +1,17 @@
 package org.tracker.gpatracker.calendar.model;
 
+import org.tracker.gpatracker.tenancy.mongo.UserOwnedDocument;
+
 import java.time.Instant;
 
-public abstract class AbstractCalendarExport {
+/**
+ * The owner now lives on {@link UserOwnedDocument}, so an export is stamped and asserted like any
+ * other owned document. It used to declare its own {@code studentId}, which sat outside the tenant
+ * contract entirely. The stored field name is unchanged.
+ */
+public abstract class AbstractCalendarExport extends UserOwnedDocument {
 
-    protected Long studentId;
     protected Instant exportedAt;
-
-    public Long getStudentId() {
-        return studentId;
-    }
-
-    public void setStudentId(Long studentId) {
-        this.studentId = studentId;
-    }
 
     public Instant getExportedAt() {
         return exportedAt;

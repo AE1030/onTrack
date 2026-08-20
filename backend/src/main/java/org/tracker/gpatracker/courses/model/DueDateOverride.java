@@ -1,11 +1,10 @@
 package org.tracker.gpatracker.courses.model;
 import jakarta.persistence.*;
-import org.springframework.data.annotation.CreatedDate;
-import org.springframework.data.annotation.LastModifiedDate;
-import org.tracker.gpatracker.accounts.model.Student;
+import org.hibernate.annotations.Filter;
+import org.tracker.gpatracker.tenancy.OwnerFilter;
+import org.tracker.gpatracker.tenancy.UserOwnedEntity;
 
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 
 @Entity
 @Table(
@@ -19,24 +18,18 @@ import java.time.LocalDateTime;
                 }
         )
 )
-@EntityListeners(org.springframework.data.jpa.domain.support.AuditingEntityListener.class)
-public class DueDateOverride {
+// Must be declared here, on the concrete entity: Hibernate does not inherit @Filter from a
+// @MappedSuperclass, and omitting it leaves the table silently unfiltered.
+@Filter(name = OwnerFilter.NAME)
+public class DueDateOverride extends UserOwnedEntity {
      @Id
      @GeneratedValue(strategy = GenerationType.IDENTITY)
      private Long id;
      private String courseCode;
      private String assessmentName;
      private LocalDate proposedDueDate;
-     @CreatedDate
-     @Column(updatable = false)
-     private LocalDateTime createdAt;
 
-     @LastModifiedDate
-     private LocalDateTime lastModifiedAt;
-
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "student_id", nullable = false)
-    private Student student;
+    // The owner lives in UserOwnedEntity.ownerId, mapped to the same student_id column.
 
     public Long getId() {
         return id;
@@ -70,19 +63,4 @@ public class DueDateOverride {
         this.proposedDueDate = proposedDueDate;
     }
 
-    public LocalDateTime getCreatedAt() {
-        return createdAt;
-    }
-
-    public void setCreatedAt(LocalDateTime createdAt) {
-        this.createdAt = createdAt;
-    }
-
-    public Student getStudent() {
-        return student;
-    }
-
-    public void setStudent(Student student) {
-        this.student = student;
-    }
 }

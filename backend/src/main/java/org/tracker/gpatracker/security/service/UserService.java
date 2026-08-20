@@ -276,7 +276,12 @@ public class UserService {
                             )
                     );
             UserPrincipal principal = (UserPrincipal) auth.getPrincipal();
-            return jwtService.generateToken(principal.getUsername());
+            Long userId = principal.getId();
+            // Resolved once, here, and carried in the signed payload for the token's lifetime.
+            // Login requires a verified email and verification creates the Student row, so this
+            // is populated in practice; a null surfaces later as an explicit "no student id".
+            Long studentId = studentService.findStudentIdByUserId(userId);
+            return jwtService.generateToken(principal.getUsername(), userId, studentId);
 
         } catch (DisabledException e) {
             return "Email Not Verified";

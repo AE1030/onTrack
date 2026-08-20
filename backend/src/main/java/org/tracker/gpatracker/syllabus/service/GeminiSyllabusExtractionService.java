@@ -19,7 +19,7 @@ import org.tracker.gpatracker.accounts.service.StudentService;
 import org.tracker.gpatracker.assessmenttable.service.AssessmentTableService;
 import org.tracker.gpatracker.syllabus.config.GeminiPromptConfig;
 import org.tracker.gpatracker.syllabus.model.Assessments;
-import org.tracker.gpatracker.syllabus.model.CourseTermId;
+import org.tracker.gpatracker.syllabus.model.StudentCourseTermId;
 import org.tracker.gpatracker.syllabus.model.ExtractionMetadata;
 import org.tracker.gpatracker.syllabus.model.GradingScheme;
 import org.tracker.gpatracker.syllabus.model.JobStatus;
@@ -31,8 +31,6 @@ import org.tracker.gpatracker.syllabus.exception.GeminiApiException;
 import org.tracker.gpatracker.syllabus.exception.GeminiParseException;
 import org.tracker.gpatracker.syllabus.exception.InvalidSyllabusException;
 import org.tracker.gpatracker.syllabus.exception.SyllabusErrorType;
-
-import java.time.Instant;
 
 @Service
 public class GeminiSyllabusExtractionService {
@@ -78,8 +76,7 @@ public class GeminiSyllabusExtractionService {
         job.setTerm(term);
         job.setStatus(JobStatus.QUEUED);
         job.setRemainingUploads(remaining);
-        job.setCreatedAt(Instant.now());
-        job.setUpdatedAt(Instant.now());
+        // createdAt/updatedAt are filled by Mongo auditing on save -- see MongoAuditingConfig.
         return jobRepository.save(job);
     }
 
@@ -95,7 +92,6 @@ public class GeminiSyllabusExtractionService {
         }
         try {
             job.setStatus(JobStatus.PROCESSING);
-            job.setUpdatedAt(Instant.now());
             jobRepository.save(job);
             extractAndSaveInternal(pdfBytes, courseCode, term, job.getStudentId());
             try {
@@ -105,7 +101,6 @@ public class GeminiSyllabusExtractionService {
             }
             job.setStatus(JobStatus.DONE);
             job.setErrorType(null);
-            job.setUpdatedAt(Instant.now());
             job.setRemainingUploads(quotaService.getRemainingUploads(job.getStudentId()));
             jobRepository.save(job);
         } catch (Exception ex) {
@@ -113,7 +108,6 @@ public class GeminiSyllabusExtractionService {
             String message = ex.getMessage();
             job.setError(message == null ? "Gemini extraction failed." : message);
             job.setErrorType(classifyError(ex));
-            job.setUpdatedAt(Instant.now());
             // Restore quota for non-chargeable failures (API errors, parse errors)
             // Keep the charge for invalid syllabus uploads
             if (job.getErrorType() != SyllabusErrorType.INVALID_SYLLABUS) {
@@ -163,7 +157,7 @@ public class GeminiSyllabusExtractionService {
         Assessments assessments = parseAssessments(responseText);
         UserSyllabusDocument document = new UserSyllabusDocument();
         document.setStudentId(studentId);
-        document.setId(new CourseTermId(courseCode, term));
+        document.setId(new StudentCourseTermId(studentId, courseCode, term));
         document.setCourseCode(courseCode);
         document.setTerm(term);
         document.setAssessments(assessments);

@@ -56,11 +56,13 @@ public class AssessmentTableService {
         document.setSchemes(dto.getSchemes());
         document.setStudentId(studentId);
 
+        // The write target is chosen only from a document this student already owns. Honouring
+        // dto.getId() let a caller name any _id, and save() upserts by _id -- so another student's
+        // assessment table could be overwritten. Leaving the id null makes this an insert instead.
+        // A stamping listener cannot catch this, because the row being written is selected before
+        // ownership is ever considered.
         repository.findByStudentIdAndCourseCodeAndTerm(studentId, dto.getCourseCode(), currentTerm)
                 .ifPresent(existing -> document.setId(existing.getId()));
-        if (document.getId() == null) {
-            document.setId(dto.getId());
-        }
         AssessmentTableDocument saved = repository.save(document);
         eventPublisher.publishEvent(new AssessmentTableUpdatedEvent(this, studentId));
         return saved;

@@ -1,5 +1,6 @@
 package org.tracker.gpatracker.security.model;
 
+import org.tracker.gpatracker.tenancy.BaseEntity;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -8,7 +9,7 @@ import jakarta.persistence.Id;
 
 
 @Entity
-public class Role {
+public class Role extends BaseEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Id
     private Long id;

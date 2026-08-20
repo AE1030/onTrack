@@ -3,11 +3,13 @@ package org.tracker.gpatracker.assessmenttable.service;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.web.server.ResponseStatusException;
 import org.tracker.gpatracker.accounts.service.StudentService;
+import org.tracker.gpatracker.assessmenttable.dto.SaveAssessmentTableDTO;
 import org.tracker.gpatracker.assessmenttable.model.AssessmentScheme;
 import org.tracker.gpatracker.assessmenttable.model.AssessmentTableDocument;
 import org.tracker.gpatracker.assessmenttable.model.SchemeAssessment;
@@ -25,6 +27,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
@@ -159,5 +162,63 @@ class AssessmentTableServiceTest {
                 service.getByStudentIdAndCourseCodeAndTerm("COMP101", "Winter 2026");
 
         assertThat(result).containsKey("Fallback");
+    }
+
+    /**
+     * The write target must come from a document this student already owns, never from the request.
+     *
+     * <p>{@code save()} upserts by {@code _id}, so honouring a client-supplied id let any caller
+     * name — and overwrite — another student's assessment table. A stamping listener cannot catch
+     * this: the row is chosen before ownership is ever consulted, and the document written carries
+     * the attacker's own owner quite legitimately.
+     */
+    @Test
+    void saveToRepo_ignoresClientSuppliedId_whenNoDocumentExists() {
+        Long studentId = 1L;
+        when(studentService.getStudentID()).thenReturn(studentId);
+        when(repository.findByStudentIdAndCourseCodeAndTerm(studentId, "COMP101", "Winter 2026"))
+                .thenReturn(Optional.empty());
+        when(repository.save(any(AssessmentTableDocument.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        SaveAssessmentTableDTO dto = new SaveAssessmentTableDTO();
+        dto.setCourseCode("COMP101");
+        dto.setId("id-of-another-students-table");
+        dto.setSchemes(List.of());
+
+        service.saveToRepo(dto);
+
+        ArgumentCaptor<AssessmentTableDocument> captor =
+                ArgumentCaptor.forClass(AssessmentTableDocument.class);
+        verify(repository).save(captor.capture());
+
+        assertThat(captor.getValue().getId())
+                .as("a null id makes this an insert; anything else is an upsert onto a chosen row")
+                .isNull();
+        assertThat(captor.getValue().getStudentId()).isEqualTo(studentId);
+    }
+
+    @Test
+    void saveToRepo_usesTheCallersOwnDocumentId_notTheOneInTheRequest() {
+        Long studentId = 1L;
+        when(studentService.getStudentID()).thenReturn(studentId);
+
+        AssessmentTableDocument existing = new AssessmentTableDocument();
+        existing.setId("the-callers-own-table");
+        when(repository.findByStudentIdAndCourseCodeAndTerm(studentId, "COMP101", "Winter 2026"))
+                .thenReturn(Optional.of(existing));
+        when(repository.save(any(AssessmentTableDocument.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        SaveAssessmentTableDTO dto = new SaveAssessmentTableDTO();
+        dto.setCourseCode("COMP101");
+        dto.setId("id-of-another-students-table");
+        dto.setSchemes(List.of());
+
+        service.saveToRepo(dto);
+
+        ArgumentCaptor<AssessmentTableDocument> captor =
+                ArgumentCaptor.forClass(AssessmentTableDocument.class);
+        verify(repository).save(captor.capture());
+
+        assertThat(captor.getValue().getId()).isEqualTo("the-callers-own-table");
     }
 }

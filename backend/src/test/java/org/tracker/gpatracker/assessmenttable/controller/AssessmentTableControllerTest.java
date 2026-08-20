@@ -9,6 +9,7 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.tracker.gpatracker.assessmenttable.service.AssessmentTableService;
+import org.tracker.gpatracker.support.ContainerIntegrationBase;
 import org.tracker.gpatracker.syllabus.dto.AssessmentTableDTO;
 
 import java.math.BigDecimal;
@@ -24,7 +25,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
-class AssessmentTableControllerTest {
+class AssessmentTableControllerTest extends ContainerIntegrationBase {
 
     @Autowired
     private MockMvc mockMvc;

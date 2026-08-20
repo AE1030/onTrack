@@ -1,15 +1,13 @@
 package org.tracker.gpatracker.courses.model;
 import jakarta.persistence.*;
-import org.springframework.data.annotation.CreatedDate;
+import org.tracker.gpatracker.tenancy.BaseEntity;
 
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 
 import static jakarta.persistence.GenerationType.IDENTITY;
 
 @Entity
-@EntityListeners(org.springframework.data.jpa.domain.support.AuditingEntityListener.class)
-public class DueDateConsensus {
+public class DueDateConsensus extends BaseEntity {
     @Id
     @GeneratedValue(strategy = IDENTITY)
     private Long id;
@@ -17,9 +15,6 @@ public class DueDateConsensus {
     private String courseCode;
     private String assessmentName;
     private Long votes;
-    @CreatedDate
-    @Column(updatable = false)
-    private LocalDateTime createdAt;
 
     public Long getId() {
         return id;

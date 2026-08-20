@@ -54,7 +54,7 @@ public class GpaRecalculationListener {
         List<GPABuilder> allCourses = new ArrayList<>();
 
         // Past courses — already have letter grades and units
-        List<PastCourse> pastCourses = pastCourseRepo.findByStudentId(studentId);
+        List<PastCourse> pastCourses = pastCourseRepo.findByOwnerId(studentId);
         for (PastCourse pc : pastCourses) {
             GPABuilder b = new GPABuilder();
             b.setCode(pc.getName());

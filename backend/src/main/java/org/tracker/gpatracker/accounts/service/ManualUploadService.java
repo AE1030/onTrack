@@ -56,7 +56,7 @@ public class ManualUploadService {
         addPastCourses(courseList);
 
 
-        List<PastCourse> pastCourses = repo.findByStudentId(studentService.getStudentAccount().getId());
+        List<PastCourse> pastCourses = repo.findByOwnerId(studentService.getStudentAccount().getId());
         List<GPABuilder> courseGPAList = new ArrayList<>();
 
         BigDecimal totalCredits = BigDecimal.ZERO;

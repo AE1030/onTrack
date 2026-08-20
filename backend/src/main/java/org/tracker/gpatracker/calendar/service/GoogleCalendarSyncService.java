@@ -177,13 +177,16 @@ public class GoogleCalendarSyncService {
         }
     }
 
-    public void upsertCalendarAccount(Long userId, GoogleTokens tokens) {
+    /**
+     * Runs on the OAuth callback, which is pre-JWT — identity comes from the signed {@code state}
+     * token. The caller establishes the tenant scope, so the owner is stamped on persist.
+     */
+    public void upsertCalendarAccount(Long studentId, GoogleTokens tokens) {
         googleCalendarAccountRepository
-                .findByUserIdAndProvider(userId, CalendarProvider.GOOGLE)
+                .findByOwnerIdAndProvider(studentId, CalendarProvider.GOOGLE)
                 .ifPresent(googleCalendarAccountRepository::delete);
 
         GoogleCalendarAccount account = new GoogleCalendarAccount();
-        account.setUserId(userId);
         account.setProvider(CalendarProvider.GOOGLE);
         account.setAccessToken(tokens.accessToken());
         account.setRefreshToken(tokens.refreshToken());
@@ -192,20 +195,18 @@ public class GoogleCalendarSyncService {
         googleCalendarAccountRepository.save(account);
     }
 
-    public boolean isAccountConnectedForEmail(Long userId, String email) {
+    public boolean isAccountConnectedForEmail(Long studentId, String email) {
         return googleCalendarAccountRepository
-                .findByUserIdAndProvider(userId, CalendarProvider.GOOGLE)
+                .findByOwnerIdAndProvider(studentId, CalendarProvider.GOOGLE)
                 .map(account -> email.equalsIgnoreCase(account.getEmail()))
                 .orElse(false);
     }
 
     private String resolveAccessToken(Long studentId) {
-        Student student = studentRepo.findById(studentId)
-                .orElseThrow(() -> new IllegalStateException("Student not found: " + studentId));
-        Long userId = student.getUser().getId();
-
+        // The account is keyed by student now, so the Student -> Users hop this used to make
+        // purely to obtain a user id is gone.
         GoogleCalendarAccount account = googleCalendarAccountRepository
-                .findByUserIdAndProvider(userId, CalendarProvider.GOOGLE)
+                .findByOwnerIdAndProvider(studentId, CalendarProvider.GOOGLE)
                 .orElseThrow(() -> new IllegalStateException("Google Calendar not connected for student " + studentId));
 
         if (account.getExpiresAt().isBefore(Instant.now())) {

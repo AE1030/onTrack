@@ -5,8 +5,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 import org.tracker.gpatracker.accounts.dto.CurrentCourseDTO;
@@ -21,8 +19,8 @@ import org.tracker.gpatracker.courses.model.PastCourse;
 import org.tracker.gpatracker.courses.repository.CourseEnrollementRepository;
 import org.tracker.gpatracker.courses.repository.CourseRepository;
 import org.tracker.gpatracker.courses.repository.PastCourseRepository;
-import org.tracker.gpatracker.security.model.UserPrincipal;
 import org.tracker.gpatracker.security.model.Users;
+import org.tracker.gpatracker.tenancy.UserContext;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -61,17 +59,24 @@ public class StudentService {
         studentRepo.save(student);
     }
 
+    /**
+     * The current tenant's {@code Student}, resolved by primary key from the id bound to this
+     * request.
+     *
+     * <p>Previously this read the SecurityContext and issued a {@code findByUserId} on every
+     * call — several times per request in some flows. The id now arrives as a signed JWT claim,
+     * so this is a single primary-key load.
+     */
     public Student getStudentAccount() {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth == null || !auth.isAuthenticated()) {
-            throw new IllegalStateException("User is not authenticated");
-        }
-        Object principalObj = auth.getPrincipal();
-        if (!(principalObj instanceof UserPrincipal principal)) {
-            throw new IllegalStateException("User is not authenticated");
-        }
-        Long userId = principal.getId();
-        return studentRepo.findByUserId(userId);
+        Long studentId = getStudentID();
+        return studentRepo.findById(studentId).orElseThrow(() -> new IllegalStateException(
+                "No Student row for id " + studentId + " bound to this request"));
+    }
+
+    /** Look up a student id without a bound tenant. Used at login, before a token exists. */
+    public Long findStudentIdByUserId(Long userId) {
+        Student student = studentRepo.findByUserId(userId);
+        return student == null ? null : student.getId();
     }
 
     public void addCurrentCourses(Course course, BigDecimal grade) {
@@ -138,7 +143,7 @@ public class StudentService {
 
     public void addPastCourse(PastCourseDTO courseDTO) {
         Student student = getStudentAccount();
-        long currentCount = pastCourseRepo.countByStudentId(student.getId());
+        long currentCount = pastCourseRepo.countByOwnerId(student.getId());
         if (currentCount >= MAX_PAST_COURSES) {
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
@@ -146,7 +151,7 @@ public class StudentService {
             );
         }
         PastCourse course = new PastCourse();
-        course.setStudent(student);
+        // Owner is stamped from the request context on persist — see UserOwnedEntity.
         course.setName(courseDTO.getCourseName());
         course.setUnits(String.valueOf(courseDTO.getCredits()));
         course.setGrade(courseDTO.getGrade());
@@ -157,7 +162,7 @@ public class StudentService {
     //get past courses for the current student
     public List<PastCourseDTO> getPastCourses() {
         Student student = getStudentAccount();
-        List<PastCourse> pastCourses = pastCourseRepo.findByStudentId(student.getId());
+        List<PastCourse> pastCourses = pastCourseRepo.findByOwnerId(student.getId());
         List<PastCourseDTO> courseDTOs = new ArrayList<>();
 
         for (PastCourse course : pastCourses) {
@@ -172,19 +177,19 @@ public class StudentService {
 
     public void removePastCourseByNameAndCredits(String name, String credits) {
         Student student = getStudentAccount();
-        pastCourseRepo.deleteByStudentIdAndNameAndUnits(student.getId(), name, credits);
+        pastCourseRepo.deleteByOwnerIdAndNameAndUnits(student.getId(), name, credits);
     }
 
     public void removePastCourseByName(String name) {
         Student student = getStudentAccount();
-        pastCourseRepo.deleteByStudentIdAndName(student.getId(), name);
+        pastCourseRepo.deleteByOwnerIdAndName(student.getId(), name);
     }
 
     public void deletePastCourse(String name) {
         logger.info("deletePastCourse — course: {}", name);
         Student student = getStudentAccount();
         try {
-            pastCourseRepo.deleteByStudentIdAndName(student.getId(), name);
+            pastCourseRepo.deleteByOwnerIdAndName(student.getId(), name);
         } catch (Exception e) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Course already being deleted");
         }
@@ -193,7 +198,7 @@ public class StudentService {
 
     public void clearPastCourses() {
         Student student = getStudentAccount();
-        pastCourseRepo.deleteByStudentId(student.getId());
+        pastCourseRepo.deleteByOwnerId(student.getId());
         eventPublisher.publishEvent(new GpaRecalculationEvent(this, student.getId()));
     }
 
@@ -249,7 +254,13 @@ public class StudentService {
         return studentRepo.findByUserId(userId);
     }
 
+    /**
+     * The tenant that owns rows for this request.
+     *
+     * <p>Read straight from {@link UserContext}, which {@code JwtFilter} populates from a signed
+     * JWT claim. No database round-trip, and no way for a caller to supply a different id.
+     */
     public Long getStudentID() {
-        return getStudentAccount().getId();
+        return UserContext.requireOwnerId();
     }
 }

@@ -2,17 +2,18 @@ package org.tracker.gpatracker.calendar.model;
 
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
+import org.springframework.data.mongodb.core.index.CompoundIndex;
+import org.tracker.gpatracker.tenancy.mongo.UserOwnedDocument;
 
 import java.time.Instant;
 import java.util.List;
 
 @Document(collection = "calendarEvents")
-public class CalendarEvents {
+@CompoundIndex(name = "idx_calendar_events_student", def = "{'studentId': 1}")
+public class CalendarEvents extends UserOwnedDocument {
 
     @Id
     private String id;
-
-    private Long studentId;
 
     private List<InternalCalendarEvent> events;
 
@@ -24,14 +25,6 @@ public class CalendarEvents {
 
     public void setId(String id) {
         this.id = id;
-    }
-
-    public Long getStudentId() {
-        return studentId;
-    }
-
-    public void setStudentId(Long studentId) {
-        this.studentId = studentId;
     }
 
     public List<InternalCalendarEvent> getEvents() {

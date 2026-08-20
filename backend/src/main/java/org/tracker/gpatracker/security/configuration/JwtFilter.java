@@ -10,8 +10,10 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.tracker.gpatracker.security.model.UserPrincipal;
 import org.tracker.gpatracker.security.service.JWTService;
 import org.tracker.gpatracker.security.service.MyUserDetailService;
+import org.tracker.gpatracker.tenancy.UserContext;
 
 import java.io.IOException;
 
@@ -46,20 +48,39 @@ public class JwtFilter extends OncePerRequestFilter {
         (UsernamePasswordAuthenticationToken) and stores it in the SecurityContextHolder,
         effectively logging the user in for the current request.*/
 
-        if (username != null && SecurityContextHolder.getContext().getAuthentication() == null){//check if the username is not empty and that the user is not already logged for this request (does this by checking the application context)
+        try {
+            if (username != null && SecurityContextHolder.getContext().getAuthentication() == null){//check if the username is not empty and that the user is not already logged for this request (does this by checking the application context)
 
 
-            UserDetails userDetails = context.getBean(MyUserDetailService.class).loadUserByUsername(username);
-            if (jwtService.validateToken(token, userDetails)){
-                UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
-                authToken.setDetails(new WebAuthenticationDetailsSource() .buildDetails(request));
-                SecurityContextHolder.getContext().setAuthentication(authToken);
+                UserDetails userDetails = context.getBean(MyUserDetailService.class).loadUserByUsername(username);
+                if (jwtService.validateToken(token, userDetails)){
+                    UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
+                    authToken.setDetails(new WebAuthenticationDetailsSource() .buildDetails(request));
+                    SecurityContextHolder.getContext().setAuthentication(authToken);
+
+                    bindTenant(token, userDetails);
+                }
+
             }
-
+            //go on to the next filter in the security chain
+            filterChain.doFilter(request, response);
+        } finally {
+            // Tomcat threads are pooled. Without this the next request served by this thread
+            // would inherit the previous user's tenant.
+            UserContext.clear();
         }
-        //go on to the next filter in the security chain
-        filterChain.doFilter(request, response);
 
+    }
+
+    private void bindTenant(String token, UserDetails userDetails) {
+        Long userId = jwtService.extractUserId(token);
+        Long studentId = jwtService.extractStudentId(token);
+
+        if (userId == null && userDetails instanceof UserPrincipal principal) {
+            userId = principal.getId();
+        }
+
+        UserContext.bind(userId, studentId);
     }
 
     @Override

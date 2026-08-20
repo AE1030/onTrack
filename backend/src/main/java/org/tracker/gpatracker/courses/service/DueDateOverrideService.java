@@ -20,26 +20,26 @@ public class DueDateOverrideService {
 
     public void deleteDueDateOverride(String courseCode, String assessmentName, Student student) {
         dueDateOverrideRepository
-                .deleteByStudentIdAndAssessmentNameAndCourseCode(student.getId(), assessmentName, courseCode);
+                .deleteByOwnerIdAndAssessmentNameAndCourseCode(student.getId(), assessmentName, courseCode);
         dueDateConsensusService.setConsensusDueDate();
     }
 
     public void createOrUpdateDueDateOverride(String courseCode, String assessmentName,LocalDate newDueDate, Student student) {
         DueDateOverride dueDateOverride = new DueDateOverride();
-        if (dueDateOverrideRepository.existsByStudentIdAndAssessmentNameAndCourseCode(student.getId(), assessmentName, courseCode)) {
+        if (dueDateOverrideRepository.existsByOwnerIdAndAssessmentNameAndCourseCode(student.getId(), assessmentName, courseCode)) {
            return;
         }
         dueDateOverride.setCourseCode(courseCode);
         dueDateOverride.setAssessmentName(assessmentName);
         dueDateOverride.setProposedDueDate(newDueDate);
-        dueDateOverride.setStudent(student);
+        // Owner is stamped from the request context on persist — see UserOwnedEntity.
         dueDateOverrideRepository.save(dueDateOverride);
         dueDateConsensusService.setConsensusDueDate();
     }
 
     public List<DueDateOverride> getDueDateOverride(Long studentId) {
         return dueDateOverrideRepository
-                .findByStudentId(studentId);
+                .findByOwnerId(studentId);
     }
 
 }

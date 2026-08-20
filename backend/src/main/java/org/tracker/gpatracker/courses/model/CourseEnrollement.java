@@ -3,6 +3,10 @@ package org.tracker.gpatracker.courses.model;
 import jakarta.persistence.*;
 import org.tracker.gpatracker.accounts.model.Student;
 import org.tracker.gpatracker.accounts.service.BigDecimalGradeEncryptionConverter;
+import org.hibernate.annotations.Filter;
+import org.tracker.gpatracker.tenancy.BaseEntity;
+import org.tracker.gpatracker.tenancy.OwnerFilter;
+import org.tracker.gpatracker.tenancy.UserOwned;
 
 import java.math.BigDecimal;
 
@@ -11,7 +15,11 @@ import java.math.BigDecimal;
         name = "course_enrollement",
         uniqueConstraints = @UniqueConstraint(columnNames = {"student_id", "course_id"})
 )
-public class CourseEnrollement {
+// Cannot extend UserOwnedEntity: student_id is already mapped by the @EmbeddedId below, and a
+// second mapping of the same column is a boot failure. The owner is read out of the key instead,
+// and the filter is declared here directly.
+@Filter(name = OwnerFilter.NAME)
+public class CourseEnrollement extends BaseEntity implements UserOwned {
     @EmbeddedId
     CourseEnrollementKey id;
     @ManyToOne
@@ -73,5 +81,14 @@ public class CourseEnrollement {
 
     public void setStudents(Student students) {
         this.students = students;
+    }
+
+    /**
+     * The owner comes from the composite key rather than a dedicated column — no {@code @PrePersist}
+     * stamp is needed, because a row cannot exist without a key.
+     */
+    @Override
+    public Long getOwnerId() {
+        return id == null ? null : id.getStudentId();
     }
 }

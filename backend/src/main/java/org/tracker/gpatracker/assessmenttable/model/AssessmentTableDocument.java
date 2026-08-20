@@ -2,16 +2,19 @@ package org.tracker.gpatracker.assessmenttable.model;
 
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
+import org.springframework.data.mongodb.core.index.CompoundIndex;
+import org.tracker.gpatracker.tenancy.mongo.UserOwnedDocument;
 
 import java.util.List;
 
 @Document(collection = "assessmentTable")
-public class AssessmentTableDocument {
+// Without an index every findByStudentId... is a full collection scan.
+@CompoundIndex(name = "idx_assessment_student_course_term", def = "{'studentId': 1, 'courseCode': 1, 'term': 1}")
+public class AssessmentTableDocument extends UserOwnedDocument {
     @Id
     private String id;
     private String courseCode;
     private String term;
-    private Long studentId;
     private List<AssessmentScheme> schemes;
 
     public String getId() {
@@ -36,14 +39,6 @@ public class AssessmentTableDocument {
 
     public void setTerm(String term) {
         this.term = term;
-    }
-
-    public Long getStudentId() {
-        return studentId;
-    }
-
-    public void setStudentId(Long studentId) {
-        this.studentId = studentId;
     }
 
     public List<AssessmentScheme> getSchemes() {

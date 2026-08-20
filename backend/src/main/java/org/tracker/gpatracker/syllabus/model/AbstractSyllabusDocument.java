@@ -1,11 +1,16 @@
 package org.tracker.gpatracker.syllabus.model;
 
-import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Field;
+import org.tracker.gpatracker.tenancy.mongo.BaseDocument;
 
-public abstract class AbstractSyllabusDocument {
-    @Id
-    private CourseTermId id;
+/**
+ * Fields common to the shared syllabus catalog and to a student's own extraction.
+ *
+ * <p>The {@code @Id} deliberately is <em>not</em> declared here. The two subclasses key on
+ * different things — the catalog on course + term, a student's extraction on student + course +
+ * term — and pulling the id back up would reinstate the shape that let two students collide.
+ */
+public abstract class AbstractSyllabusDocument extends BaseDocument {
     private Assessments assessments;
     @Field("course_code")
     private String courseCode;
@@ -13,14 +18,6 @@ public abstract class AbstractSyllabusDocument {
     @Field("term")
     private String term;
     private ExtractionMetadata extraction;
-
-    public CourseTermId getId() {
-        return id;
-    }
-
-    public void setId(CourseTermId id) {
-        this.id = id;
-    }
 
     public String getCourseCode() {
         return courseCode;

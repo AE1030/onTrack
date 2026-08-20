@@ -54,6 +54,13 @@ public class SecurityConfig {
                                 "/api/calendar/google/callback",
                                 "/api/calendar/google/success",
                                 "/error").permitAll()//These are the resources that don't need authentication
+                        .requestMatchers("/api/courses/*/dropbox/**",
+                                "/api/courses/*/content/**",
+                                "/api/courses/*/grades/**",
+                                "/api/courses/*/calendar",
+                                "/api/courses/*/news",
+                                "/api/user/whoami",
+                                "/api/user/enrollments").permitAll()//Avenue (D2L) endpoints — auth disabled
                         .anyRequest().authenticated()) //Any other request needs authentication
                 //.formLogin(Customizer.withDefaults()) //this is designed for a stateful session;because our session is stateless this is why in the browser we are stuck in a loop. It also contains an html code that contains the login form.
                 //.httpBasic(Customizer.withDefaults()) //This is designed for a stateless session like a REST API(postman) which relies on JWT tokens.

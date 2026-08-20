@@ -13,19 +13,22 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
+import org.tracker.gpatracker.support.ContainerIntegrationBase;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Integration test that runs getNormalizedAssessmentItems against every
  * SyllabusDocument in the MongoDB "syllabuses" collection.
  *
- * Requires a running MongoDB instance with the syllabuses collection populated.
- * Uses the "integration" profile so it connects to your real MongoDB.
+ * <p>Runs on the "test" profile against the Testcontainers Mongo from
+ * {@link ContainerIntegrationBase}. That container starts empty, so this stays disabled: it
+ * asserts over real syllabus data and has nothing to read until the collection is seeded.
  */
 @SpringBootTest
-@ActiveProfiles("integration")
-@Disabled("Requires populated MongoDB — run manually when needed")
-class SyllabusAssessmentServiceIntegrationTest {
+@ActiveProfiles("test")
+@Disabled("Asserts over real syllabus data; seed the Mongo container before running manually")
+class SyllabusAssessmentServiceIntegrationTest extends ContainerIntegrationBase {
 
     @Autowired
     private SyllabusRepository syllabusRepository;

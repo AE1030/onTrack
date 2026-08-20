@@ -1,18 +1,14 @@
 package org.tracker.gpatracker.accounts.model;
 
+import org.tracker.gpatracker.tenancy.BaseEntity;
 import jakarta.persistence.*;
 import org.tracker.gpatracker.accounts.service.BigDecimalGradeEncryptionConverter;
-import org.tracker.gpatracker.courses.model.CourseEnrollement;
-import org.tracker.gpatracker.courses.model.DueDateOverride;
 import org.tracker.gpatracker.security.model.Users;
 
 import java.math.BigDecimal;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Set;
 
 @Entity
-public class Student {
+public class Student extends BaseEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     long id;
@@ -34,16 +30,10 @@ public class Student {
     @JoinColumn(name = "user_id", referencedColumnName = "id")//because I didn't name the column user_id in the Users class I have to specify it here
     private Users user;
 
-    //Relationship between students and courses, started off as: many students in enroll in many courses (also students can enroll in the SAME course)
-    //CourseEnrollement entity now owns this relationship which started off as a many-to-many relationship
-    //from the CourseEnrollement perspective this is a many to one relationhip so we have to inverse it here
-    //neither course nor student is the owning side
-    @OneToMany(mappedBy = "students")
-    Set <CourseEnrollement> enroll;
-
-    @OneToMany(mappedBy = "student", cascade = CascadeType.ALL, orphanRemoval = true)
-    List<DueDateOverride> dueDateOverrides = new ArrayList<>();
-
+    // The inverse collections that used to live here (enroll, dueDateOverrides) were removed:
+    // nothing read them, and a filtered collection load looks like mass orphaning to Hibernate.
+    // With orphanRemoval=true on dueDateOverrides that would have issued DELETEs on flush.
+    // Both are queried directly through their repositories instead.
 
     public long getId() {
         return id;
@@ -93,19 +83,7 @@ public class Student {
         this.user = user;
     }
 
-    public Set<CourseEnrollement> getEnroll() {
-        return enroll;
-    }
 
-    public void setEnroll(Set<CourseEnrollement> enroll) {
-        this.enroll = enroll;
-    }
 
-    public List<DueDateOverride> getDueDateOverrides() {
-        return dueDateOverrides;
-    }
 
-    public void setDueDateOverrides(List<DueDateOverride> dueDateOverrides) {
-        this.dueDateOverrides = dueDateOverrides;
-    }
 }

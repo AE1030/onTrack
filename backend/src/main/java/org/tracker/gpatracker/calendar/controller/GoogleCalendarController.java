@@ -22,6 +22,7 @@ import org.tracker.gpatracker.calendar.service.GoogleCalendarSyncService;
 import org.tracker.gpatracker.calendar.service.GoogleOAuthService;
 import org.tracker.gpatracker.calendar.service.LinkTokenService;
 import org.tracker.gpatracker.security.model.UserPrincipal;
+import org.tracker.gpatracker.tenancy.UserContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.servlet.ModelAndView;
@@ -100,7 +101,17 @@ public class GoogleCalendarController {
             response.setStatus(HttpStatus.BAD_REQUEST.value());
             return new RedirectView(successRedirectUrl);
         }
-        googleCalendarSyncService.upsertCalendarAccount(payload.userId(), tokens);
+        // Pre-JWT path: no Authorization header, so nothing has bound a tenant. Identity comes
+        // from the signed state token, which is what makes this a legitimate escape hatch rather
+        // than a hole — the client cannot forge payload.userId().
+        Long studentId = studentService.findStudentIdByUserId(payload.userId());
+        if (studentId == null) {
+            logger.warn("Google callback for user {} that has no student account", payload.userId());
+            response.setStatus(HttpStatus.BAD_REQUEST.value());
+            return new RedirectView(successRedirectUrl);
+        }
+        UserContext.runAs(payload.userId(), studentId,
+                () -> googleCalendarSyncService.upsertCalendarAccount(studentId, tokens));
         logger.info("Google calendar connected for user {}", payload.userId());
         return new RedirectView(successRedirectUrl);
     }
@@ -121,15 +132,15 @@ public class GoogleCalendarController {
 
         String email = request.getCalendarEmail();
         Long userId = principal.getId();
+        Long studentId = studentService.getStudentID();
 
-        if (!googleCalendarSyncService.isAccountConnectedForEmail(userId, email)) {
+        if (!googleCalendarSyncService.isAccountConnectedForEmail(studentId, email)) {
             String state = linkTokenService.createStateToken(userId, CalendarProvider.GOOGLE);
             String authorizationUrl = buildAuthorizationUrl(state, email);
             return ResponseEntity.status(HttpStatus.CONFLICT)
                     .body(Map.of("action", "connect", AUTHORIZATION_URL_KEY, authorizationUrl));
         }
 
-        Long studentId = studentService.getStudentID();
         try {
             googleCalendarSyncService.sync(studentId);
         } catch (IllegalStateException e) {

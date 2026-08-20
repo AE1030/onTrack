@@ -1,5 +1,8 @@
 package org.tracker.gpatracker.calendar.model;
 
+import org.hibernate.annotations.Filter;
+import org.tracker.gpatracker.tenancy.OwnerFilter;
+import org.tracker.gpatracker.tenancy.UserOwnedEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -16,17 +19,20 @@ import java.time.Instant;
 @Table(
         name = "calendar_account",
         indexes = {
-                @Index(name = "idx_calendar_account_user_provider", columnList = "user_id,provider", unique = true)
+                // Repointed along with the column itself. Uniqueness has to follow the owner,
+                // or it stays pinned to a column that is going away.
+                @Index(name = "idx_calendar_account_student_provider", columnList = "student_id,provider", unique = true)
         }
 )
-public class GoogleCalendarAccount {
+@Filter(name = OwnerFilter.NAME)
+public class GoogleCalendarAccount extends UserOwnedEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "user_id", nullable = false)
-    private Long userId;
+    // The owner lives in UserOwnedEntity.ownerId (column student_id). This table previously keyed
+    // off user_id, a different id space, which is why it could not join the filter contract.
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
@@ -46,14 +52,6 @@ public class GoogleCalendarAccount {
 
     public Long getId() {
         return id;
-    }
-
-    public Long getUserId() {
-        return userId;
-    }
-
-    public void setUserId(Long userId) {
-        this.userId = userId;
     }
 
     public CalendarProvider getProvider() {

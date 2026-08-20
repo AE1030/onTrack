@@ -13,6 +13,7 @@ import org.springframework.web.multipart.MultipartFile;
 import org.tracker.gpatracker.syllabus.dto.SyllabusExtractionJobResponse;
 import org.tracker.gpatracker.syllabus.model.SyllabusExtractionJob;
 import org.tracker.gpatracker.syllabus.service.GeminiSyllabusExtractionService;
+import org.tracker.gpatracker.tenancy.UserContext;
 
 @RestController
 @RequestMapping("/api/syllabus/upload")
@@ -55,7 +56,10 @@ public class SyllabusUploadController {
     @GetMapping("/{jobId}")
     public ResponseEntity<SyllabusExtractionJobResponse> getJobStatus(@PathVariable String jobId) {
         SyllabusExtractionJob job = extractionService.getJob(jobId);
-        if (job == null) {
+        // This previously returned any job to any authenticated caller. Mongo is outside the
+        // Hibernate filter, so ownership has to be checked here explicitly.
+        // 404 rather than 403 on a mismatch, so the response does not confirm the id exists.
+        if (job == null || !UserContext.requireOwnerId().equals(job.getStudentId())) {
             return ResponseEntity.notFound().build();
         }
         return ResponseEntity.ok(SyllabusExtractionJobResponse.from(job));

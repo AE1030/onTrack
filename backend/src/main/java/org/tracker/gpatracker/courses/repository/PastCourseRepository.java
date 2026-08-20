@@ -1,16 +1,16 @@
 package org.tracker.gpatracker.courses.repository;
 
-import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 import org.tracker.gpatracker.courses.model.PastCourse;
+import org.tracker.gpatracker.tenancy.UserScopedRepository;
 
 import java.util.List;
 
 @Repository
-public interface PastCourseRepository extends JpaRepository<PastCourse, Long> {
-    List<PastCourse> findByStudentId(Long studentId);
-    long countByStudentId(Long studentId);
-    void deleteByStudentId(Long studentId);
-    void deleteByStudentIdAndNameAndUnits(Long studentId, String name, String units);
-    void deleteByStudentIdAndName(Long studentId, String name);
+public interface PastCourseRepository extends UserScopedRepository<PastCourse, Long> {
+    List<PastCourse> findByOwnerId(Long studentId);
+    long countByOwnerId(Long studentId);
+    void deleteByOwnerId(Long studentId);
+    void deleteByOwnerIdAndNameAndUnits(Long studentId, String name, String units);
+    void deleteByOwnerIdAndName(Long studentId, String name);
 }

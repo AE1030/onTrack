@@ -1,11 +1,12 @@
 package org.tracker.gpatracker.security.model;
 
+import org.tracker.gpatracker.tenancy.BaseEntity;
 import jakarta.persistence.*;
 
 import java.time.LocalDateTime;
 
 @Entity
-public class SecureToken {
+public class SecureToken extends BaseEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

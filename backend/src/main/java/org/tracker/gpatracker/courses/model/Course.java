@@ -1,11 +1,12 @@
 package org.tracker.gpatracker.courses.model;
 
+import org.tracker.gpatracker.tenancy.BaseEntity;
 import jakarta.persistence.*;
 
 import java.util.Set;
 
 @Entity
-public class Course {
+public class Course extends BaseEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
