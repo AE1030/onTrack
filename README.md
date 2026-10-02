@@ -63,7 +63,7 @@ Protecting student data is a priority. Here's how onTrack handles security:
 | **Error Handling** | Stack traces, exception types, and internal error messages are never exposed to clients. |
 | **McMaster-Only Registration** | Only `@mcmaster.ca` email addresses can register. |
 | **CORS** | Restricted to configured frontend origin with credentials support. |
-| **Infrastructure** | Hosted on Google Cloud (northamerica-northeast2) with Cloud SQL (PostgreSQL) and MongoDB Atlas. Backend deployed via Cloud Run with containerized builds. |
+| **Infrastructure** | Backend on Google Cloud Run (us-east5) with a Neon Postgres database (us-east-2), both in Ohio. App secrets live in Google Secret Manager, never in the repository. |
 
 ---
 
@@ -74,12 +74,12 @@ Protecting student data is a priority. Here's how onTrack handles security:
 | **Frontend** | React Native, Expo SDK 54, expo-router, react-native-reanimated |
 | **Web Hosting** | Firebase Hosting |
 | **Backend** | Spring Boot 3.5, Java 21 |
-| **Databases** | PostgreSQL (Google Cloud SQL), MongoDB Atlas |
+| **Database** | PostgreSQL 18 on Neon, schema managed by Flyway migrations |
 | **AI** | Google Gemini 2.5 Pro |
 | **Auth** | JWT + BCrypt + email verification |
 | **Email** | Resend |
 | **CI/CD** | GitHub Actions |
-| **Infrastructure** | Google Cloud Run, Firebase Hosting |
+| **Infrastructure** | Google Cloud Run, Secret Manager, Cloud Scheduler, Firebase Hosting, Neon |
 
 ---
 
@@ -101,6 +101,7 @@ onTrack/
 │   ├── screens/                    # Screen components
 │   ├── src/                        # Theme, config, utilities
 │   └── public/                     # Landing page, privacy policy
+├── tools/syllabus-pipeline/        # Python job that scrapes and extracts syllabi into Postgres
 └── .github/workflows/              # CI/CD pipelines
 ```
 
@@ -110,10 +111,20 @@ onTrack/
 
 | Component | Pipeline | Target |
 |-----------|----------|--------|
-| **Backend** | Push to `main` (backend changes) | Docker build → Google Cloud Run |
-| **Frontend** | Push to `main` (frontend changes) | Expo web export → Firebase Hosting |
+| **Backend** | Push to `main` (backend changes) | Tests, migration check, Docker build, Google Cloud Run |
+| **Frontend** | Push to `main` (frontend changes) | Expo web export, Firebase Hosting |
+| **Syllabus pipeline** | Push to `main` (pipeline changes) | Tests, Docker build, Cloud Run job |
+| **Migration check** | Pull requests touching migrations or models, and every backend deploy | Throwaway Neon branch |
 
-Both pipelines run automatically via GitHub Actions. All secrets are stored in GitHub Secrets — no credentials are committed to the repository.
+### Database safety
+
+- **Migrations.** Flyway applies every migration on startup, and Hibernate validates the entities against the result (`ddl-auto=validate`).
+- **Migration check.** Before a migration can reach production, CI forks a copy of the production database on Neon, boots the backend against it, and deletes the copy. A migration that fails on real data fails the build and blocks the deploy. The copy gets its own throwaway password, so CI never holds a production credential.
+- **Backups.** A nightly `pg_dump` runs as a Cloud Run job (triggered by Cloud Scheduler) into a private Cloud Storage bucket and is kept for 30 days. Neon's 6-hour point-in-time restore covers recent mistakes.
+
+### Secrets
+
+Runtime secrets (database credentials, encryption and JWT keys, API keys) are stored in Google Secret Manager and injected into Cloud Run. GitHub Secrets hold only the deploy credentials and the Neon API key used by the migration check. No credentials are committed to the repository.
 
 ---
 
