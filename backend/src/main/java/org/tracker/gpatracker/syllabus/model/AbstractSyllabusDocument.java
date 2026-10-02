@@ -1,39 +1,52 @@
 package org.tracker.gpatracker.syllabus.model;
 
-import org.springframework.data.mongodb.core.mapping.Field;
-import org.tracker.gpatracker.tenancy.mongo.BaseDocument;
+import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
+import jakarta.persistence.MappedSuperclass;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+import org.tracker.gpatracker.tenancy.BaseEntity;
 
 /**
  * Fields common to the shared syllabus catalog and to a student's own extraction.
  *
- * <p>The {@code @Id} deliberately is <em>not</em> declared here. The two subclasses key on
- * different things — the catalog on course + term, a student's extraction on student + course +
- * term — and pulling the id back up would reinstate the shape that let two students collide.
+ * <p>{@code courseCode} and {@code term} are declared here as <em>abstract accessors</em>, not as
+ * mapped columns. Both subclasses carry them inside their composite key — the catalog on
+ * course + term + doc, a student's extraction on student + course + term — and mapping the same
+ * column twice is a boot failure, not a warning. Each subclass therefore reads and writes them
+ * through its own key, while callers keep a single type to program against.
+ *
+ * <p>The key is likewise not declared here. Pulling it up would reinstate the shape that let two
+ * students collide; see {@link StudentCourseTermId}.
+ *
+ * <p>{@code assessments} goes through {@link SyllabusAssessmentsJsonConverter} rather than a plain
+ * {@code @JdbcTypeCode(SqlTypes.JSON)} mapping, because its keys are snake_case and shared with the
+ * Python pipeline. {@code extraction} needs no converter: {@code model} and {@code temperature} are
+ * single words, so the two naming conventions agree on them.
  */
-public abstract class AbstractSyllabusDocument extends BaseDocument {
-    private Assessments assessments;
-    @Field("course_code")
-    private String courseCode;
+@MappedSuperclass
+public abstract class AbstractSyllabusDocument extends BaseEntity {
 
-    @Field("term")
-    private String term;
+    @Convert(converter = SyllabusAssessmentsJsonConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "assessments")
+    private Assessments assessments;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "extraction")
     private ExtractionMetadata extraction;
 
-    public String getCourseCode() {
-        return courseCode;
-    }
+    /** Read from this document's composite key. */
+    public abstract String getCourseCode();
 
-    public void setCourseCode(String courseCode) {
-        this.courseCode = courseCode;
-    }
+    /** Written into this document's composite key, creating it if absent. */
+    public abstract void setCourseCode(String courseCode);
 
-    public String getTerm() {
-        return term;
-    }
+    /** Read from this document's composite key. */
+    public abstract String getTerm();
 
-    public void setTerm(String term) {
-        this.term = term;
-    }
+    /** Written into this document's composite key, creating it if absent. */
+    public abstract void setTerm(String term);
 
     public Assessments getAssessments() {
         return assessments;

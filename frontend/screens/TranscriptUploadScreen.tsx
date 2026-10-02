@@ -24,6 +24,7 @@ export default function TranscriptUploadScreen({
     gpa: number;
     totalCredits: number;
   } | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const pickAndUpload = async () => {
     const token = await getToken();
@@ -76,6 +77,12 @@ export default function TranscriptUploadScreen({
       return;
     }
 
+    if (!res.ok) {
+      setError("We couldn't read that transcript. Make sure it's your full PDF transcript.");
+      return;
+    }
+
+    setError(null);
     const data = await res.json();
     setResult(data);
     onUploadSuccess?.();
@@ -127,14 +134,28 @@ export default function TranscriptUploadScreen({
         </View>
       </View>
 
+      {error && <Text style={styles.error}>{error}</Text>}
+
       {/* Result Card */}
       {result && (
         <View style={styles.resultCard}>
-          <Text style={styles.resultTitle}>Predicted GPA</Text>
-          <Text style={styles.gpa}>{result.gpa.toFixed(2)}</Text>
-          <Text style={styles.resultSub}>
-            Total Credits: {result.totalCredits}
-          </Text>
+          {result.totalCredits > 0 ? (
+            <>
+              <Text style={styles.resultTitle}>Predicted GPA</Text>
+              <Text style={styles.gpa}>{result.gpa.toFixed(2)}</Text>
+              <Text style={styles.resultSub}>
+                Total Credits: {result.totalCredits}
+              </Text>
+            </>
+          ) : (
+            <>
+              <Text style={styles.resultTitle}>You're all set</Text>
+              <Text style={styles.resultSub}>
+                No completed courses yet. We've added your current term so you can
+                start tracking. Your GPA builds from here.
+              </Text>
+            </>
+          )}
         </View>
       )}
     </View>
@@ -239,5 +260,11 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.75)",
     fontSize: 13,
     marginTop: 6,
+  },
+  error: {
+    color: "#DC2626",
+    fontSize: 13,
+    marginTop: spacing.md,
+    textAlign: "center",
   },
 });

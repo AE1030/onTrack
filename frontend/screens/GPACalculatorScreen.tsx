@@ -16,10 +16,11 @@ import Animated, {
   Easing,
 } from "react-native-reanimated";
 import { Feather } from "@expo/vector-icons";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { colors } from "../src/theme/colors";
 import { spacing } from "../src/theme/spacing";
-import { getToken } from "../src/utils/tokenStorage";
-import { API_BASE_URL } from "../src/config/api";
+import { qk } from "../src/cache/keys";
+import { authedFetch, authedGet, isAuthError, queryRetry } from "../src/cache/authedGet";
 import TranscriptUploadScreen from "./TranscriptUploadScreen";
 
 const GRADES = [
@@ -56,8 +57,10 @@ export default function GPACalculatorScreen({ onAuthError }: Props) {
     { id: "1", courseName: "", credits: "", grade: "A" },
   ]);
 
+  const queryClient = useQueryClient();
+  const seededRows = useRef(false);
+
   const [loading, setLoading] = useState(false);
-  const [loadingCourses, setLoadingCourses] = useState(true);
   const [result, setResult] = useState<{
     gpa: number;
     totalCredits: number;
@@ -78,57 +81,54 @@ export default function GPACalculatorScreen({ onAuthError }: Props) {
     );
   };
 
-  const fetchPastCourses = async () => {
-    const token = await getToken();
-    if (!token) {
-      setLoadingCourses(false);
-      onAuthError();
-      return;
-    }
+  const pastCoursesQuery = useQuery({
+    queryKey: qk.pastCourses,
+    queryFn: () =>
+      authedGet<{ courseName: string; credits: string; grade: string }[]>(
+        "/api/my-courses/past-courses"
+      ),
+    staleTime: 5 * 60_000,
+    retry: queryRetry,
+  });
 
-    try {
-      const res = await fetch(
-        `${API_BASE_URL.replace(/\/$/, "")}/api/my-courses/past-courses`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
-
-      if (res.status === 401 || res.status === 403) {
-        setLoadingCourses(false);
-        onAuthError();
-        return;
-      }
-
-      const data: { courseName: string; credits: string; grade: string }[] =
-        await res.json();
-
-      if (data.length > 0) {
-        setRows(
-          data.map((c, index) => {
-            const parsed = parseFloat(c.credits);
-            const normalizedCredits = !isNaN(parsed)
-              ? parsed.toString()
-              : c.credits;
-            return {
-              id: `past-${index}-${Date.now()}`,
-              courseName: c.courseName,
-              credits: normalizedCredits,
-              grade: c.grade,
-            };
-          })
-        );
-      }
-    } catch (err) {
-      console.error("Failed to fetch past courses:", err);
-    } finally {
-      setLoadingCourses(false);
-    }
-  };
+  const loadingCourses = pastCoursesQuery.isPending;
 
   useEffect(() => {
-    fetchPastCourses();
-  }, []);
+    if (isAuthError(pastCoursesQuery.error)) onAuthError();
+  }, [pastCoursesQuery.error, onAuthError]);
+
+  // `rows` is an editable form, so seed it only once per mount. A later
+  // background refetch must not overwrite what the user is typing.
+  useEffect(() => {
+    if (seededRows.current) return;
+    const data = pastCoursesQuery.data;
+    if (!data) return;
+    seededRows.current = true;
+
+    if (data.length > 0) {
+      setRows(
+        data.map((c, index) => {
+          const parsed = parseFloat(c.credits);
+          const normalizedCredits = !isNaN(parsed)
+            ? parsed.toString()
+            : c.credits;
+          return {
+            id: `past-${index}-${Date.now()}`,
+            courseName: c.courseName,
+            credits: normalizedCredits,
+            grade: c.grade,
+          };
+        })
+      );
+    }
+  }, [pastCoursesQuery.data]);
+
+  // A transcript upload rewrites the course list wholesale, so drop every
+  // cached read and let the form re-seed from the new data.
+  const handleTranscriptUploaded = () => {
+    seededRows.current = false;
+    queryClient.invalidateQueries();
+  };
 
   const addRow = () => {
     setRows((prev) => [
@@ -166,23 +166,20 @@ export default function GPACalculatorScreen({ onAuthError }: Props) {
     }
     setDeletingRow(id);
     try {
-      const token = await getToken();
-      if (!token) {
-        onAuthError();
-        return;
-      }
       const encoded = encodeURIComponent(row.courseName);
-      const res = await fetch(
-        `${API_BASE_URL.replace(/\/$/, "")}/api/my-courses/past-courses?courseName=${encoded}`,
-        {
-          method: "DELETE",
-          headers: { Authorization: `Bearer ${token}` },
-        }
+      const res = await authedFetch(
+        `/api/my-courses/past-courses?courseName=${encoded}`,
+        { method: "DELETE" }
       );
       if (res.ok) {
         setRows((prev) => prev.filter((r) => r.id !== id));
+        // Deleting a past course changes the GPA the dashboard shows.
+        queryClient.invalidateQueries({ queryKey: qk.pastCourses });
+        queryClient.invalidateQueries({ queryKey: qk.dashboard });
       }
-    } catch {}
+    } catch (err) {
+      if (isAuthError(err)) onAuthError();
+    }
     finally {
       setDeletingRow(null);
     }
@@ -190,13 +187,6 @@ export default function GPACalculatorScreen({ onAuthError }: Props) {
 
   const calculateGPA = async () => {
     setLoading(true);
-    const token = await getToken();
-
-    if (!token) {
-      setLoading(false);
-      onAuthError();
-      return;
-    }
 
     const courseDtos = rows
       .map((row, index) => ({
@@ -214,27 +204,18 @@ export default function GPACalculatorScreen({ onAuthError }: Props) {
       return;
     }
 
-    const res = await fetch(
-      `${API_BASE_URL.replace(/\/$/, "")}/api/manual-upload/calculate-gpa`,
-      {
+    try {
+      const res = await authedFetch("/api/manual-upload/calculate-gpa", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
         body: JSON.stringify(courseDtos),
-      }
-    );
-
-    if (res.status === 401 || res.status === 403) {
+      });
+      const data = await res.json();
+      setResult(data);
+    } catch (err) {
+      if (isAuthError(err)) onAuthError();
+    } finally {
       setLoading(false);
-      onAuthError();
-      return;
     }
-
-    const data = await res.json();
-    setResult(data);
-    setLoading(false);
   };
 
   const resultCard = result ? (
@@ -409,7 +390,7 @@ export default function GPACalculatorScreen({ onAuthError }: Props) {
           <TranscriptUploadScreen
             onBack={() => switchMode("manual")}
             onAuthError={onAuthError}
-            onUploadSuccess={fetchPastCourses}
+            onUploadSuccess={handleTranscriptUploaded}
           />
         </View>
       )}

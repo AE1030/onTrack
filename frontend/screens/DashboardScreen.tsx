@@ -18,12 +18,15 @@ import Animated, {
   Easing,
 } from "react-native-reanimated";
 import { Feather } from "@expo/vector-icons";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { colors } from "../src/theme/colors";
 import { spacing } from "../src/theme/spacing";
-import { getToken } from "../src/utils/tokenStorage";
-import { API_BASE_URL } from "../src/config/api";
+import { qk } from "../src/cache/keys";
+import { authedFetch, authedGet, isAuthError, queryRetry } from "../src/cache/authedGet";
+import { useTerm } from "../src/terms/TermContext";
 import GpaArc from "./components/GpaArc";
 import OnTrackLogo from "./components/OnTrackLogo";
+import LeaderboardCard from "./components/LeaderboardCard";
 
 type DashboardData = {
   username: string;
@@ -31,6 +34,8 @@ type DashboardData = {
   gpa12: number | null;
   targetGpa4: number | null;
   targetGpa12: number | null;
+  /** True while on the leaderboard: the target is the one frozen at join and cannot be edited. */
+  targetLocked: boolean;
 };
 
 type UpcomingEvent = {
@@ -181,82 +186,73 @@ function EventRow({ event, formatDueDate, onComplete }: EventRowProps) {
 type Props = {
   onGoToCalendar: () => void;
   onGoToMyCourses: () => void;
+  onGoToLeaderboard: () => void;
+  onJoinLeaderboard: () => void;
   onAuthError: () => void;
 };
 
-export default function DashboardScreen({ onGoToCalendar, onGoToMyCourses, onAuthError }: Props) {
-  const [data, setData] = useState<DashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
+export default function DashboardScreen({
+  onGoToCalendar,
+  onGoToMyCourses,
+  onGoToLeaderboard,
+  onJoinLeaderboard,
+  onAuthError,
+}: Props) {
+  const queryClient = useQueryClient();
+  const { currentTerm } = useTerm();
   const [use12Scale, setUse12Scale] = useState(false);
   const [showTargetModal, setShowTargetModal] = useState(false);
   const [targetInput4, setTargetInput4] = useState("");
   const [targetInput12, setTargetInput12] = useState("");
   const [savingTarget, setSavingTarget] = useState(false);
-  const [upcomingEvents, setUpcomingEvents] = useState<UpcomingEvent[]>([]);
-  const [currentCourses, setCurrentCourses] = useState<CurrentCourse[]>([]);
 
   // Animation for scale toggle
   const toggleProgress = useSharedValue(0);
 
-  const fetchDashboard = useCallback(async () => {
-    const token = await getToken();
-    if (!token) {
-      onAuthError();
-      return;
-    }
-    try {
-      const res = await fetch(
-        `${API_BASE_URL.replace(/\/$/, "")}/api/dashboard`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      if (res.status === 401 || res.status === 403) {
-        onAuthError();
-        return;
-      }
-      if (!res.ok) throw new Error("Failed to load dashboard");
-      const json: DashboardData = await res.json();
-      setData(json);
-    } catch {
-    } finally {
-      setLoading(false);
-    }
-  }, [onAuthError]);
+  const dashboardQuery = useQuery({
+    queryKey: qk.dashboard,
+    queryFn: () => authedGet<DashboardData>("/api/dashboard"),
+    staleTime: 5 * 60_000,
+    retry: queryRetry,
+  });
 
-  const fetchUpcomingEvents = useCallback(async () => {
-    const token = await getToken();
-    if (!token) return;
-    try {
-      const res = await fetch(
-        `${API_BASE_URL.replace(/\/$/, "")}/api/dashboard/upcoming-events`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      if (res.ok) {
-        const json: UpcomingEvent[] = await res.json();
-        setUpcomingEvents(json);
-      }
-    } catch {}
-  }, []);
+  const upcomingEventsQuery = useQuery({
+    queryKey: qk.upcomingEvents,
+    queryFn: () => authedGet<UpcomingEvent[]>("/api/dashboard/upcoming-events"),
+    staleTime: 2 * 60_000,
+    retry: queryRetry,
+  });
 
-  const fetchCurrentCourses = useCallback(async () => {
-    const token = await getToken();
-    if (!token) return;
-    try {
-      const res = await fetch(
-        `${API_BASE_URL.replace(/\/$/, "")}/api/my-courses/current-courses`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      if (res.ok) {
-        const json: CurrentCourse[] = await res.json();
-        setCurrentCourses(json);
-      }
-    } catch {}
-  }, []);
+  // Pinned to the current term, not the picker. The GPA beside these cards is computed from
+  // the current term only, so following a past-term selection here would put a past term's
+  // courses next to a number that does not describe them. When the picker is on the current
+  // term this is the same key My Courses uses and TanStack dedupes the fetch.
+  const currentCoursesQuery = useQuery({
+    queryKey: qk.currentCourses(currentTerm),
+    queryFn: () =>
+      authedGet<CurrentCourse[]>(
+        `/api/my-courses/current-courses?term=${encodeURIComponent(currentTerm)}`
+      ),
+    staleTime: 5 * 60_000,
+    retry: queryRetry,
+    enabled: !!currentTerm,
+  });
+
+  const data = dashboardQuery.data ?? null;
+  const loading = dashboardQuery.isPending;
+  const upcomingEvents = upcomingEventsQuery.data ?? [];
+  const currentCourses = currentCoursesQuery.data ?? [];
+
+  // An expired token surfaces as AuthError from any of the three queries.
+  const authFailed = [
+    dashboardQuery.error,
+    upcomingEventsQuery.error,
+    currentCoursesQuery.error,
+  ].some(isAuthError);
 
   useEffect(() => {
-    fetchDashboard();
-    fetchUpcomingEvents();
-    fetchCurrentCourses();
-  }, [fetchDashboard, fetchUpcomingEvents, fetchCurrentCourses]);
+    if (authFailed) onAuthError();
+  }, [authFailed, onAuthError]);
 
   const toggleScale = () => {
     const next = !use12Scale;
@@ -278,31 +274,21 @@ export default function DashboardScreen({ onGoToCalendar, onGoToMyCourses, onAut
   };
 
   const saveTargetGpa = async () => {
-    const token = await getToken();
-    if (!token) {
-      onAuthError();
-      return;
-    }
     setSavingTarget(true);
     try {
       const body: any = {};
       if (targetInput4.trim()) body.targetGpa4 = parseFloat(targetInput4);
       if (targetInput12.trim()) body.targetGpa12 = parseFloat(targetInput12);
 
-      await fetch(
-        `${API_BASE_URL.replace(/\/$/, "")}/api/dashboard/target-gpa`,
-        {
-          method: "PUT",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(body),
-        }
-      );
+      await authedFetch("/api/dashboard/target-gpa", {
+        method: "PUT",
+        body: JSON.stringify(body),
+      });
       setShowTargetModal(false);
-      fetchDashboard();
-    } catch {
+      // The dashboard is mounted, so this refetches immediately.
+      queryClient.invalidateQueries({ queryKey: qk.dashboard });
+    } catch (err) {
+      if (isAuthError(err)) onAuthError();
     } finally {
       setSavingTarget(false);
     }
@@ -318,36 +304,26 @@ export default function DashboardScreen({ onGoToCalendar, onGoToMyCourses, onAut
 
   const markEventComplete = useCallback(
     async (eventKey: string): Promise<boolean> => {
-      const token = await getToken();
-      if (!token) {
-        onAuthError();
-        return false;
-      }
       try {
-        const res = await fetch(
-          `${API_BASE_URL.replace(/\/$/, "")}/api/dashboard/upcoming-events/${encodeURIComponent(eventKey)}`,
-          {
-            method: "PUT",
-            headers: { Authorization: `Bearer ${token}` },
-          }
+        const res = await authedFetch(
+          `/api/dashboard/upcoming-events/${encodeURIComponent(eventKey)}`,
+          { method: "PUT" }
         );
-        if (res.status === 401 || res.status === 403) {
-          onAuthError();
-          return false;
-        }
         if (!res.ok) return false;
-        // Remove from local state after animation delay
+        // Drop it from the cache after the animation, rather than refetching.
         setTimeout(() => {
-          setUpcomingEvents((prev) =>
-            prev.filter((e) => e.eventKey !== eventKey)
+          queryClient.setQueryData<UpcomingEvent[]>(qk.upcomingEvents, (prev) =>
+            (prev ?? []).filter((e) => e.eventKey !== eventKey)
           );
+          queryClient.invalidateQueries({ queryKey: qk.calendarEvents });
         }, 1000);
         return true;
-      } catch {
+      } catch (err) {
+        if (isAuthError(err)) onAuthError();
         return false;
       }
     },
-    [onAuthError]
+    [onAuthError, queryClient]
   );
 
   const formatDueDate = (dateStr: string) => {
@@ -453,11 +429,31 @@ export default function DashboardScreen({ onGoToCalendar, onGoToMyCourses, onAut
             maxScale={maxScale}
           />
 
-          <Pressable style={styles.setTargetButton} onPress={openTargetModal}>
-            <Text style={styles.setTargetText}>
-              {targetGpa != null ? "Edit Target GPA" : "Set Target GPA"}
-            </Text>
-          </Pressable>
+          {data?.targetLocked ? (
+            <View style={styles.targetLockedNote}>
+              <Feather name="lock" size={12} color="#6B5B63" />
+              <Text style={styles.targetLockedText}>
+                Set when you joined the leaderboard. Locked for the season.
+              </Text>
+            </View>
+          ) : (
+            <Pressable style={styles.setTargetButton} onPress={openTargetModal}>
+              <Text style={styles.setTargetText}>
+                {targetGpa != null ? "Edit Target GPA" : "Set Target GPA"}
+              </Text>
+            </Pressable>
+          )}
+        </View>
+
+        {/* Leaderboard Card. Beside the GPA card on purpose: the two things a student is ranked
+            on belong next to each other. cardsRow already wraps, so on a narrow phone this drops
+            under the GPA card at full width rather than squeezing three cards onto one line. */}
+        <View style={styles.leaderboardCard}>
+          <LeaderboardCard
+            onJoin={onJoinLeaderboard}
+            onOpen={onGoToLeaderboard}
+            onAuthError={onAuthError}
+          />
         </View>
 
         {/* Upcoming Due Dates Card */}
@@ -670,6 +666,11 @@ const styles = StyleSheet.create({
     minWidth: 300,
     maxWidth: 380,
   },
+  leaderboardCard: {
+    flex: 1,
+    minWidth: 300,
+    maxWidth: 380,
+  },
   dueDatesCard: {
     flex: 1.5,
     minWidth: 300,
@@ -730,6 +731,20 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
     color: "#7A003C",
+  },
+  targetLockedNote: {
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 12,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  targetLockedText: {
+    fontSize: 12,
+    color: "#6B5B63",
+    textAlign: "center",
   },
   dueDatesHeader: {
     flexDirection: "row",

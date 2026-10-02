@@ -1,0 +1,85 @@
+name: Syllabus Pipeline Deploy
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'tools/syllabus-pipeline/**'
+      - '.github/workflows/syllabus-pipeline-deploy.yml'
+  # The image is what Cloud Scheduler runs every day, so it needs a way to be rebuilt
+  # without an unrelated commit to main.
+  workflow_dispatch:
+
+env:
+  REGION: us-east5
+  PROJECT: gen-lang-client-0316039122
+  IMAGE: us-east5-docker.pkg.dev/gen-lang-client-0316039122/ontrack-repo/syllabus-pipeline
+  JOB: syllabus-pipeline
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/syllabus-pipeline
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      # The verify and normalise rules are pure functions over dictionaries, so they are
+      # tested here with no Mongo, no Gemini and no network. That is the whole reason the
+      # checks moved out of the Spring integration test: they can now actually run in CI.
+      - name: Test
+        run: pytest -q
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/syllabus-pipeline
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Build and Push
+        run: |
+          docker build -t "$IMAGE:${{ github.sha }}" -t "$IMAGE:latest" .
+          docker push "$IMAGE:${{ github.sha }}"
+          docker push "$IMAGE:latest"
+
+      # `jobs deploy` creates the job on first run and updates it after, so this workflow is
+      # the only thing that defines the job and there is no console state to drift from.
+      #
+      # Timeout is generous because a cold run is ~1250 fetches at 0.6s plus up to
+      # MAX_EXTRACTIONS_PER_RUN Gemini calls. A warm daily run finishes in under a minute.
+      - name: Deploy Cloud Run Job
+        run: |
+          gcloud run jobs deploy "$JOB" \
+            --image="$IMAGE:${{ github.sha }}" \
+            --region="$REGION" \
+            --project="$PROJECT" \
+            --task-timeout=3600s \
+            --max-retries=1 \
+            --memory=1Gi \
+            --cpu=1 \
+            --set-secrets=MONGODB_URI=MONGODB_URI:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest \
+            --set-env-vars=^@^SYLLABUS_TERM_STATUSES=current,future@TERM_START_DATE=${{ vars.TERM_START_DATE }}@DAILY_WINDOW_DAYS=14@WEEKLY_RUN_WEEKDAY=0@MAX_EXTRACTIONS_PER_RUN=250@SYLLABUS_REQUEST_DELAY_SEC=0.6@FAIL_ON_VIOLATIONS=true

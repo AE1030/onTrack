@@ -4,8 +4,6 @@ import jakarta.persistence.AttributeConverter;
 import jakarta.persistence.Converter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.convert.PropertyValueConverter;
-import org.springframework.data.convert.ValueConversionContext;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.Cipher;
@@ -23,8 +21,7 @@ import java.util.Properties;
 @Converter
 @Component
 public class BigDecimalGradeEncryptionConverter
-        implements AttributeConverter<BigDecimal, String>,
-                   PropertyValueConverter<BigDecimal, String, ValueConversionContext<? extends org.springframework.data.mapping.PersistentProperty<?>>> {
+        implements AttributeConverter<BigDecimal, String> {
 
     private static final String ALGO = "AES/GCM/NoPadding";
     private static final int IV_LENGTH = 12;
@@ -33,7 +30,9 @@ public class BigDecimalGradeEncryptionConverter
     private static final SecureRandom secureRandom = new SecureRandom();
     private final SecretKey key;
 
-    // No-arg constructor used by Hibernate (JPA) and Spring Data MongoDB (@ValueConverter) via reflection
+    // No-arg fallback for when Hibernate instantiates the converter itself rather than pulling it
+    // from the Spring context. Reads the key straight off the classpath, so it only works where
+    // GRADE_ENCRYPTION_KEY is a real environment variable -- not under the test profile.
     public BigDecimalGradeEncryptionConverter() {
         this.key = loadKey(readKeyFromProperties());
     }
@@ -79,19 +78,6 @@ public class BigDecimalGradeEncryptionConverter
         return decryptToBigDecimal(dbValue);
     }
 
-    // =========================
-    // Spring Data PropertyValueConverter hooks (MongoDB)
-    // =========================
-
-    @Override
-    public BigDecimal read(String value, ValueConversionContext<? extends org.springframework.data.mapping.PersistentProperty<?>> context) {
-        return decryptToBigDecimal(value);
-    }
-
-    @Override
-    public String write(BigDecimal value, ValueConversionContext<? extends org.springframework.data.mapping.PersistentProperty<?>> context) {
-        return encryptBigDecimal(value);
-    }
 
     // =========================
     // Public convenience methods

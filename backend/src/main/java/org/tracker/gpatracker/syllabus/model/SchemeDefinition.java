@@ -1,12 +1,10 @@
 package org.tracker.gpatracker.syllabus.model;
 
 import java.util.List;
-import org.springframework.data.mongodb.core.mapping.Field;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 public class SchemeDefinition {
     private String label;
-    @Field("assessments")
     @JsonProperty("assessments")
     private List<AssessmentItem> assessmentItemList;
 

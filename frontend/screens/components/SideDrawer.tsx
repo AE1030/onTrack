@@ -16,7 +16,13 @@ import Animated, {
   Easing,
   runOnJS,
 } from "react-native-reanimated";
+import { useQuery } from "@tanstack/react-query";
 import { colors } from "../../src/theme/colors";
+import { qk } from "../../src/cache/keys";
+import { fetchStatus } from "../../src/leaderboard/api";
+import { AvatarConfig, avatarFor, normalizeAvatar } from "../../src/leaderboard/avatar";
+import { useBackfillLocalAvatar } from "../../src/leaderboard/useBackfillLocalAvatar";
+import PlayerAvatar from "./leaderboard/PlayerAvatar";
 
 const DRAWER_WIDTH = 260;
 const SCREEN_WIDTH = Dimensions.get("window").width;
@@ -32,6 +38,7 @@ const NAV_ITEMS: NavItem[] = [
   { key: "myCourses", label: "My Courses", icon: "book-open" },
   { key: "calendar", label: "Calendar", icon: "calendar" },
   { key: "gpa", label: "GPA Calculator", icon: "bar-chart-2" },
+  { key: "leaderboard", label: "Leaderboard", icon: "award" },
 ];
 
 type Props = {
@@ -52,6 +59,7 @@ export default function SideDrawer({
   onLogout,
 }: Props) {
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
+  const boardAvatar = useBoardAvatar();
   const translateX = useSharedValue(-DRAWER_WIDTH);
   const backdropOpacity = useSharedValue(0);
 
@@ -139,11 +147,17 @@ export default function SideDrawer({
         {/* Bottom section */}
         <View style={styles.bottomSection}>
           <View style={styles.userRow}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>
-                {username ? username.charAt(0).toUpperCase() : "?"}
-              </Text>
-            </View>
+            {boardAvatar ? (
+              <View style={styles.avatarSlot}>
+                <PlayerAvatar config={boardAvatar} size={36} />
+              </View>
+            ) : (
+              <View style={styles.avatar}>
+                <Text style={styles.avatarText}>
+                  {username ? username.charAt(0).toUpperCase() : "?"}
+                </Text>
+              </View>
+            )}
             <Text style={styles.username} numberOfLines={1}>
               {username}
             </Text>
@@ -156,6 +170,33 @@ export default function SideDrawer({
       </Animated.View>
     </View>
   );
+}
+
+/**
+ * The student's leaderboard face, or null when the letter should show instead.
+ *
+ * Only an active entrant gets one: someone who left the board, or never joined, keeps the letter,
+ * because the face belongs to the game rather than to the account. It is the same face the board
+ * shows, so an entrant who never picked one gets the face derived from their handle.
+ *
+ * Shares the leaderboard status cache, so joining, leaving, or changing the avatar (all of which
+ * invalidate it) updates the drawer without a request of its own.
+ */
+function useBoardAvatar(): AvatarConfig | null {
+  const status = useQuery({
+    queryKey: qk.leaderboardStatus,
+    queryFn: fetchStatus,
+    // The drawer is decoration here. An auth failure is the screen's to handle, not this hook's.
+    retry: false,
+  });
+
+  // The drawer is mounted for the whole session, so this is where a device-only avatar gets
+  // uploaded even if the student never opens the leaderboard.
+  useBackfillLocalAvatar(status.data);
+
+  const data = status.data;
+  if (!data?.joined || data.status !== "ACTIVE") return null;
+  return normalizeAvatar(data.avatar) ?? avatarFor(data.handle ?? "");
 }
 
 const styles = StyleSheet.create({
@@ -238,6 +279,9 @@ const styles = StyleSheet.create({
     backgroundColor: "#7A003C",
     alignItems: "center",
     justifyContent: "center",
+    marginRight: 10,
+  },
+  avatarSlot: {
     marginRight: 10,
   },
   avatarText: {

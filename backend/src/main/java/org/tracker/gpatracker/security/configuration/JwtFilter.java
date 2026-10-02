@@ -1,4 +1,5 @@
 package org.tracker.gpatracker.security.configuration;
+import io.jsonwebtoken.JwtException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -7,6 +8,7 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -38,7 +40,15 @@ public class JwtFilter extends OncePerRequestFilter {
         String username = null;
         if(authHeader != null && authHeader.startsWith("Bearer ")){
             token = authHeader.substring(7);
-            username = jwtService.extractUserName(token);
+            try {
+                username = jwtService.extractUserName(token);
+            } catch (JwtException | IllegalArgumentException e) {
+                // Expired, malformed or badly signed. Parsing throws rather than returning, and
+                // letting that escape the filter chain surfaced as a 500. Leaving the request
+                // unauthenticated lets the entry point answer 401, which is the client's cue to
+                // call /refresh.
+                logger.debug("Rejected bearer token: " + e.getMessage());
+            }
         }
 
         /*This code checks if a valid JWT username exists and no user is currently authenticated.
@@ -52,8 +62,8 @@ public class JwtFilter extends OncePerRequestFilter {
             if (username != null && SecurityContextHolder.getContext().getAuthentication() == null){//check if the username is not empty and that the user is not already logged for this request (does this by checking the application context)
 
 
-                UserDetails userDetails = context.getBean(MyUserDetailService.class).loadUserByUsername(username);
-                if (jwtService.validateToken(token, userDetails)){
+                UserDetails userDetails = loadUser(username);
+                if (userDetails != null && jwtService.validateToken(token, userDetails)){
                     UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
                     authToken.setDetails(new WebAuthenticationDetailsSource() .buildDetails(request));
                     SecurityContextHolder.getContext().setAuthentication(authToken);
@@ -72,6 +82,15 @@ public class JwtFilter extends OncePerRequestFilter {
 
     }
 
+    /** Null when the account behind a still-valid token has since been deleted. */
+    private UserDetails loadUser(String username) {
+        try {
+            return context.getBean(MyUserDetailService.class).loadUserByUsername(username);
+        } catch (UsernameNotFoundException e) {
+            return null;
+        }
+    }
+
     private void bindTenant(String token, UserDetails userDetails) {
         Long userId = jwtService.extractUserId(token);
         Long studentId = jwtService.extractStudentId(token);
@@ -88,6 +107,8 @@ public class JwtFilter extends OncePerRequestFilter {
         String path = request.getServletPath();
         return "OPTIONS".equalsIgnoreCase(request.getMethod())
                 || "/login".equals(path)
+                || "/refresh".equals(path)
+                || "/logout".equals(path)
                 || "/register".equals(path)
                 || "/verify".equals(path)
                 || "/verify/resend".equals(path)

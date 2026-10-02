@@ -14,6 +14,7 @@ import org.tracker.gpatracker.calendar.model.CalendarEvents;
 import org.tracker.gpatracker.calendar.model.CalendarEvents.InternalCalendarEvent;
 import org.tracker.gpatracker.calendar.repository.CalendarEventsRepository;
 import org.tracker.gpatracker.accounts.service.StudentService;
+import org.tracker.gpatracker.terms.TermService;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -33,17 +34,20 @@ public class CalendarProjectionService {
     private final CalendarEventsRepository calendarEventsRepository;
     private final GoogleCalendarSyncService googleCalendarSyncService;
     private final StudentService studentService;
+    private final TermService termService;
 
     public CalendarProjectionService(
             AssessmentTableDocumentRepository assessmentTableRepository,
             CalendarEventsRepository calendarEventsRepository,
             GoogleCalendarSyncService googleCalendarSyncService,
-            StudentService studentService
+            StudentService studentService,
+            TermService termService
     ) {
         this.assessmentTableRepository = assessmentTableRepository;
         this.calendarEventsRepository = calendarEventsRepository;
         this.googleCalendarSyncService = googleCalendarSyncService;
         this.studentService = studentService;
+        this.termService = termService;
     }
 
     @EventListener
@@ -60,7 +64,7 @@ public class CalendarProjectionService {
     }
 
     public List<InternalCalendarEvent> getUpcomingEvents(Long studentId) {
-        Optional<CalendarEvents> calendarEvents = calendarEventsRepository.findByStudentId(studentId);
+        Optional<CalendarEvents> calendarEvents = calendarEventsRepository.findByOwnerId(studentId);
         if (calendarEvents.isEmpty()) {
             return List.of();
         }
@@ -75,7 +79,7 @@ public class CalendarProjectionService {
 
     public void updateUpcomingEvent(String eventKey) {
         Long studentId = studentService.getStudentID();
-        CalendarEvents calendarEvents = calendarEventsRepository.findByStudentId(studentId)
+        CalendarEvents calendarEvents = calendarEventsRepository.findByOwnerId(studentId)
                 .orElseThrow(() -> new RuntimeException("No calendar events found for student " + studentId));
 
         List<InternalCalendarEvent> events = calendarEvents.getEvents();
@@ -90,14 +94,14 @@ public class CalendarProjectionService {
     }
 
     public Optional<CalendarEvents> getCalendarEvents(Long studentId) {
-        Optional<CalendarEvents> existing = calendarEventsRepository.findByStudentId(studentId);
+        Optional<CalendarEvents> existing = calendarEventsRepository.findByOwnerId(studentId);
         if (existing.isPresent()) {
             return existing;
         }
 
         // First fetch — no projection exists yet. Build it on-demand from existing assessment tables.
         recompute(studentId);
-        return calendarEventsRepository.findByStudentId(studentId);
+        return calendarEventsRepository.findByOwnerId(studentId);
     }
 
     /**
@@ -107,22 +111,31 @@ public class CalendarProjectionService {
      * ensuring removed/edited assessments are reflected immediately.
      */
     public void recompute(Long studentId) {
-        List<AssessmentTableDocument> tables = assessmentTableRepository.findByStudentId(studentId);
+        List<AssessmentTableDocument> tables = assessmentTableRepository.findByOwnerId(studentId);
+        String currentTerm = termService.getCurrentTerm();
 
         // Build the entire event list from the current state of all assessment tables.
         // This is a full replacement — any assessment that no longer exists in the
         // tables will simply not appear, effectively removing it from the projection.
+        //
+        // Current term only. The dedupe below keys on course code plus assessment name, so the
+        // same course in two terms would collide: putIfAbsent lets whichever table was read
+        // first win and the other term's date disappears. A past term has nothing coming up
+        // either way, so filtering here is both the fix and the correct behaviour.
         Map<String, InternalCalendarEvent> deduped = new LinkedHashMap<>();
         for (AssessmentTableDocument table : tables) {
+            if (table == null || !currentTerm.equals(table.getTerm())) {
+                continue;
+            }
             collectEventsFromTable(table, deduped);
         }
 
 
         // Replace the entire events list — not a merge, a full replacement.
         // This guarantees deleted/edited assessments don't linger.
-        CalendarEvents calendarEvents = calendarEventsRepository.findByStudentId(studentId)
+        CalendarEvents calendarEvents = calendarEventsRepository.findByOwnerId(studentId)
                 .orElseGet(CalendarEvents::new);
-        calendarEvents.setStudentId(studentId);
+        calendarEvents.setOwnerId(studentId);
         calendarEvents.setEvents(new ArrayList<>(deduped.values()));
         calendarEvents.setLastUpdatedAt(Instant.now());
 

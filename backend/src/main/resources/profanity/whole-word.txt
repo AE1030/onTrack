@@ -1,0 +1,37 @@
+# Blocked only when the handle is exactly this word, or contains it as a separate token
+# (split on _ - digits and camelCase).
+#
+# These terms DO appear inside ordinary English words, so a substring match would reject
+# innocent handles. The word that forced each one is noted, so nobody moves it without
+# knowing what breaks.
+#
+# One term per line, lower case, letters only. Lines starting with # are ignored.
+anal        # analysis, analyst
+anus        # manuscript
+ass         # class, password, association
+butt        # button, butterfly
+cock        # cocktail, peacock, hancock
+coon        # tycoon
+cum         # document, circumstances
+dick        # dickens, dickinson
+escort      # escort is an ordinary word
+gic         # magic, logic, strategic
+milf        # milford
+mong        # among, amongst, mongolia
+negro       # montenegro
+paki        # pakistan, pakistani
+panty       # pantyhose
+poon        # spoon, teaspoon
+pussy       # pussycat
+rape        # therapeutic, grape, draper
+raping      # wrapping
+rapist      # therapist
+scat        # scattered, scattering
+semen       # basement, advertisement
+sex         # essex, sussex
+sexual      # bisexual, homosexual
+sexuality   # homosexuality
+spic        # spice, suspicious, hospice
+tit         # title, institute, competition
+twat        # saltwater
+xxx         # xxxx

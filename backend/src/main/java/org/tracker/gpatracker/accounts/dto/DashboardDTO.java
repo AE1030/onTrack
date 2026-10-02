@@ -8,6 +8,11 @@ public class DashboardDTO {
     private BigDecimal gpa12;
     private BigDecimal targetGpa4;
     private BigDecimal targetGpa12;
+    /**
+     * True while the student is on the leaderboard. The target then comes from the season they
+     * joined with and cannot be edited until they leave.
+     */
+    private boolean targetLocked;
 
     public String getUsername() {
         return username;
@@ -47,5 +52,13 @@ public class DashboardDTO {
 
     public void setTargetGpa12(BigDecimal targetGpa12) {
         this.targetGpa12 = targetGpa12;
+    }
+
+    public boolean isTargetLocked() {
+        return targetLocked;
+    }
+
+    public void setTargetLocked(boolean targetLocked) {
+        this.targetLocked = targetLocked;
     }
 }

@@ -3,3 +3,28 @@ target/
 .env
 CLAUDE.md
 *:Zone.Identifier
+
+# Local planning docs (not part of the build)
+v2plan/
+
+# UI inspiration screenshots (local reference only)
+frontend/screenshot-inspiration/
+
+# The old manual scraper. Superseded by tools/syllabus-pipeline, which IS committed.
+# Kept locally only for its out/ corpus, which import_local_corpus.py reads once to seed
+# syllabusSources. Safe to delete after that import has run.
+SyllabusScrapper/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+*.egg-info/
+.neon
+.env.local
+node_modules/
+
+# Root-level Neon config tooling (@neon/config, @neon/env), not an app package
+/package.json
+/package-lock.json

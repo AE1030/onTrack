@@ -18,16 +18,29 @@ import org.tracker.gpatracker.support.ContainerIntegrationBase;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Integration test that runs getNormalizedAssessmentItems against every
- * SyllabusDocument in the MongoDB "syllabuses" collection.
+ * Integration test that runs getNormalizedAssessmentItems against every row in the shared
+ * {@code syllabus} catalog.
  *
- * <p>Runs on the "test" profile against the Testcontainers Mongo from
- * {@link ContainerIntegrationBase}. That container starts empty, so this stays disabled: it
- * asserts over real syllabus data and has nothing to read until the collection is seeded.
+ * <p>Runs on the "test" profile against the Testcontainers Postgres from
+ * {@link ContainerIntegrationBase}. That database starts empty, so this stays disabled: it
+ * asserts over real syllabus data and has nothing to read until the table is seeded.
+ *
+ * <p><strong>These assertions now also run for real, elsewhere.</strong> Both of them were ported
+ * into the verify stage of {@code tools/syllabus-pipeline}, which checks every catalog document on
+ * every scheduled run and writes what it finds to {@code syllabus_pipeline_run}. That is where a bad
+ * extraction actually gets caught, because it runs against the real catalog rather than an empty
+ * container. The pipeline's copy also enforces the parts of the extraction contract this class
+ * never checked: the bonus rules, replacement-rule completeness, and due-date counts matching
+ * {@code occurrence.total}.
+ *
+ * <p>What this class is still the right home for is the normalizer itself. It exercises
+ * {@code getNormalizedAssessmentItems}, which the Python checks cannot see at all. Give it fixtures
+ * rather than a live catalog and it can be enabled; until then {@link SyllabusAssessmentServiceTest}
+ * covers that logic against hand-built documents.
  */
 @SpringBootTest
 @ActiveProfiles("test")
-@Disabled("Asserts over real syllabus data; seed the Mongo container before running manually")
+@Disabled("Asserts over real syllabus data; seed the syllabus table before running manually")
 class SyllabusAssessmentServiceIntegrationTest extends ContainerIntegrationBase {
 
     @Autowired
@@ -38,7 +51,7 @@ class SyllabusAssessmentServiceIntegrationTest extends ContainerIntegrationBase 
 
     @Test
     void allSyllabusDocuments_shouldProduceValidAssessmentTables() {
-        List<SyllabusDocument> allDocs = syllabusRepository.findByTerm("Winter 2026");
+        List<SyllabusDocument> allDocs = syllabusRepository.findByIdTerm("Winter 2026");
         assertThat(allDocs)
                 .as("No syllabuses found for Winter 2026")
                 .isNotEmpty();

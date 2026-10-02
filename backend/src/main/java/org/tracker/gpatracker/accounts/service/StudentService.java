@@ -2,7 +2,6 @@ package org.tracker.gpatracker.accounts.service;
 import jakarta.transaction.Transactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -21,6 +20,7 @@ import org.tracker.gpatracker.courses.repository.CourseRepository;
 import org.tracker.gpatracker.courses.repository.PastCourseRepository;
 import org.tracker.gpatracker.security.model.Users;
 import org.tracker.gpatracker.tenancy.UserContext;
+import org.tracker.gpatracker.terms.TermService;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -39,18 +39,17 @@ public class StudentService {
     private final PastCourseRepository pastCourseRepo;
     private final CourseRepository courseRepo;
     private final ApplicationEventPublisher eventPublisher;
-
-    @Value("${app.current-term}")
-    private String currentTerm;
+    private final TermService termService;
 
     public StudentService(CourseEnrollementRepository enrollementRepo, StudentRepo studentRepo,
                           PastCourseRepository pastCourseRepo, CourseRepository courseRepo,
-                          ApplicationEventPublisher eventPublisher) {
+                          ApplicationEventPublisher eventPublisher, TermService termService) {
         this.enrollementRepo = enrollementRepo;
         this.studentRepo = studentRepo;
         this.pastCourseRepo = pastCourseRepo;
         this.courseRepo = courseRepo;
         this.eventPublisher = eventPublisher;
+        this.termService = termService;
     }
     public void createStudentAccount(Users user) {
         logger.info("createStudentAccount — userId: {}", user.getId());
@@ -79,16 +78,25 @@ public class StudentService {
         return student == null ? null : student.getId();
     }
 
+    /**
+     * Enrols the student in a course for the current term.
+     *
+     * <p>Only ever the current term: enrolment is a write, and past terms are view only. There is
+     * no overload that takes a term for the same reason.
+     */
     public void addCurrentCourses(Course course, BigDecimal grade) {
         Student student = getStudentAccount();
-        CourseEnrollementKey key = new CourseEnrollementKey(student.getId(), course.getId());
+        String term = termService.getCurrentTerm();
+        CourseEnrollementKey key = new CourseEnrollementKey(student.getId(), course.getId(), term);
 
         //Avoid duplicate rows when the same transcript is uploaded multiple times
         if (enrollementRepo.existsById(key)) {
             return;
         }
 
-        long currentCount = enrollementRepo.countByStudentsId(student.getId());
+        // Counted per term. Counting every term would lock a returning student out of adding
+        // courses in their second term because their first term already filled the cap.
+        long currentCount = enrollementRepo.countByStudentsIdAndIdTerm(student.getId(), term);
         if (currentCount >= MAX_CURRENT_COURSES) {
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
@@ -105,32 +113,41 @@ public class StudentService {
         enrollementRepo.save(enrollement);
     }
 
-    public void updateCourseGrade(String courseCode, BigDecimal grade) {
-        Student student = getStudentAccount();
-        Optional<Course> courseOpt = courseRepo.findBycourseCode(courseCode);
-        if (courseOpt.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Course not found");
-        }
-        CourseEnrollementKey key = new CourseEnrollementKey(student.getId(), courseOpt.get().getId());
-        CourseEnrollement enrollement = enrollementRepo.findByIdForUpdate(key)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Enrollment not found"));
+    // findByIdForUpdate takes a SELECT ... FOR UPDATE. Without a transaction each repo
+    // call auto-commits on its own, so that lock was released the moment the select
+    // returned and protected nothing. The annotation also keeps the enrollment write and
+    // the GPA recalculation the event triggers in one unit, so a failure part way through
+    // can no longer leave a saved grade next to a stale GPA.
+    @Transactional
+    public void updateCourseGrade(String courseCode, String term, BigDecimal grade) {
+        // Guard first, so a past-term edit is refused before any row is read or locked.
+        termService.requireEditable(term);
+        CourseEnrollement enrollement = lockEnrollment(courseCode, term);
         enrollement.setGrade(grade);
         enrollementRepo.save(enrollement);
-        eventPublisher.publishEvent(new GpaRecalculationEvent(this, student.getId()));
+        eventPublisher.publishEvent(new GpaRecalculationEvent(this, enrollement.getOwnerId()));
     }
 
-    public void toggleIncludeInGpa(String courseCode, boolean includeInGpa) {
+    @Transactional
+    public void toggleIncludeInGpa(String courseCode, String term, boolean includeInGpa) {
+        termService.requireEditable(term);
+        CourseEnrollement enrollement = lockEnrollment(courseCode, term);
+        enrollement.setIncludeInGpa(includeInGpa);
+        enrollementRepo.save(enrollement);
+        eventPublisher.publishEvent(new GpaRecalculationEvent(this, enrollement.getOwnerId()));
+    }
+
+    /** Resolves a course code plus term to this student's enrollment, locked for update. */
+    private CourseEnrollement lockEnrollment(String courseCode, String term) {
         Student student = getStudentAccount();
         Optional<Course> courseOpt = courseRepo.findBycourseCode(courseCode);
         if (courseOpt.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Course not found");
         }
-        CourseEnrollementKey key = new CourseEnrollementKey(student.getId(), courseOpt.get().getId());
-        CourseEnrollement enrollement = enrollementRepo.findByIdForUpdate(key)
+        CourseEnrollementKey key =
+                new CourseEnrollementKey(student.getId(), courseOpt.get().getId(), term);
+        return enrollementRepo.findByIdForUpdate(key)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Enrollment not found"));
-        enrollement.setIncludeInGpa(includeInGpa);
-        enrollementRepo.save(enrollement);
-        eventPublisher.publishEvent(new GpaRecalculationEvent(this, student.getId()));
     }
 
 
@@ -138,6 +155,14 @@ public class StudentService {
         Student student = getStudentAccount();
         student.setGpa4(gpa4);
         student.setGpa12(gpa12);
+        studentRepo.save(student);
+    }
+
+    /** The personal target shown on the dashboard when the student is not on the leaderboard. */
+    public void setTargetGpa(BigDecimal targetGpa4, BigDecimal targetGpa12) {
+        Student student = getStudentAccount();
+        student.setTargetGpa4(targetGpa4);
+        student.setTargetGpa12(targetGpa12);
         studentRepo.save(student);
     }
 
@@ -202,9 +227,16 @@ public class StudentService {
         eventPublisher.publishEvent(new GpaRecalculationEvent(this, student.getId()));
     }
 
-    public List<CurrentCourseDTO> getPresentCourses() {
+    /**
+     * This student's courses for one term. A null or blank term means the current one, which is
+     * what keeps an app build that predates the term picker working.
+     */
+    public List<CurrentCourseDTO> getPresentCourses(String term) {
         Student student = getStudentAccount();
-        List<CourseEnrollement> enrollements = enrollementRepo.findByStudentsId(student.getId());
+        String resolved = termService.resolveForRead(term);
+        boolean editable = termService.isEditable(resolved);
+        List<CourseEnrollement> enrollements =
+                enrollementRepo.findByStudentsIdAndIdTerm(student.getId(), resolved);
         List<CurrentCourseDTO> courseDTOs = new ArrayList<>();
 
         for (CourseEnrollement enrollement : enrollements) {
@@ -220,7 +252,10 @@ public class StudentService {
             dto.setCourseName(course.getCourseName());
             dto.setCredits(course.getCourseCredits() == null ? null : course.getCourseCredits().toString());
             dto.setGrade(enrollement.getGrade());
-            dto.setTerm(currentTerm);
+            // The row's own term, not the configured one. Stamping currentTerm here was what
+            // made every course look like it belonged to the current term.
+            dto.setTerm(enrollement.getTerm());
+            dto.setEditable(editable);
             dto.setIncludeInGpa(enrollement.isIncludeInGpa());
             courseDTOs.add(dto);
         }
@@ -229,14 +264,17 @@ public class StudentService {
     }
 
 
-    public Long deleteCurrentCourse(String courseCode) {
-        logger.info("deleteCurrentCourse — course: {}", courseCode);
+    public Long deleteCurrentCourse(String courseCode, String term) {
+        logger.info("deleteCurrentCourse — course: {}, term: {}", courseCode, term);
+        // Deleting is editing, so past terms are refused before anything is read.
+        termService.requireEditable(term);
         Student student = getStudentAccount();
         Optional<Course> courseOpt = courseRepo.findBycourseCode(courseCode);
         if (courseOpt.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Course not found");
         }
-        CourseEnrollementKey key = new CourseEnrollementKey(student.getId(), courseOpt.get().getId());
+        CourseEnrollementKey key =
+                new CourseEnrollementKey(student.getId(), courseOpt.get().getId(), term);
         Optional<CourseEnrollement> enrollment = enrollementRepo.findById(key);
         if (enrollment.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Enrollment not found");

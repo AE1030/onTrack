@@ -12,11 +12,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       CI: true
-    services:
-      mongodb:
-        image: mongo:7
-        ports:
-          - 27017:27017
     defaults:
       run:
         working-directory: backend
@@ -55,18 +50,18 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker northamerica-northeast2-docker.pkg.dev --quiet
+        run: gcloud auth configure-docker us-east5-docker.pkg.dev --quiet
 
       - name: Build and Push Docker Image
         run: |
-          docker build -t northamerica-northeast2-docker.pkg.dev/gen-lang-client-0316039122/ontrack-repo/ontrack-backend ./backend
-          docker push northamerica-northeast2-docker.pkg.dev/gen-lang-client-0316039122/ontrack-repo/ontrack-backend
+          docker build -t us-east5-docker.pkg.dev/gen-lang-client-0316039122/ontrack-repo/ontrack-backend ./backend
+          docker push us-east5-docker.pkg.dev/gen-lang-client-0316039122/ontrack-repo/ontrack-backend
 
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy ontrack-backend \
-            --image=northamerica-northeast2-docker.pkg.dev/gen-lang-client-0316039122/ontrack-repo/ontrack-backend \
-            --region=northamerica-northeast2 \
+            --image=us-east5-docker.pkg.dev/gen-lang-client-0316039122/ontrack-repo/ontrack-backend \
+            --region=us-east5 \
             --platform=managed \
             --allow-unauthenticated \
             --port=8080

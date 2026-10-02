@@ -11,9 +11,17 @@ import {
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { colors } from "../src/theme/colors";
 import { getToken } from "../src/utils/tokenStorage";
 import { API_BASE_URL } from "../src/config/api";
+import { qk } from "../src/cache/keys";
+import {
+  HttpError,
+  authedMutate,
+  isAuthError,
+  isServerRejection,
+} from "../src/cache/authedGet";
 
 //
 // TYPES
@@ -31,6 +39,13 @@ type BackendAssessmentDTO = {
 };
 
 type BackendResponse = Record<string, BackendAssessmentDTO[]>;
+
+/** The fields this screen touches on the shared current-courses cache entry. */
+type CurrentCourseSummary = {
+  courseCode: string;
+  grade: number | null;
+  includeInGpa: boolean;
+};
 
 type Assessment = {
   id: string;
@@ -60,6 +75,12 @@ type GradingScheme = {
 type Props = {
   courseCode: string;
   term: string;
+  /**
+   * Whether this term accepts writes. False greys the table out and, more importantly, stops
+   * the autosave timer from ever being armed. Defaults to true so existing callers that only
+   * ever showed the current term keep their behaviour.
+   */
+  editable?: boolean;
   onAuthError: () => void;
   variant?: "screen" | "inline";
   onBestGradeChange?: (grade: number) => void;
@@ -67,11 +88,14 @@ type Props = {
   externalVersion?: number;
   skipFetch?: boolean;
   autoSaveVersion?: number;
+  /** Fired after a successful save (autosave included) so the parent can evict its cache. */
+  onSaved?: () => void;
 };
 
 export default function CourseCalculatorScreen({
   courseCode,
   term,
+  editable = true,
   onAuthError,
   variant = "screen",
   onBestGradeChange,
@@ -79,7 +103,9 @@ export default function CourseCalculatorScreen({
   externalVersion,
   skipFetch = false,
   autoSaveVersion,
+  onSaved,
 }: Props) {
+  const queryClient = useQueryClient();
   const [schemes, setSchemes] = useState<GradingScheme[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -104,8 +130,12 @@ export default function CourseCalculatorScreen({
   const hasHydrated = useRef(false);
   const autoSavePending = useRef(false);
 
-  const effectiveTerm = term === "Winter 2026" ? term : "Winter 2026";
+  // The term is whatever the caller selected. It used to be pinned to a literal here, which
+  // collapsed every term onto one cache entry and made a term picker impossible.
+  const effectiveTerm = term;
 
+  // Changing this refetches, because it is the fetch effect's dependency. That is all the
+  // wiring a term switch needs on this screen.
   const defaultCacheKey = `${courseCode}::${effectiveTerm}`;
 
   useEffect(() => {
@@ -617,6 +647,9 @@ export default function CourseCalculatorScreen({
   const buildSavePayload = () => {
     return {
       courseCode,
+      // Sent so the server can confirm we are writing where we think we are. It refuses
+      // anything but the current term with a 409 rather than trusting this value.
+      term,
       schemes: schemes.map((scheme) => ({
         schemeName: scheme.name,
         assessments: scheme.assessments.map((a) => {
@@ -702,12 +735,104 @@ export default function CourseCalculatorScreen({
     );
   }, [schemes]);
 
-  const saveAssessmentTable = async () => {
-    const token = await getToken();
-    if (!token) {
-      onAuthError();
-      return;
-    }
+  /** The grade the server currently believes this course has, per the shared cache. */
+  const cachedGrade = () =>
+    queryClient
+      .getQueryData<CurrentCourseSummary[]>(qk.currentCourses(term))
+      ?.find((c) => c.courseCode === courseCode)?.grade ?? null;
+
+  /**
+   * Saves the table and the grade it produces in a single request.
+   *
+   * These used to be two calls on two timers behind two different validity gates, which
+   * let them drift: a half-typed date blocked the table save while the grade PUT went
+   * through anyway, leaving the server with a grade its own table did not produce. One
+   * call means the grade can only ever move together with the rows behind it.
+   */
+  const saveMutation = useMutation({
+    mutationFn: (payload: ReturnType<typeof buildSavePayload> & { grade: number | null }) =>
+      authedMutate("/api/assessment-table/save", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+
+    onMutate: async ({ grade }) => {
+      setSaveState("saving");
+      setSaveError(null);
+
+      // The table itself is not written into the cache here: the GET shape and the save
+      // payload are not the same, and inventing one from the other risks corrupting the
+      // entry. Local `schemes` already shows the edit instantly, and the cache picks up
+      // the confirmed value on success.
+      if (grade === null) return { previousCourses: undefined };
+
+      await queryClient.cancelQueries({ queryKey: qk.currentCourses(term) });
+      const previousCourses = queryClient.getQueryData<CurrentCourseSummary[]>(
+        qk.currentCourses(term)
+      );
+
+      queryClient.setQueryData<CurrentCourseSummary[]>(qk.currentCourses(term), (old) => {
+        if (!old) return old;
+        return old.map((c) =>
+          c.courseCode === courseCode ? { ...c, grade } : c
+        );
+      });
+
+      return { previousCourses };
+    },
+
+    onError: (err, _vars, context) => {
+      // Read before the guards below narrow err down: after them TypeScript has nothing left
+      // to call .status on.
+      const rejection = err instanceof HttpError ? err : null;
+
+      if (isAuthError(err)) {
+        onAuthError();
+        return;
+      }
+
+      // Connection failures are still retrying under mutationRetry — leave the optimistic
+      // value alone. Only a refusal is final.
+      if (!isServerRejection(err)) return;
+
+      if (context?.previousCourses) {
+        queryClient.setQueryData(qk.currentCourses(term), context.previousCourses);
+      }
+      setSaveState("error");
+
+      // A 409 means this term is not writable. Either the screen is stale or the term rolled
+      // over while it was open, so re-read the term list rather than just reporting a failure.
+      if (rejection?.status === 409) {
+        setSaveError(rejection.serverMessage ?? "Past terms are view only");
+        queryClient.invalidateQueries({ queryKey: qk.terms });
+        return;
+      }
+      setSaveError("Save failed");
+    },
+
+    onSuccess: (_res, { grade }) => {
+      setSaveState("saved");
+      setDirty(false);
+
+      const includeInGpa =
+        queryClient
+          .getQueryData<CurrentCourseSummary[]>(qk.currentCourses(term))
+          ?.find((c) => c.courseCode === courseCode)?.includeInGpa ?? true;
+
+      // The GPA only moved if a grade went up and this course counts toward it.
+      if (grade !== null && includeInGpa) {
+        queryClient.invalidateQueries({ queryKey: qk.dashboard });
+      }
+
+      onSaved?.();
+    },
+  });
+
+  const saveAssessmentTable = () => {
+    // A past term never saves. The autosave effect below already returns before arming its
+    // timer, and the inputs are disabled, so reaching here means something upstream changed
+    // its mind. Stopping here keeps that from becoming a request the server has to refuse.
+    if (!editable) return;
 
     if (!allFieldsValid) {
       setSaveState("error");
@@ -715,39 +840,17 @@ export default function CourseCalculatorScreen({
       return;
     }
 
-    try {
-      setSaveState("saving");
-      setSaveError(null);
+    const previousGrade = cachedGrade();
+    // Compared at 2dp: bestGrade carries full float precision while the stored value is
+    // a rounded BigDecimal, so a raw !== would report a change on every single save.
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+    const unchanged =
+      previousGrade !== null && round2(bestGrade) === round2(previousGrade);
 
-      const payload = buildSavePayload();
+    // Omitting an unchanged grade keeps a due-date edit from touching Postgres at all.
+    const grade = unchanged ? null : bestGrade;
 
-      const response = await fetch(
-        `${API_BASE_URL.replace(/\/$/, "")}/api/assessment-table/save`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(payload),
-        }
-      );
-
-      if (response.status === 401 || response.status === 403) {
-        onAuthError();
-        return;
-      }
-
-      if (!response.ok) {
-        throw new Error("Save failed");
-      }
-
-      setSaveState("saved");
-      setDirty(false);
-    } catch (err: any) {
-      setSaveState("error");
-      setSaveError(err?.message ?? "Save failed");
-    }
+    saveMutation.mutate({ ...buildSavePayload(), grade });
   };
 
   useEffect(() => {
@@ -756,6 +859,9 @@ export default function CourseCalculatorScreen({
       return;
     }
 
+    // The earliest exit for a past term: the timer is never armed, so nothing downstream can
+    // fire a save. Disabling the inputs is what the user sees; this is what makes it true.
+    if (!editable) return;
     if (!dirty) return;
     if (!allFieldsValid) return;
 
@@ -765,22 +871,28 @@ export default function CourseCalculatorScreen({
 
     autosaveTimer.current = setTimeout(() => {
       saveAssessmentTable();
-    }, 1200);
+    }, 2000);
 
     return () => {
       if (autosaveTimer.current) {
         clearTimeout(autosaveTimer.current);
       }
     };
-  }, [schemes, dirty, allFieldsValid]);
+  }, [schemes, dirty, allFieldsValid, editable]);
 
   useEffect(() => {
     if (!autoSavePending.current) return;
+    if (!editable) {
+      // Drop the request rather than holding it: switching back to the current term must not
+      // flush a save that was queued while a past term was on screen.
+      autoSavePending.current = false;
+      return;
+    }
     if (loading) return;
     if (!allFieldsValid) return;
     autoSavePending.current = false;
     saveAssessmentTable();
-  }, [schemes, loading, allFieldsValid]);
+  }, [schemes, loading, allFieldsValid, editable]);
 
   if (loading) {
     return (
@@ -806,69 +918,89 @@ export default function CourseCalculatorScreen({
       ]}
       nestedScrollEnabled
     >
-      <View style={styles.saveRow}>
+      {/* Said once, at the top, rather than as a tooltip on every disabled field. */}
+      {!editable && (
+        <View style={styles.readOnlyBanner}>
+          <Feather name="eye" size={14} color={colors.bodyText} />
+          <Text style={styles.readOnlyBannerText}>
+            {term} is a past term. You can look, but not edit.
+          </Text>
+        </View>
+      )}
+
+      {/* Controls that write are hidden for a past term, not shown disabled. A button that
+          can never work is noise. */}
+      {editable && (
+        <View style={styles.saveRow}>
+          <Pressable
+            style={[
+              styles.saveButton,
+              (!allFieldsValid || !dirty) && styles.saveButtonDisabled,
+            ]}
+            onPress={saveAssessmentTable}
+            disabled={!allFieldsValid || !dirty}
+          >
+            <Text style={styles.saveButtonText}>Save</Text>
+          </Pressable>
+          <Text style={styles.saveStatus}>
+            {saveState === "saving" && "Saving..."}
+            {saveState === "saved" && "Saved"}
+            {saveState === "error" && (saveError ?? "Save failed")}
+            {saveState === "idle" &&
+              (!dirty
+                ? "No changes"
+                : !allFieldsValid
+                  ? "Fix errors to save"
+                  : "Unsaved changes")}
+          </Text>
+        </View>
+      )}
+
+      {editable && (
         <Pressable
           style={[
-            styles.saveButton,
-            (!allFieldsValid || !dirty) && styles.saveButtonDisabled,
+            styles.addSchemeButton,
+            schemes.length >= 5 && styles.addSchemeButtonDisabled,
           ]}
-          onPress={saveAssessmentTable}
-          disabled={!allFieldsValid || !dirty}
+          onPress={addScheme}
+          disabled={schemes.length >= 5}
         >
-          <Text style={styles.saveButtonText}>Save</Text>
+          <Text style={styles.addSchemeButtonText}>
+            Add Marking Scheme
+          </Text>
         </Pressable>
-        <Text style={styles.saveStatus}>
-          {saveState === "saving" && "Saving..."}
-          {saveState === "saved" && "Saved"}
-          {saveState === "error" && (saveError ?? "Save failed")}
-          {saveState === "idle" &&
-            (!dirty
-              ? "No changes"
-              : !allFieldsValid
-                ? "Fix errors to save"
-                : "Unsaved changes")}
-        </Text>
-      </View>
-
-      <Pressable
-        style={[
-          styles.addSchemeButton,
-          schemes.length >= 5 && styles.addSchemeButtonDisabled,
-        ]}
-        onPress={addScheme}
-        disabled={schemes.length >= 5}
-      >
-        <Text style={styles.addSchemeButtonText}>
-          Add Marking Scheme
-        </Text>
-      </Pressable>
+      )}
       {schemeLimitError && (
         <Text style={styles.warningText}>{schemeLimitError}</Text>
       )}
 
       {schemes.map((scheme, schemeIndex) => (
-        <View key={scheme.name} style={styles.schemeBox}>
+        <View key={scheme.name} style={[styles.schemeBox, !editable && styles.readOnlyScheme]}>
           <View style={styles.schemeHeader}>
             <Text style={styles.title}>{scheme.name}</Text>
-            <Pressable
-              style={styles.deleteButton}
-              onPress={() => deleteScheme(schemeIndex)}
-            >
-              <Feather
-                name="trash-2"
-                size={16}
-                color={colors.bodyText}
-              />
-            </Pressable>
+            {editable && (
+              <Pressable
+                style={styles.deleteButton}
+                onPress={() => deleteScheme(schemeIndex)}
+              >
+                <Feather
+                  name="trash-2"
+                  size={16}
+                  color={colors.bodyText}
+                />
+              </Pressable>
+            )}
           </View>
-          <Pressable
-            style={styles.addButton}
-            onPress={() => addAssessment(schemeIndex)}
-          >
-            <Text style={styles.addButtonText}>
-              Add Assessment
-            </Text>
-          </Pressable>
+          {editable && (
+            <Pressable
+              style={styles.addButton}
+              onPress={() => addAssessment(schemeIndex)}
+            >
+              <Text style={styles.addButtonText}>
+                Add Assessment
+              </Text>
+            </Pressable>
+          )}
 
           <View style={styles.headerRow}>
             <Text style={[styles.col, styles.col2]}>
@@ -894,6 +1026,7 @@ export default function CourseCalculatorScreen({
                 <View style={[styles.cell, styles.col2]}>
                   {isWeb ? (
                     <TextInput
+                      editable={editable}
                       style={[styles.nameInput, styles.flexFill]}
                       placeholder="Assessment name"
                       value={a.nameInput ?? a.name ?? ""}
@@ -920,6 +1053,7 @@ export default function CourseCalculatorScreen({
                   {isWeb ? (
                     <>
                       <TextInput
+                      editable={editable}
                         style={styles.dateInput}
                         placeholder="-"
                         value={
@@ -951,6 +1085,7 @@ export default function CourseCalculatorScreen({
                     </>
                   ) : (
                     <Pressable
+                      disabled={!editable}
                       onPress={() =>
                         setActivePicker({
                           schemeIndex,
@@ -970,6 +1105,7 @@ export default function CourseCalculatorScreen({
                   {isWeb ? (
                     <>
                       <TextInput
+                      editable={editable}
                         style={styles.timeInput}
                         placeholder="-"
                         value={
@@ -1005,6 +1141,7 @@ export default function CourseCalculatorScreen({
                     </>
                   ) : (
                     <Pressable
+                      disabled={!editable}
                       onPress={() =>
                         setActivePicker({
                           schemeIndex,
@@ -1026,6 +1163,7 @@ export default function CourseCalculatorScreen({
                   {isWeb ? (
                     <>
                       <TextInput
+                      editable={editable}
                         style={styles.timeInput}
                         placeholder="-"
                         value={
@@ -1061,6 +1199,7 @@ export default function CourseCalculatorScreen({
                     </>
                   ) : (
                     <Pressable
+                      disabled={!editable}
                       onPress={() =>
                         setActivePicker({
                           schemeIndex,
@@ -1078,6 +1217,7 @@ export default function CourseCalculatorScreen({
 
                 <View style={[styles.cell, styles.col2]}>
                   <TextInput
+                      editable={editable}
                     style={[styles.locationInput, styles.flexFill]}
                     placeholder="-"
                     value={a.locationInput ?? a.location ?? ""}
@@ -1101,6 +1241,7 @@ export default function CourseCalculatorScreen({
 
                 <View style={styles.cell}>
                   <TextInput
+                      editable={editable}
                     style={[styles.weightInput, styles.flexFill]}
                     keyboardType="decimal-pad"
                     value={
@@ -1125,6 +1266,7 @@ export default function CourseCalculatorScreen({
 
                 <View style={styles.cell}>
                   <TextInput
+                      editable={editable}
                     style={[styles.gradeInput, styles.flexFill]}
                     keyboardType="decimal-pad"
                     placeholder="-"
@@ -1140,18 +1282,20 @@ export default function CourseCalculatorScreen({
                 </View>
 
                 <View style={styles.colDelete}>
-                  <Pressable
-                    style={styles.deleteButton}
-                    onPress={() =>
-                      deleteAssessment(schemeIndex, a.id)
-                    }
-                  >
-                    <Feather
-                      name="trash-2"
-                      size={16}
-                      color={colors.bodyText}
-                    />
-                  </Pressable>
+                  {editable && (
+                    <Pressable
+                      style={styles.deleteButton}
+                      onPress={() =>
+                        deleteAssessment(schemeIndex, a.id)
+                      }
+                    >
+                      <Feather
+                        name="trash-2"
+                        size={16}
+                        color={colors.bodyText}
+                      />
+                    </Pressable>
+                  )}
                 </View>
 
 
@@ -1495,6 +1639,27 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 12,
     backgroundColor: "white",
+  },
+  // Recessed rather than faded. This is a reading surface, so the text has to stay
+  // comfortably legible: a low opacity would make the feature useless.
+  readOnlyScheme: {
+    backgroundColor: "#F4F4F7",
+    opacity: 0.92,
+  },
+  readOnlyBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 12,
+    borderRadius: 8,
+    backgroundColor: "#EEEEF5",
+  },
+  readOnlyBannerText: {
+    flex: 1,
+    fontSize: 13,
+    color: colors.bodyText,
   },
   title: {
     fontSize: 18,

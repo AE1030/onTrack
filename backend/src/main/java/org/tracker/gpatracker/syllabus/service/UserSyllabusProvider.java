@@ -17,7 +17,7 @@ public class UserSyllabusProvider implements SyllabusDocumentProvider {
 
     @Override
     public Optional<AbstractSyllabusDocument> findByCourseCodeAndTerm(String courseCode, String term) {
-        return userSyllabusRepository.findByCourseCodeAndTerm(courseCode, term)
+        return userSyllabusRepository.findByIdCourseCodeAndIdTerm(courseCode, term)
                 .map(doc -> (AbstractSyllabusDocument) doc);
     }
 

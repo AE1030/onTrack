@@ -1,22 +1,48 @@
 package org.tracker.gpatracker.calendar.model;
 
-import org.springframework.data.annotation.Id;
-import org.springframework.data.mongodb.core.mapping.Document;
-import org.springframework.data.mongodb.core.index.CompoundIndex;
-import org.tracker.gpatracker.tenancy.mongo.UserOwnedDocument;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
+import org.hibernate.annotations.Filter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+import org.tracker.gpatracker.tenancy.OwnerFilter;
+import org.tracker.gpatracker.tenancy.UserOwnedEntity;
 
 import java.time.Instant;
 import java.util.List;
 
-@Document(collection = "calendarEvents")
-@CompoundIndex(name = "idx_calendar_events_student", def = "{'studentId': 1}")
-public class CalendarEvents extends UserOwnedDocument {
+/**
+ * The upcoming-assessment projection for one student, rebuilt wholesale whenever an assessment table
+ * changes.
+ *
+ * <p>Exactly one row per student, which the unique constraint on {@code student_id} enforces rather
+ * than assumes. {@code CalendarEventsRepository.findByOwnerId} returns an {@code Optional}, so a
+ * second row would make every read throw instead of quietly returning the newer projection.
+ */
+@Entity
+@Table(
+        name = "calendar_events",
+        uniqueConstraints = @UniqueConstraint(
+                name = "uk_calendar_events_student",
+                columnNames = "student_id"))
+@Filter(name = OwnerFilter.NAME)
+public class CalendarEvents extends UserOwnedEntity {
 
     @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    @Column(name = "id", length = 36)
     private String id;
 
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "events")
     private List<InternalCalendarEvent> events;
 
+    @Column(name = "last_updated_at")
     private Instant lastUpdatedAt;
 
     public String getId() {
@@ -43,6 +69,7 @@ public class CalendarEvents extends UserOwnedDocument {
         this.lastUpdatedAt = lastUpdatedAt;
     }
 
+    /** Stored inside the {@code events} jsonb payload, not as a table of its own. */
     public static class InternalCalendarEvent extends AbstractCalendarEvent {
 
         private String description;

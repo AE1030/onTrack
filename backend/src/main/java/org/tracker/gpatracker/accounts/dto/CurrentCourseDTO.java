@@ -10,6 +10,14 @@ public class CurrentCourseDTO {
     String courseCode;
     boolean includeInGpa;
 
+    /**
+     * Whether this course may be edited. False for every course in a past term.
+     *
+     * <p>Sent as its own field rather than left for the client to work out from the term, so the
+     * UI asks "may I edit this" instead of reimplementing the rule.
+     */
+    boolean editable;
+
     public String getCourseName() {
         return courseName;
     }
@@ -56,5 +64,13 @@ public class CurrentCourseDTO {
 
     public void setIncludeInGpa(boolean includeInGpa) {
         this.includeInGpa = includeInGpa;
+    }
+
+    public boolean isEditable() {
+        return editable;
+    }
+
+    public void setEditable(boolean editable) {
+        this.editable = editable;
     }
 }

@@ -71,12 +71,12 @@ public class GeminiSyllabusExtractionService {
         Long studentId = studentService.getStudentID();
         int remaining = quotaService.consumeUploadQuota(studentId);
         SyllabusExtractionJob job = new SyllabusExtractionJob();
-        job.setStudentId(studentId);
+        job.setOwnerId(studentId);
         job.setCourseCode(courseCode);
         job.setTerm(term);
         job.setStatus(JobStatus.QUEUED);
         job.setRemainingUploads(remaining);
-        // createdAt/updatedAt are filled by Mongo auditing on save -- see MongoAuditingConfig.
+        // createdAt/updatedAt are filled by JPA auditing on save -- see BaseEntity.
         return jobRepository.save(job);
     }
 
@@ -93,7 +93,7 @@ public class GeminiSyllabusExtractionService {
         try {
             job.setStatus(JobStatus.PROCESSING);
             jobRepository.save(job);
-            extractAndSaveInternal(pdfBytes, courseCode, term, job.getStudentId());
+            extractAndSaveInternal(pdfBytes, courseCode, term, job.getOwnerId());
             try {
                 assessmentTableService.refreshFromSyllabus(courseCode);
             } catch (Exception e) {
@@ -101,7 +101,7 @@ public class GeminiSyllabusExtractionService {
             }
             job.setStatus(JobStatus.DONE);
             job.setErrorType(null);
-            job.setRemainingUploads(quotaService.getRemainingUploads(job.getStudentId()));
+            job.setRemainingUploads(quotaService.getRemainingUploads(job.getOwnerId()));
             jobRepository.save(job);
         } catch (Exception ex) {
             job.setStatus(JobStatus.FAILED);
@@ -111,9 +111,9 @@ public class GeminiSyllabusExtractionService {
             // Restore quota for non-chargeable failures (API errors, parse errors)
             // Keep the charge for invalid syllabus uploads
             if (job.getErrorType() != SyllabusErrorType.INVALID_SYLLABUS) {
-                job.setRemainingUploads(quotaService.restoreQuota(job.getStudentId()));
+                job.setRemainingUploads(quotaService.restoreQuota(job.getOwnerId()));
             } else {
-                job.setRemainingUploads(quotaService.getRemainingUploads(job.getStudentId()));
+                job.setRemainingUploads(quotaService.getRemainingUploads(job.getOwnerId()));
             }
             jobRepository.save(job);
         }

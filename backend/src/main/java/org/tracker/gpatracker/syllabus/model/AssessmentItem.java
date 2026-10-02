@@ -1,7 +1,6 @@
 package org.tracker.gpatracker.syllabus.model;
 
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
-import org.springframework.data.mongodb.core.mapping.Field;
 
 import java.math.BigDecimal;
 
@@ -10,22 +9,16 @@ public class AssessmentItem{
     private String name;
     private String category;
 
-    @Field("due_date")
     @JsonDeserialize(using = DueDateDeserializer.class)
     private String dueDate;   // ISO string or "TBD"
     private BigDecimal weight;    // nullable by design
 
-    @Field("start_time")
     private String startTime; // HH:MM or null
-    @Field("end_time")
     private String endTime;   // HH:MM or null
     private String location;
     private String description;
-    @Field("bonus_assessment")
     private Boolean bonusAssessment;
-    @Field("bonus_description")
     private String bonusDescription;
-    @Field("replacement_rule")
     private ReplacementRule replacementRule;
     private Occurrence occurrence;
 

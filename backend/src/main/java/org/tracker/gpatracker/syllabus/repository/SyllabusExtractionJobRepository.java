@@ -1,9 +1,8 @@
 package org.tracker.gpatracker.syllabus.repository;
 
-import org.springframework.data.mongodb.repository.MongoRepository;
-import org.springframework.stereotype.Repository;
 import org.tracker.gpatracker.syllabus.model.SyllabusExtractionJob;
+import org.tracker.gpatracker.tenancy.UserScopedRepository;
 
-@Repository
-public interface SyllabusExtractionJobRepository extends MongoRepository<SyllabusExtractionJob, String> {
+public interface SyllabusExtractionJobRepository
+        extends UserScopedRepository<SyllabusExtractionJob, String> {
 }

@@ -12,6 +12,14 @@ public class UpdateCourseGradeDTO {
     @Size(max = 100, message = "Course code is too long")
     private String courseCode;
 
+    /**
+     * The term the client believes it is editing. Not a choice of where to write: the server
+     * refuses anything but the current term, so this is how a stale screen is caught.
+     */
+    @NotBlank(message = "Term is required")
+    @Size(max = 32, message = "Term is too long")
+    private String term;
+
     @NotNull(message = "Grade is required")
     @DecimalMin(value = "0.0", message = "Grade must be at least 0")
     private BigDecimal grade;
@@ -22,6 +30,14 @@ public class UpdateCourseGradeDTO {
 
     public void setCourseCode(String courseCode) {
         this.courseCode = courseCode;
+    }
+
+    public String getTerm() {
+        return term;
+    }
+
+    public void setTerm(String term) {
+        this.term = term;
     }
 
     public BigDecimal getGrade() {

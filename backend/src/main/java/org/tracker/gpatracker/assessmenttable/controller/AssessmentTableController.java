@@ -25,8 +25,9 @@ public class AssessmentTableController {
 
     @PostMapping("/save")
     public ResponseEntity<Void> saveAssessmentTable(@Valid @RequestBody SaveAssessmentTableDTO assessmentTableDTO) {
-        logger.info("POST /api/assessment-table/save — course: {}", assessmentTableDTO.getCourseCode());
-        assessmentTableService.saveToRepo(assessmentTableDTO);
+        logger.info("POST /api/assessment-table/save — course: {}, grade: {}",
+                assessmentTableDTO.getCourseCode(), assessmentTableDTO.getGrade());
+        assessmentTableService.saveTableAndGrade(assessmentTableDTO);
         return ResponseEntity.ok().build();
     }
 

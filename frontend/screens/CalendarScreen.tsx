@@ -14,10 +14,13 @@ import {
 import { Calendar, DateData } from "react-native-calendars";
 import * as WebBrowser from "expo-web-browser";
 import { Feather } from "@expo/vector-icons";
+import { useQuery } from "@tanstack/react-query";
 import { colors } from "../src/theme/colors";
 import { spacing } from "../src/theme/spacing";
 import { API_BASE_URL } from "../src/config/api";
 import { getToken } from "../src/utils/tokenStorage";
+import { qk } from "../src/cache/keys";
+import { authedFetch, isAuthError, queryRetry } from "../src/cache/authedGet";
 
 type InternalCalendarEvent = {
   courseCode: string;
@@ -37,8 +40,6 @@ type Props = {
 };
 
 export default function CalendarScreen({ onAuthError, onBack }: Props) {
-  const [events, setEvents] = useState<InternalCalendarEvent[]>([]);
-  const [loading, setLoading] = useState(true);
   const [exportModalVisible, setExportModalVisible] = useState(false);
   const [email, setEmail] = useState("");
   const [exporting, setExporting] = useState(false);
@@ -48,35 +49,27 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
   });
 
+  const eventsQuery = useQuery({
+    queryKey: qk.calendarEvents,
+    queryFn: async (): Promise<InternalCalendarEvent[]> => {
+      const res = await authedFetch("/api/calendar/events");
+      // No calendar yet is a normal empty state, not an error.
+      if (res.status === 404) return [];
+      if (!res.ok) return [];
+      const raw = await res.text();
+      const data = raw ? JSON.parse(raw) : null;
+      return data?.events ?? [];
+    },
+    staleTime: 2 * 60_000,
+    retry: queryRetry,
+  });
+
+  const events = eventsQuery.data ?? [];
+  const loading = eventsQuery.isPending;
+
   useEffect(() => {
-    fetchEvents();
-  }, []);
-
-  const fetchEvents = async () => {
-    try {
-      const token = await getToken();
-      const res = await fetch(`${API_BASE_URL}/api/calendar/events`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (res.status === 401 || res.status === 403) {
-        onAuthError();
-        return;
-      }
-
-      if (res.status === 404) {
-        setEvents([]);
-        return;
-      }
-
-      const data = await res.json();
-      setEvents(data.events ?? []);
-    } catch {
-      setEvents([]);
-    } finally {
-      setLoading(false);
-    }
-  };
+    if (isAuthError(eventsQuery.error)) onAuthError();
+  }, [eventsQuery.error, onAuthError]);
 
   const handleExport = async () => {
     if (!email.trim()) return;

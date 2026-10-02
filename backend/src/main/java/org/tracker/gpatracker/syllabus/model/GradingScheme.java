@@ -1,11 +1,9 @@
 package org.tracker.gpatracker.syllabus.model;
 
-import org.springframework.data.mongodb.core.mapping.Field;
 
 import java.util.Map;
 
 public class GradingScheme {
-    @Field("selection_rule")
     private SelectionRule selectionRule;
     private Map<String,SchemeDefinition> schemes;
 
@@ -24,8 +22,6 @@ public class GradingScheme {
         this.schemes = schemes;
     }
 }
-enum SelectionRule {
-    MAX
-}
+
 
 

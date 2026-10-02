@@ -18,9 +18,9 @@ import java.util.function.Supplier;
  * <p>Must be called inside an active transaction — it operates on the session bound to the
  * current persistence context.
  *
- * <p>The scheduled consensus job is the motivating case: it reads every student's due-date
- * overrides and deletes consensus rows based on what it finds. Under an enabled filter with no
- * tenant, it would silently process nothing.
+ * <p>The leaderboard ranking job is the motivating case: it reads every student's frozen season
+ * baseline and rewrites the board from them. Under an enabled filter with no tenant, it would
+ * silently process nothing.
  */
 @Component
 public class TenantScope {

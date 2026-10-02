@@ -1,33 +1,37 @@
 package org.tracker.gpatracker.syllabus.model;
 
-import org.springframework.data.annotation.Id;
-import org.springframework.data.annotation.Transient;
-import org.springframework.data.mongodb.core.mapping.Document;
-import org.tracker.gpatracker.tenancy.mongo.OwnedDocument;
+import jakarta.persistence.EmbeddedId;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
+import org.hibernate.annotations.Filter;
+import org.tracker.gpatracker.tenancy.OwnerFilter;
+import org.tracker.gpatracker.tenancy.UserOwned;
 
 /**
- * A student's own extraction of a syllabus.
+ * A student's own extraction of a syllabus, which takes precedence over the shared catalog for that
+ * student.
  *
- * <p>Cannot extend {@code UserOwnedDocument} — Java allows one superclass and this already extends
- * {@link AbstractSyllabusDocument}, whose sibling {@code SyllabusDocument} must stay unowned. So it
- * implements {@link OwnedDocument} directly, which is all the listener actually keys on.
+ * <p>Cannot extend {@code UserOwnedEntity}: its {@code student_id} is already mapped as part of the
+ * {@link StudentCourseTermId} below, and a second mapping of the same column is a boot failure. The
+ * owner is read out of the key instead and the filter is declared here directly — the same shape
+ * {@code CourseEnrollement} uses for the same reason.
  *
- * <p>The owner appears twice: inside {@link StudentCourseTermId}, where it makes the key unique and
- * every tenant lookup {@code _id}-index-covered, and as a top-level {@code studentId}, where the
- * generic stamp/assert listener can find it without knowing this class's key shape. Eight bytes of
- * duplication buys uniformity with the other four owned collections.
+ * <p>The {@code @Filter} is not inherited from anywhere and is what actually enforces isolation.
+ * Omitting it produces no error and no warning, just an unfiltered table;
+ * {@code TenantMappingTest.everyUserOwnedEntityIsFiltered} exists to catch exactly that.
  *
- * <p>The top-level field was stored as {@code student_id} before this change and is now plain
- * {@code studentId}, matching every other collection. That rename is free only because the
- * collection is emptied as part of the {@code _id} reshape.
+ * <p>There is no {@code @PrePersist} owner stamp, because there is nothing safe to stamp: the owner
+ * is half the primary key, so it must be supplied before the row exists.
+ * {@code GeminiSyllabusExtractionService} sets it when it builds the key.
  */
-@Document(collection = "userSyllabiExtraction")
-public class UserSyllabusDocument extends AbstractSyllabusDocument implements OwnedDocument {
+@Entity
+@Table(name = "user_syllabus_extraction")
+@Filter(name = OwnerFilter.NAME)
+public class UserSyllabusDocument extends AbstractSyllabusDocument implements UserOwned {
 
-    @Id
+    @EmbeddedId
     private StudentCourseTermId id;
-
-    private Long studentId;
 
     public StudentCourseTermId getId() {
         return id;
@@ -38,22 +42,43 @@ public class UserSyllabusDocument extends AbstractSyllabusDocument implements Ow
     }
 
     public Long getStudentId() {
-        return studentId;
+        return id == null ? null : id.getStudentId();
     }
 
     public void setStudentId(Long studentId) {
-        this.studentId = studentId;
+        key().setStudentId(studentId);
     }
 
     @Transient
     @Override
     public Long getOwnerId() {
-        return studentId;
+        return getStudentId();
     }
 
-    @Transient
     @Override
-    public void setOwnerId(Long ownerId) {
-        this.studentId = ownerId;
+    public String getCourseCode() {
+        return id == null ? null : id.getCourseCode();
+    }
+
+    @Override
+    public void setCourseCode(String courseCode) {
+        key().setCourseCode(courseCode);
+    }
+
+    @Override
+    public String getTerm() {
+        return id == null ? null : id.getTerm();
+    }
+
+    @Override
+    public void setTerm(String term) {
+        key().setTerm(term);
+    }
+
+    private StudentCourseTermId key() {
+        if (id == null) {
+            id = new StudentCourseTermId();
+        }
+        return id;
     }
 }

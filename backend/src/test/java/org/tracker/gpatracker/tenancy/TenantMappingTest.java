@@ -11,16 +11,20 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.mongodb.core.mapping.MongoMappingContext;
-import org.springframework.data.mongodb.core.mapping.MongoPersistentEntity;
 import org.springframework.data.repository.support.Repositories;
 import org.springframework.test.context.ActiveProfiles;
+import org.tracker.gpatracker.leaderboard.model.LeaderboardEntry;
+import org.tracker.gpatracker.leaderboard.model.LeaderboardRankHistory;
+import org.tracker.gpatracker.leaderboard.model.LeaderboardProfile;
+import org.tracker.gpatracker.leaderboard.model.SeasonBaseline;
+import org.tracker.gpatracker.leaderboard.model.TranscriptUpload;
 import org.tracker.gpatracker.syllabus.model.SyllabusDocument;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 import org.tracker.gpatracker.support.ContainerIntegrationBase;
 
@@ -36,9 +40,6 @@ class TenantMappingTest extends ContainerIntegrationBase {
 
     @Autowired
     private EntityManager em;
-
-    @Autowired
-    private MongoMappingContext mongoMappingContext;
 
     @Autowired
     private ApplicationContext applicationContext;
@@ -77,14 +78,27 @@ class TenantMappingTest extends ContainerIntegrationBase {
                 .isEmpty();
     }
 
+    /**
+     * The published board and its history: the only two tables carrying an owner column that sit
+     * outside the filter contract.
+     *
+     * <p>Listed by name rather than detected by a rule, so a third unfiltered table cannot appear
+     * by accident. Both are safe for the same reason: a board that only shows you your own row is
+     * not a board, and neither table holds anything private. The baseline and target that genuinely
+     * are grades live on {@code SeasonBaseline}, which is filtered. {@code LeaderboardRankHistory}
+     * holds a rank and a score, both of which were on the board already.
+     */
+    private static final Set<Class<?>> PUBLISHED_ON_PURPOSE =
+            Set.of(LeaderboardEntry.class, LeaderboardRankHistory.class);
+
     @Test
-    @DisplayName("every entity with a student_id column is UserOwned")
+    @DisplayName("every entity with a student_id column is UserOwned, bar the published board")
     void everyEntityWithAnOwnerColumnIsUserOwned() {
         List<String> unmarked = new ArrayList<>();
 
         for (EntityType<?> type : em.getMetamodel().getEntities()) {
             Class<?> javaType = type.getJavaType();
-            if (UserOwned.class.isAssignableFrom(javaType)) {
+            if (UserOwned.class.isAssignableFrom(javaType) || PUBLISHED_ON_PURPOSE.contains(javaType)) {
                 continue;
             }
             if (declaresOwnerColumn(javaType)) {
@@ -95,6 +109,27 @@ class TenantMappingTest extends ContainerIntegrationBase {
         assertThat(unmarked)
                 .as("these have a student_id column but do not participate in the filter contract")
                 .isEmpty();
+    }
+
+    /**
+     * The other half of that exemption: the three tables backing the board that are <em>not</em>
+     * public must be owned. Without this, "leaderboard entities are exempt" could quietly widen
+     * from one class to the whole package.
+     */
+    @Test
+    @DisplayName("the leaderboard's private tables are tenant-scoped")
+    void leaderboardSupportingTablesAreOwned() {
+        assertThat(UserOwned.class.isAssignableFrom(LeaderboardProfile.class)).isTrue();
+        assertThat(UserOwned.class.isAssignableFrom(SeasonBaseline.class)).isTrue();
+        assertThat(UserOwned.class.isAssignableFrom(TranscriptUpload.class)).isTrue();
+
+        assertThat(UserOwned.class.isAssignableFrom(LeaderboardEntry.class))
+                .as("the board is the deliberate exception; scoping it would hide every other row")
+                .isFalse();
+
+        assertThat(UserOwned.class.isAssignableFrom(LeaderboardRankHistory.class))
+                .as("rank history publishes the same figures the board already does")
+                .isFalse();
     }
 
     @Test
@@ -115,87 +150,13 @@ class TenantMappingTest extends ContainerIntegrationBase {
     }
 
     @Test
-    @DisplayName("every Mongo document carrying an owner participates in the tenant contract")
-    void everyOwnedMongoDocumentIsUserOwned() {
-        List<String> unmarked = new ArrayList<>();
-
-        for (MongoPersistentEntity<?> entity : collectionRoots()) {
-            Class<?> javaType = entity.getType();
-            if (UserOwned.class.isAssignableFrom(javaType)) {
-                continue;
-            }
-            if (entity.getPersistentProperty("studentId") != null) {
-                unmarked.add(javaType.getSimpleName());
-            }
-        }
-
-        assertThat(unmarked)
-                .as("these store an owner but are neither stamped on write nor asserted on read")
-                .isEmpty();
-    }
-
-    /**
-     * The owner field must be stored as {@code studentId}, never {@code student_id}.
-     *
-     * <p>Four of the five owned collections already hold documents keyed on the camelCase name.
-     * Introducing a {@code @Field("student_id")} anywhere in the hierarchy would make every one of
-     * those existing documents deserialize with a null owner and then trip the load-time assert —
-     * a silent four-collection outage dressed up as a naming tidy-up.
-     */
-    @Test
-    @DisplayName("the Mongo owner field is stored as studentId, not student_id")
-    void ownerFieldNameIsStable() {
-        List<String> wrong = new ArrayList<>();
-
-        for (MongoPersistentEntity<?> entity : collectionRoots()) {
-            if (!UserOwned.class.isAssignableFrom(entity.getType())) {
-                continue;
-            }
-            var owner = entity.getPersistentProperty("studentId");
-            if (owner == null) {
-                wrong.add(entity.getType().getSimpleName() + " (no owner property at all)");
-                continue;
-            }
-            // SyllabusUploadQuota carries its owner *as* the @Id, so it is stored under _id by
-            // design — self-scoping rather than misnamed.
-            if (owner.isIdProperty()) {
-                continue;
-            }
-            if (!"studentId".equals(owner.getFieldName())) {
-                wrong.add(entity.getType().getSimpleName() + " stores it as " + owner.getFieldName());
-            }
-        }
-
-        assertThat(wrong).isEmpty();
-    }
-
-    /**
-     * {@code getOwnerId}/{@code setOwnerId} are accessors over the existing {@code studentId}, not a
-     * second stored field. Spring Data will happily persist a getter/setter pair that has no backing
-     * field, so if the {@code @Transient} is ever dropped, every owned document silently grows a
-     * duplicate {@code ownerId} key.
-     */
-    @Test
-    @DisplayName("ownerId is not persisted as a second Mongo field")
-    void ownerIdIsNotPersisted() {
-        List<String> duplicated = new ArrayList<>();
-
-        for (MongoPersistentEntity<?> entity : collectionRoots()) {
-            if (entity.getPersistentProperty("ownerId") != null) {
-                duplicated.add(entity.getType().getSimpleName());
-            }
-        }
-
-        assertThat(duplicated)
-                .as("ownerId must stay @Transient — it is a view of studentId, not storage")
-                .isEmpty();
-    }
-
-    @Test
     @DisplayName("the shared syllabus catalog is deliberately not tenant-scoped")
     void sharedCatalogIsNotOwned() {
         assertThat(UserOwned.class.isAssignableFrom(SyllabusDocument.class))
                 .as("SyllabusDocument is a global catalog; scoping it would hide it from every student")
+                .isFalse();
+        assertThat(SyllabusDocument.class.isAnnotationPresent(org.hibernate.annotations.Filter.class))
+                .as("nor may it carry the owner filter, which would scope it just as effectively")
                 .isFalse();
     }
 
@@ -211,8 +172,6 @@ class TenantMappingTest extends ContainerIntegrationBase {
             }
             Class<?> repositoryInterface = repositories.getRequiredRepositoryInformation(domainType)
                     .getRepositoryInterface();
-            // JPA only. Owned Mongo documents are covered by the listener instead — there is no
-            // Hibernate filter for them to participate in.
             if (!JpaRepository.class.isAssignableFrom(repositoryInterface)) {
                 continue;
             }
@@ -254,25 +213,6 @@ class TenantMappingTest extends ContainerIntegrationBase {
         assertThat(offenders)
                 .as("a native query on an owned table bypasses the filter entirely")
                 .isEmpty();
-    }
-
-    /**
-     * Top-level {@code @Document} types only.
-     *
-     * <p>The mapping context also registers nested value types — composite id classes such as
-     * {@code StudentCourseTermId} — and those are not collections in their own right, so the
-     * ownership rules do not apply to them.
-     */
-    private List<MongoPersistentEntity<?>> collectionRoots() {
-        List<MongoPersistentEntity<?>> roots = new ArrayList<>();
-        for (MongoPersistentEntity<?> entity : mongoMappingContext.getPersistentEntities()) {
-            if (entity.getType().isAnnotationPresent(
-                    org.springframework.data.mongodb.core.mapping.Document.class)) {
-                roots.add(entity);
-            }
-        }
-        assertThat(roots).as("mapping context found no @Document types at all").isNotEmpty();
-        return roots;
     }
 
     /** True if the class, or any mapped superclass, maps a column named student_id. */

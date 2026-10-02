@@ -1,17 +1,20 @@
 package org.tracker.gpatracker.syllabus.repository;
-import org.springframework.data.mongodb.repository.MongoRepository;
-import org.springframework.data.mongodb.repository.Query;
-import org.springframework.stereotype.Repository;
-import org.tracker.gpatracker.syllabus.model.CourseTermId;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.tracker.gpatracker.syllabus.model.CourseTermDocId;
 import org.tracker.gpatracker.syllabus.model.SyllabusDocument;
+
 import java.util.List;
-import java.util.Optional;
 
-@Repository
-public interface SyllabusRepository extends MongoRepository<SyllabusDocument, CourseTermId> {
-    @Query(value = "{ '_id.course_code': ?0, '_id.term': ?1 }")
-    Optional<SyllabusDocument> findByCourseCodeAndTerm(String courseCode, String term);
+/**
+ * The shared catalog, so a plain {@code JpaRepository} rather than a {@code UserScopedRepository}:
+ * there is no owner to scope to, and scoping it would hide the catalog from every student.
+ *
+ * <p>Finders reach into the composite key, hence the {@code IdCourseCode} spelling.
+ */
+public interface SyllabusRepository extends JpaRepository<SyllabusDocument, CourseTermDocId> {
 
-    @Query(value = "{ '_id.term': ?0 }")
-    List<SyllabusDocument> findByTerm(String term);
+    List<SyllabusDocument> findAllByIdCourseCodeAndIdTerm(String courseCode, String term);
+
+    List<SyllabusDocument> findByIdTerm(String term);
 }

@@ -1,0 +1,7 @@
+# Names that impersonate the product or its staff. Blocked anywhere inside a handle,
+# because "onTrackSupport" is the whole problem this list exists for.
+admin
+moderator
+ontrack
+support
+official

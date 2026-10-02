@@ -3,8 +3,6 @@ package org.tracker.gpatracker.accounts.service;
 import jakarta.persistence.AttributeConverter;
 import jakarta.persistence.Converter;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.convert.PropertyValueConverter;
-import org.springframework.data.convert.ValueConversionContext;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.Cipher;
@@ -18,8 +16,7 @@ import java.util.Base64;
 @Converter
 @Component
 public class StringGradeEncryptionConverter
-        implements AttributeConverter<String, String>,
-                   PropertyValueConverter<String, String, ValueConversionContext<? extends org.springframework.data.mapping.PersistentProperty<?>>> {
+        implements AttributeConverter<String, String> {
 
     private static final String ALGO = "AES/GCM/NoPadding";
     private static final int IV_LENGTH = 12;          // 96-bit nonce (recommended)
@@ -32,19 +29,6 @@ public class StringGradeEncryptionConverter
         this.key = loadKey(base64Key); //should be coming from env variable during prod
     }
 
-    // =========================
-    // Spring Data PropertyValueConverter hooks (MongoDB)
-    // =========================
-
-    @Override
-    public String read(String dbValue, ValueConversionContext<? extends org.springframework.data.mapping.PersistentProperty<?>> context) {
-        return decryptToString(dbValue);
-    }
-
-    @Override
-    public String write(String value, ValueConversionContext<? extends org.springframework.data.mapping.PersistentProperty<?>> context) {
-        return encryptString(value);
-    }
 
     // =========================
     // Public convenience methods

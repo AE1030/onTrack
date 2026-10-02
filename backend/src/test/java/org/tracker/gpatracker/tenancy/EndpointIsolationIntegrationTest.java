@@ -34,9 +34,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * tests this also exercises {@code JwtFilter} deriving the tenant from the signed token.
  *
  * <p>Scope note: this covers the syllabus-job endpoint, which is where the known IDOR was. The
- * remaining owned endpoints read from Mongo and cannot be exercised here — there is no Mongo server
- * in this environment. Writing them as {@code @Disabled} would protect nothing, so they are left to
- * the manual end-to-end pass instead of being faked.
+ * remaining owned endpoints used to read from Mongo and could not be exercised here at all. Since
+ * V16 they are ordinary filtered Postgres rows backed by the same Testcontainers database as every
+ * other test, so extending this class to cover them is now possible and worth doing.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -57,7 +57,7 @@ class EndpointIsolationIntegrationTest extends ContainerIntegrationBase {
     @Autowired
     private StudentRepo studentRepo;
 
-    /** Mocked so the endpoint is reachable without a Mongo server behind it. */
+    /** Mocked so the test drives the controller's ownership check directly, without a real job. */
     @MockitoBean
     private GeminiSyllabusExtractionService extractionService;
 
@@ -76,7 +76,7 @@ class EndpointIsolationIntegrationTest extends ContainerIntegrationBase {
 
         SyllabusExtractionJob job = new SyllabusExtractionJob();
         job.setId(JOB_ID);
-        job.setStudentId(a.studentId());
+        job.setOwnerId(a.studentId());
         job.setCourseCode("SFWRENG 2AA4");
         job.setTerm("Winter 2026");
         job.setStatus(JobStatus.DONE);
@@ -118,8 +118,10 @@ class EndpointIsolationIntegrationTest extends ContainerIntegrationBase {
     }
 
     /**
-     * The known IDOR: this endpoint returned any job to any authenticated caller. Mongo sits outside
-     * the Hibernate filter, so nothing but this explicit check stands between B and A's job.
+     * The known IDOR: this endpoint returned any job to any authenticated caller. The service is
+     * mocked here, which is what makes this a test of the controller's own check rather than of the
+     * owner filter underneath it — both now stand between B and A's job, and this asserts the outer
+     * one independently.
      */
     @Test
     @DisplayName("B cannot read A's syllabus job")

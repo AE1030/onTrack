@@ -11,10 +11,10 @@ import org.tracker.gpatracker.tenancy.UserOwned;
 import java.math.BigDecimal;
 
 @Entity
-@Table(
-        name = "course_enrollement",
-        uniqueConstraints = @UniqueConstraint(columnNames = {"student_id", "course_id"})
-)
+// No uniqueConstraints here. There used to be one on (student_id, course_id), which duplicated
+// the primary key and, once the key grew a term, would have contradicted it by forbidding the
+// second term. Uniqueness is the primary key's job.
+@Table(name = "course_enrollement")
 // Cannot extend UserOwnedEntity: student_id is already mapped by the @EmbeddedId below, and a
 // second mapping of the same column is a boot failure. The owner is read out of the key instead,
 // and the filter is declared here directly.
@@ -90,5 +90,14 @@ public class CourseEnrollement extends BaseEntity implements UserOwned {
     @Override
     public Long getOwnerId() {
         return id == null ? null : id.getStudentId();
+    }
+
+    /**
+     * The term, read out of the key. There is deliberately no {@code term} field on this entity:
+     * the column is already mapped by the {@code @EmbeddedId}, and mapping it twice is a boot
+     * failure.
+     */
+    public String getTerm() {
+        return id == null ? null : id.getTerm();
     }
 }

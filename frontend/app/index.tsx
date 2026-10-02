@@ -7,14 +7,40 @@ import DashboardScreen from "../screens/DashboardScreen";
 import GPACalculatorScreen from "../screens/GPACalculatorScreen";
 import MyCoursesScreen from "../screens/MyCoursesScreen";
 import CalendarScreen from "../screens/CalendarScreen";
+import LeaderboardScreen from "../screens/LeaderboardScreen";
+import LeaderboardOnboardingScreen from "../screens/LeaderboardOnboardingScreen";
 import SideDrawer from "../screens/components/SideDrawer";
-import { getToken, removeToken } from "../src/utils/tokenStorage";
+import { endSession, getToken, removeToken } from "../src/utils/tokenStorage";
 import { API_BASE_URL } from "../src/config/api";
+import { queryClient } from "../src/cache/queryClient";
+import { qk } from "../src/cache/keys";
 
-type Screen = "dashboard" | "gpa" | "myCourses" | "calendar";
+type Screen =
+  | "dashboard"
+  | "gpa"
+  | "myCourses"
+  | "calendar"
+  | "leaderboard"
+  | "leaderboardJoin";
 type AuthScreen = "login" | "register" | "forgotPassword";
 
-const validScreens: Screen[] = ["dashboard", "gpa", "myCourses", "calendar"];
+const validScreens: Screen[] = [
+  "dashboard",
+  "gpa",
+  "myCourses",
+  "calendar",
+  "leaderboard",
+  "leaderboardJoin",
+];
+
+/**
+ * Screens that draw their own full-bleed header.
+ *
+ * The global hamburger is absolutely positioned at the top left in dark maroon, which is exactly
+ * where the leaderboard puts its own back arrow and exactly the colour that disappears against a
+ * maroon field. These screens own that corner instead.
+ */
+const OWNS_TOP_LEFT: Screen[] = ["leaderboard", "leaderboardJoin"];
 
 function getAuthScreenFromURL(): AuthScreen {
   if (Platform.OS !== "web") return "login";
@@ -72,7 +98,10 @@ export default function Home() {
   }, []);
 
   const logout = async () => {
-    await removeToken();
+    await endSession();
+    // Must run on every logout: without it, account A's cached data is still
+    // in memory when account B signs in on the same device.
+    queryClient.clear();
     setLoggedIn(false);
     navigateTo("dashboard");
     setUsername("");
@@ -97,6 +126,9 @@ export default function Home() {
       if (res.ok) {
         const data = await res.json();
         setUsername(data.username ?? "");
+        // This is the same payload DashboardScreen asks for. Seeding it here
+        // means the dashboard's first mount is a cache hit, not a second call.
+        queryClient.setQueryData(qk.dashboard, data);
         return true;
       }
     } catch {}
@@ -166,6 +198,23 @@ export default function Home() {
             onBack={() => Platform.OS === "web" ? window.history.back() : navigateTo("dashboard")}
           />
         );
+      case "leaderboard":
+        return (
+          <LeaderboardScreen
+            onAuthError={logout}
+            onBack={() => Platform.OS === "web" ? window.history.back() : navigateTo("dashboard")}
+            onJoin={() => navigateTo("leaderboardJoin")}
+          />
+        );
+      case "leaderboardJoin":
+        return (
+          <LeaderboardOnboardingScreen
+            onAuthError={logout}
+            // Straight to the board rather than back through the flow they just finished.
+            onDone={() => navigateTo("leaderboard")}
+            onCancel={() => Platform.OS === "web" ? window.history.back() : navigateTo("dashboard")}
+          />
+        );
       default:
         return (
           <DashboardScreen
@@ -174,6 +223,8 @@ export default function Home() {
               setHighlightDropdowns(true);
               navigateTo("myCourses");
             }}
+            onGoToLeaderboard={() => navigateTo("leaderboard")}
+            onJoinLeaderboard={() => navigateTo("leaderboardJoin")}
             onAuthError={logout}
           />
         );
@@ -182,7 +233,8 @@ export default function Home() {
 
   return (
     <View style={styles.root}>
-      {/* Hamburger button */}
+      {/* Hamburger button. Hidden where the screen draws its own header in that corner. */}
+      {!OWNS_TOP_LEFT.includes(screen) && (
       <Pressable
         style={styles.hamburger}
         onPress={() => setDrawerOpen(true)}
@@ -191,6 +243,7 @@ export default function Home() {
         <View style={styles.hamburgerLine} />
         <View style={styles.hamburgerLine} />
       </Pressable>
+      )}
 
       {/* Main content */}
       <View style={styles.content}>{renderScreen()}</View>

@@ -7,6 +7,8 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 import org.tracker.gpatracker.accounts.service.StudentService;
 import org.tracker.gpatracker.assessmenttable.dto.SaveAssessmentTableDTO;
@@ -17,6 +19,7 @@ import org.tracker.gpatracker.assessmenttable.repository.AssessmentTableDocument
 import org.tracker.gpatracker.syllabus.dto.AssessmentTableDTO;
 import org.tracker.gpatracker.syllabus.model.SyllabusDocument;
 import org.tracker.gpatracker.syllabus.service.SyllabusAssessmentService;
+import org.tracker.gpatracker.terms.TermService;
 
 import java.math.BigDecimal;
 import java.lang.reflect.Field;
@@ -42,13 +45,15 @@ class AssessmentTableServiceTest {
     private SyllabusAssessmentService syllabusAssessmentService;
     @Mock
     private ApplicationEventPublisher eventPublisher;
+    @Mock
+    private TermService termService;
 
     private AssessmentTableService service;
 
     @BeforeEach
     void setUp() throws Exception {
         service = new AssessmentTableService(repository, studentService,
-                syllabusAssessmentService, eventPublisher);
+                syllabusAssessmentService, eventPublisher, termService);
         // Set the currentTerm field via reflection since @Value won't work in unit tests
         Field currentTermField = AssessmentTableService.class.getDeclaredField("currentTerm");
         currentTermField.setAccessible(true);
@@ -71,7 +76,7 @@ class AssessmentTableServiceTest {
         AssessmentTableDocument doc = new AssessmentTableDocument();
         doc.setSchemes(List.of(scheme));
 
-        when(repository.findByStudentIdAndCourseCodeAndTerm(studentId, "COMP101", "Winter 2026"))
+        when(repository.findByOwnerIdAndCourseCodeAndTerm(studentId, "COMP101", "Winter 2026"))
                 .thenReturn(Optional.of(doc));
 
         Map<String, List<AssessmentTableDTO>> result =
@@ -87,7 +92,7 @@ class AssessmentTableServiceTest {
     void getByStudentIdAndCourseCodeAndTerm_notInRepo_fallsBackToSyllabus() {
         Long studentId = 1L;
         when(studentService.getStudentID()).thenReturn(studentId);
-        when(repository.findByStudentIdAndCourseCodeAndTerm(studentId, "COMP101", "Winter 2026"))
+        when(repository.findByOwnerIdAndCourseCodeAndTerm(studentId, "COMP101", "Winter 2026"))
                 .thenReturn(Optional.empty());
 
         SyllabusDocument syllabusDoc = new SyllabusDocument();
@@ -112,7 +117,7 @@ class AssessmentTableServiceTest {
     void getByStudentIdAndCourseCodeAndTerm_syllabusNotFound_throws404() {
         Long studentId = 1L;
         when(studentService.getStudentID()).thenReturn(studentId);
-        when(repository.findByStudentIdAndCourseCodeAndTerm(studentId, "COMP101", "Winter 2026"))
+        when(repository.findByOwnerIdAndCourseCodeAndTerm(studentId, "COMP101", "Winter 2026"))
                 .thenReturn(Optional.empty());
         when(syllabusAssessmentService.getSyllabusDocument("COMP101", "Winter 2026"))
                 .thenThrow(new ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND,
@@ -128,7 +133,7 @@ class AssessmentTableServiceTest {
     void getByStudentIdAndCourseCodeAndTerm_syllabusReturnsNull_throws404() {
         Long studentId = 1L;
         when(studentService.getStudentID()).thenReturn(studentId);
-        when(repository.findByStudentIdAndCourseCodeAndTerm(studentId, "COMP101", "Winter 2026"))
+        when(repository.findByOwnerIdAndCourseCodeAndTerm(studentId, "COMP101", "Winter 2026"))
                 .thenReturn(Optional.empty());
         when(syllabusAssessmentService.getSyllabusDocument("COMP101", "Winter 2026"))
                 .thenReturn(null);
@@ -146,7 +151,7 @@ class AssessmentTableServiceTest {
         // Document exists but has no schemes -> toAssessmentTableMap returns empty
         AssessmentTableDocument doc = new AssessmentTableDocument();
         doc.setSchemes(List.of());
-        when(repository.findByStudentIdAndCourseCodeAndTerm(studentId, "COMP101", "Winter 2026"))
+        when(repository.findByOwnerIdAndCourseCodeAndTerm(studentId, "COMP101", "Winter 2026"))
                 .thenReturn(Optional.of(doc));
 
         SyllabusDocument syllabusDoc = new SyllabusDocument();
@@ -176,12 +181,13 @@ class AssessmentTableServiceTest {
     void saveToRepo_ignoresClientSuppliedId_whenNoDocumentExists() {
         Long studentId = 1L;
         when(studentService.getStudentID()).thenReturn(studentId);
-        when(repository.findByStudentIdAndCourseCodeAndTerm(studentId, "COMP101", "Winter 2026"))
+        when(repository.findByOwnerIdAndCourseCodeAndTerm(studentId, "COMP101", "Winter 2026"))
                 .thenReturn(Optional.empty());
         when(repository.save(any(AssessmentTableDocument.class))).thenAnswer(inv -> inv.getArgument(0));
 
         SaveAssessmentTableDTO dto = new SaveAssessmentTableDTO();
         dto.setCourseCode("COMP101");
+        dto.setTerm("Winter 2026");
         dto.setId("id-of-another-students-table");
         dto.setSchemes(List.of());
 
@@ -194,7 +200,7 @@ class AssessmentTableServiceTest {
         assertThat(captor.getValue().getId())
                 .as("a null id makes this an insert; anything else is an upsert onto a chosen row")
                 .isNull();
-        assertThat(captor.getValue().getStudentId()).isEqualTo(studentId);
+        assertThat(captor.getValue().getOwnerId()).isEqualTo(studentId);
     }
 
     @Test
@@ -204,12 +210,13 @@ class AssessmentTableServiceTest {
 
         AssessmentTableDocument existing = new AssessmentTableDocument();
         existing.setId("the-callers-own-table");
-        when(repository.findByStudentIdAndCourseCodeAndTerm(studentId, "COMP101", "Winter 2026"))
+        when(repository.findByOwnerIdAndCourseCodeAndTerm(studentId, "COMP101", "Winter 2026"))
                 .thenReturn(Optional.of(existing));
         when(repository.save(any(AssessmentTableDocument.class))).thenAnswer(inv -> inv.getArgument(0));
 
         SaveAssessmentTableDTO dto = new SaveAssessmentTableDTO();
         dto.setCourseCode("COMP101");
+        dto.setTerm("Winter 2026");
         dto.setId("id-of-another-students-table");
         dto.setSchemes(List.of());
 
@@ -220,5 +227,104 @@ class AssessmentTableServiceTest {
         verify(repository).save(captor.capture());
 
         assertThat(captor.getValue().getId()).isEqualTo("the-callers-own-table");
+    }
+
+    // ------------------------------------------------------- past terms are view only
+
+    @Test
+    void saveTableAndGrade_pastTerm_refusedBeforeEitherStoreIsTouched() {
+        // The guard is the contract; the greyed-out UI only decorates it. A status-code check
+        // alone would still pass if the guard ran after the table write, so this asserts that
+        // neither the table nor the grade saw anything.
+        doThrow(new ResponseStatusException(HttpStatus.CONFLICT, "Past terms are view only"))
+                .when(termService).requireEditable("Fall 2025");
+
+        SaveAssessmentTableDTO dto = new SaveAssessmentTableDTO();
+        dto.setCourseCode("COMP101");
+        dto.setTerm("Fall 2025");
+        dto.setSchemes(List.of());
+        dto.setGrade(new BigDecimal("88"));
+
+        assertThatThrownBy(() -> service.saveTableAndGrade(dto))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(ex -> assertThat(((ResponseStatusException) ex).getStatusCode())
+                        .isEqualTo(HttpStatus.CONFLICT));
+
+        verify(repository, never()).save(any(AssessmentTableDocument.class));
+        verify(studentService, never()).updateCourseGrade(anyString(), anyString(), any());
+        verify(eventPublisher, never()).publishEvent(any());
+    }
+
+    @Test
+    void saveTableAndGrade_currentTerm_forwardsTheTermToTheGradeWrite() {
+        Long studentId = 1L;
+        when(studentService.getStudentID()).thenReturn(studentId);
+        when(repository.findByOwnerIdAndCourseCodeAndTerm(studentId, "COMP101", "Winter 2026"))
+                .thenReturn(Optional.empty());
+        when(repository.save(any(AssessmentTableDocument.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        SaveAssessmentTableDTO dto = new SaveAssessmentTableDTO();
+        dto.setCourseCode("COMP101");
+        dto.setTerm("Winter 2026");
+        dto.setSchemes(List.of());
+        dto.setGrade(new BigDecimal("88"));
+
+        service.saveTableAndGrade(dto);
+
+        // Without the term the enrollment lookup would resolve to whichever row it found first.
+        verify(studentService).updateCourseGrade("COMP101", "Winter 2026", new BigDecimal("88"));
+    }
+
+    // ------------------------------------------------- the unique index's losing write
+
+    @Test
+    void saveToRepo_duplicateKey_mergesOntoTheDocumentThatWon() {
+        Long studentId = 1L;
+        when(studentService.getStudentID()).thenReturn(studentId);
+
+        AssessmentTableDocument winner = new AssessmentTableDocument();
+        winner.setId("the-winning-insert");
+
+        // First read finds nothing, so this request inserts; the insert loses the race and the
+        // unique index rejects it; the second read now finds the document that won.
+        when(repository.findByOwnerIdAndCourseCodeAndTerm(studentId, "COMP101", "Winter 2026"))
+                .thenReturn(Optional.empty())
+                .thenReturn(Optional.of(winner));
+        when(repository.save(any(AssessmentTableDocument.class)))
+                .thenThrow(new DuplicateKeyException("E11000 duplicate key"))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        SaveAssessmentTableDTO dto = new SaveAssessmentTableDTO();
+        dto.setCourseCode("COMP101");
+        dto.setTerm("Winter 2026");
+        dto.setSchemes(List.of());
+
+        AssessmentTableDocument saved = service.saveToRepo(dto);
+
+        assertThat(saved.getId())
+                .as("the retry must be an update onto the winner, not a second insert")
+                .isEqualTo("the-winning-insert");
+        verify(repository, times(2)).save(any(AssessmentTableDocument.class));
+    }
+
+    @Test
+    void saveToRepo_duplicateKeyWithNothingToMergeOnto_rethrows() {
+        Long studentId = 1L;
+        when(studentService.getStudentID()).thenReturn(studentId);
+        when(repository.findByOwnerIdAndCourseCodeAndTerm(studentId, "COMP101", "Winter 2026"))
+                .thenReturn(Optional.empty());
+        when(repository.save(any(AssessmentTableDocument.class)))
+                .thenThrow(new DuplicateKeyException("E11000 duplicate key"));
+
+        SaveAssessmentTableDTO dto = new SaveAssessmentTableDTO();
+        dto.setCourseCode("COMP101");
+        dto.setTerm("Winter 2026");
+        dto.setSchemes(List.of());
+
+        // Retry once, not in a loop: a duplicate with no winner to find is not a race, and
+        // looping would hide whatever it actually is.
+        assertThatThrownBy(() -> service.saveToRepo(dto))
+                .isInstanceOf(DuplicateKeyException.class);
+        verify(repository, times(1)).save(any(AssessmentTableDocument.class));
     }
 }

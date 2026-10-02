@@ -11,7 +11,7 @@ import { useRef, useState } from "react";
 import { Feather } from "@expo/vector-icons";
 import { colors } from "../src/theme/colors";
 import { spacing } from "../src/theme/spacing";
-import { setToken } from "../src/utils/tokenStorage";
+import { setTokens } from "../src/utils/tokenStorage";
 import { API_BASE_URL } from "../src/config/api";
 import OnTrackLogo from "./components/OnTrackLogo";
 
@@ -67,14 +67,13 @@ export default function LoginScreen({ onLoginSuccess, onGoToRegister, onGoToForg
         throw new Error("Login failed");
       }
 
-      // Backend returns RAW JWT STRING
-      const token = (await res.text()).trim();
+      const { accessToken, refreshToken } = await res.json();
 
-      if (!token) {
-        throw new Error("Empty token");
+      if (typeof accessToken !== "string" || typeof refreshToken !== "string") {
+        throw new Error("Malformed login response");
       }
 
-      await setToken(token);
+      await setTokens(accessToken, refreshToken);
       onLoginSuccess();
     } catch (err) {
       setError("Invalid email or password");

@@ -15,6 +15,7 @@ import org.tracker.gpatracker.courses.model.CourseEnrollement;
 import org.tracker.gpatracker.courses.model.PastCourse;
 import org.tracker.gpatracker.courses.repository.CourseEnrollementRepository;
 import org.tracker.gpatracker.courses.repository.PastCourseRepository;
+import org.tracker.gpatracker.terms.TermService;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -28,15 +29,18 @@ public class GpaRecalculationListener {
     private final PastCourseRepository pastCourseRepo;
     private final CourseEnrollementRepository enrollementRepo;
     private final StudentRepo studentRepo;
+    private final TermService termService;
     private final GradeDict gradeDict = new GradeDict();
     private final GPACalc gpaCalc = new GPACalc();
 
     public GpaRecalculationListener(PastCourseRepository pastCourseRepo,
                                      CourseEnrollementRepository enrollementRepo,
-                                     StudentRepo studentRepo) {
+                                     StudentRepo studentRepo,
+                                     TermService termService) {
         this.pastCourseRepo = pastCourseRepo;
         this.enrollementRepo = enrollementRepo;
         this.studentRepo = studentRepo;
+        this.termService = termService;
     }
 
     @EventListener
@@ -63,8 +67,15 @@ public class GpaRecalculationListener {
             allCourses.add(b);
         }
 
-        // Current courses — numeric grades need conversion to letters
-        List<CourseEnrollement> currentCourses = enrollementRepo.findByStudentsIdAndIncludeInGpaTrue(studentId);
+        // Current courses — numeric grades need conversion to letters.
+        //
+        // Scoped to the current term on purpose. Now that enrollments carry a term, the
+        // unscoped version returns every term the student has ever had, and a course that is
+        // both a past-term enrollment and a past_course transcript row would be counted twice.
+        // Keeping this at the current term preserves the number this listener produced before
+        // multi-term existed. A per-term GPA breakdown is a separate feature.
+        List<CourseEnrollement> currentCourses = enrollementRepo
+                .findByStudentsIdAndIdTermAndIncludeInGpaTrue(studentId, termService.getCurrentTerm());
         for (CourseEnrollement ce : currentCourses) {
             if (ce.getGrade() == null || ce.getCourses() == null || ce.getCourses().getCourseCredits() == null) {
                 continue;

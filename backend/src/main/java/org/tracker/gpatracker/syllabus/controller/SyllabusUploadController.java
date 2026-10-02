@@ -14,6 +14,7 @@ import org.tracker.gpatracker.syllabus.dto.SyllabusExtractionJobResponse;
 import org.tracker.gpatracker.syllabus.model.SyllabusExtractionJob;
 import org.tracker.gpatracker.syllabus.service.GeminiSyllabusExtractionService;
 import org.tracker.gpatracker.tenancy.UserContext;
+import org.tracker.gpatracker.terms.TermService;
 
 @RestController
 @RequestMapping("/api/syllabus/upload")
@@ -23,15 +24,23 @@ public class SyllabusUploadController {
     private static final long MAX_UPLOAD_BYTES = 10L * 1024L * 1024L; // 10 MB
 
     private final GeminiSyllabusExtractionService extractionService;
+    private final TermService termService;
 
-    public SyllabusUploadController(GeminiSyllabusExtractionService extractionService) {
+    public SyllabusUploadController(GeminiSyllabusExtractionService extractionService,
+                                    TermService termService) {
         this.extractionService = extractionService;
+        this.termService = termService;
     }
 
     @PostMapping("/submit")
     public ResponseEntity<SyllabusExtractionJobResponse> uploadSyllabus(@RequestParam("file") MultipartFile file,
                                                                @RequestParam String courseCode,
                                                                @RequestParam String term) {
+        // An upload replaces the course's assessment table, so this is a write and needs the same
+        // guard as a save. Easy to miss, because the term param was already here and already
+        // correct -- it was simply never checked.
+        termService.requireEditable(term);
+
         if (file == null || file.isEmpty()) {
             return ResponseEntity.badRequest().build();
         }
@@ -56,10 +65,14 @@ public class SyllabusUploadController {
     @GetMapping("/{jobId}")
     public ResponseEntity<SyllabusExtractionJobResponse> getJobStatus(@PathVariable String jobId) {
         SyllabusExtractionJob job = extractionService.getJob(jobId);
-        // This previously returned any job to any authenticated caller. Mongo is outside the
-        // Hibernate filter, so ownership has to be checked here explicitly.
+        // This previously returned any job to any authenticated caller. When the job lived in
+        // Mongo this check was the only thing standing in the way, because Mongo sat outside the
+        // Hibernate filter. Since V16 the job is a filtered Postgres row, so findById already
+        // returns empty for another tenant and this is now defence in depth rather than the sole
+        // gate. It stays: the filter is disabled inside a system scope, and a future caller
+        // reaching this from one should still not be handed somebody else's job.
         // 404 rather than 403 on a mismatch, so the response does not confirm the id exists.
-        if (job == null || !UserContext.requireOwnerId().equals(job.getStudentId())) {
+        if (job == null || !UserContext.requireOwnerId().equals(job.getOwnerId())) {
             return ResponseEntity.notFound().build();
         }
         return ResponseEntity.ok(SyllabusExtractionJobResponse.from(job));

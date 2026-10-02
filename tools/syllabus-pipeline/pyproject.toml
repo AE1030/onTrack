@@ -1,0 +1,30 @@
+[project]
+name = "syllabus-pipeline"
+version = "1.0.0"
+description = "Scrape Simple Syllabus, extract grading schemes with Gemini, verify the catalog"
+requires-python = ">=3.11"
+
+dependencies = [
+    "requests>=2.32,<3",
+    "beautifulsoup4>=4.12,<5",
+    "psycopg2-binary>=2.9,<3",
+    "google-genai>=1.0,<2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0,<9",
+]
+
+[project.scripts]
+syllabus-pipeline = "syllabus_pipeline.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["syllabus_pipeline*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

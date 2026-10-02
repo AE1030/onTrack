@@ -30,12 +30,25 @@ public class CourseEnrollementKey implements Serializable {
     @Column(name = "course_id")
     private Long courseId;
 
+    /**
+     * Which term this enrollment belongs to, e.g. {@code "Winter 2026"}.
+     *
+     * <p>Part of the key rather than an ordinary column: without it a student could hold only one
+     * enrollment per course for all time, so retaking a course or browsing a previous term had
+     * nowhere to store a second row.
+     */
+    // length matches V1__baseline_schema.sql. Spelled out so the entity and the migration
+    // cannot drift: dev and test run ddl-auto=validate against the Flyway-built schema.
+    @Column(name = "term", nullable = false, length = 32)
+    private String term;
+
     public CourseEnrollementKey() {
     }
 
-    public CourseEnrollementKey(Long studentId, Long courseId) {
+    public CourseEnrollementKey(Long studentId, Long courseId, String term) {
         this.studentId = studentId;
         this.courseId = courseId;
+        this.term = term;
     }
 
     public Long getStudentId() {
@@ -52,6 +65,14 @@ public class CourseEnrollementKey implements Serializable {
 
     public void setCourseId(Long courseId) {
         this.courseId = courseId;
+    }
+
+    public String getTerm() {
+        return term;
+    }
+
+    public void setTerm(String term) {
+        this.term = term;
     }
     /*equals() and hashCode() are needed because:
 
@@ -77,11 +98,15 @@ Java side: equals() and hashCode() let Hibernate (and Java collections) correctl
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         CourseEnrollementKey that = (CourseEnrollementKey) o;
-        return Objects.equals(studentId, that.studentId) && Objects.equals(courseId, that.courseId);
+        // The term must be in both equals and hashCode. Leaving it out does not throw, it just
+        // makes two different terms look like the same row to Hibernate's persistence context.
+        return Objects.equals(studentId, that.studentId)
+                && Objects.equals(courseId, that.courseId)
+                && Objects.equals(term, that.term);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(studentId, courseId);
+        return Objects.hash(studentId, courseId, term);
     }
 }

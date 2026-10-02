@@ -22,11 +22,16 @@ import Animated, {
   Easing,
 } from "react-native-reanimated";
 import { Feather } from "@expo/vector-icons";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { colors } from "../src/theme/colors";
 import { spacing } from "../src/theme/spacing";
 import { getToken } from "../src/utils/tokenStorage";
 import { API_BASE_URL } from "../src/config/api";
+import { qk } from "../src/cache/keys";
+import { authedFetch, authedGet, isAuthError, queryRetry } from "../src/cache/authedGet";
 import { useCourseSearch } from "../src/hooks/useCourseSearch";
+import { useTerm } from "../src/terms/TermContext";
+import TermPicker from "./components/TermPicker";
 import CourseCalculatorScreen from "./CourseCalculatorScreen";
 
 const GRADE_REGEX = /^\d{0,3}(\.\d{0,2})?$/;
@@ -47,6 +52,8 @@ type CurrentCourseDTO = {
   term: string;
   courseCode: string;
   includeInGpa: boolean;
+  /** False for every course in a past term. The server decides this, not the client. */
+  editable: boolean;
 };
 
 type Props = {
@@ -90,10 +97,11 @@ const COMPACT_BREAKPOINT = 600;
 export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdowns, onHighlightComplete }: Props) {
   const { width } = useWindowDimensions();
   const isCompact = width < COMPACT_BREAKPOINT;
-  const [currentCourses, setCurrentCourses] = useState<CurrentCourseDTO[]>([]);
-  const [loadingCourses, setLoadingCourses] = useState(false);
+  const queryClient = useQueryClient();
+  // The term list and the setter live in TermPicker now; this screen only needs to know which
+  // term it is showing and whether that term accepts writes.
+  const { selectedTerm, editable: termEditable } = useTerm();
   const [deletingCourse, setDeletingCourse] = useState<string | null>(null);
-  const [coursesError, setCoursesError] = useState<string | null>(null);
   const [showAddCourses, setShowAddCourses] = useState(false);
   const [mode, setMode] = useState<"manual" | "transcript">("manual");
   const [rows, setRows] = useState<CourseRow[]>([
@@ -138,7 +146,6 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
     {}
   );
   const assessmentLoadingRef = useRef<Record<string, boolean>>({});
-  const gradeUpdateTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   const scrollRef = useRef<ScrollView>(null);
   const tabPosition = useSharedValue(0);
@@ -177,6 +184,50 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
       withDelay(2500, withTiming(0, { duration: 400 }))
     );
   };
+
+  // Same key the dashboard uses — whichever screen mounts first pays for the
+  // fetch and the other reads it from cache. Keyed by term, so switching terms is a
+  // different entry rather than a refetch over the top of the old one.
+  const currentCoursesQuery = useQuery({
+    queryKey: qk.currentCourses(selectedTerm),
+    queryFn: () =>
+      authedGet<CurrentCourseDTO[]>(
+        `/api/my-courses/current-courses?term=${encodeURIComponent(selectedTerm)}`
+      ),
+    staleTime: 5 * 60_000,
+    retry: queryRetry,
+    // Nothing to ask for until the term list has resolved which term we are on.
+    enabled: !!selectedTerm,
+  });
+
+  const currentCourses = currentCoursesQuery.data ?? [];
+  const loadingCourses = currentCoursesQuery.isPending;
+  const coursesError =
+    currentCoursesQuery.error && !isAuthError(currentCoursesQuery.error)
+      ? "Failed to load courses"
+      : null;
+
+  useEffect(() => {
+    if (isAuthError(currentCoursesQuery.error)) onAuthError();
+  }, [currentCoursesQuery.error, onAuthError]);
+
+  // Derive the per-course toggle and grade maps from whatever the query holds.
+  useEffect(() => {
+    const data = currentCoursesQuery.data;
+    if (!data) return;
+
+    const gpaMap: Record<string, boolean> = {};
+    const gradeMap: Record<string, number> = {};
+    data.forEach((c, i) => {
+      const k = `${c.courseCode}-${c.term}-${i}`;
+      gpaMap[k] = c.includeInGpa;
+      if (c.grade != null) {
+        gradeMap[k] = c.grade;
+      }
+    });
+    setIncludeInGpaByCourse(gpaMap);
+    setBestGradesByCourse((prev) => ({ ...prev, ...gradeMap }));
+  }, [currentCoursesQuery.data]);
 
   useEffect(() => {
     if (highlightDropdowns && !loadingCourses && currentCourses.length > 0) {
@@ -313,11 +364,40 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
     }, UPLOAD_COOLDOWN_MS);
   };
 
+  /**
+   * The saved assessment table, falling back to the extracted syllabus
+   * assessments when the student has not saved one yet.
+   */
+  const fetchAssessmentTable = async (courseCode: string, term: string) => {
+    const encodedCourse = encodeURIComponent(courseCode);
+    const encodedTerm = encodeURIComponent(term);
+
+    const assessmentRes = await authedFetch(
+      `/api/assessment-table/get-assessment-table?courseCode=${encodedCourse}&term=${encodedTerm}`
+    );
+
+    if (assessmentRes.status !== 404) {
+      if (!assessmentRes.ok) throw new Error("Failed to load assessment table");
+      const raw = await assessmentRes.text();
+      return raw ? JSON.parse(raw) : null;
+    }
+
+    const syllabusRes = await authedFetch(
+      `/api/syllabus/assessments?courseCode=${encodedCourse}&term=${encodedTerm}`
+    );
+
+    // Nothing uploaded for this course yet — a normal empty state.
+    if (syllabusRes.status === 404) return null;
+    if (!syllabusRes.ok) throw new Error("Failed to load syllabus assessments");
+
+    const raw = await syllabusRes.text();
+    return raw ? JSON.parse(raw) : null;
+  };
+
   const loadAssessmentTableFlow = async (
     key: string,
     courseCode: string,
-    term: string,
-    options?: { force?: boolean }
+    term: string
   ) => {
     if (assessmentLoadingByCourse[key]) return;
 
@@ -326,87 +406,16 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
       [key]: true,
     }));
 
-    const token = await getToken();
-    if (!token) {
-      setAssessmentLoadingByCourse((prev) => ({
-        ...prev,
-        [key]: false,
-      }));
-      onAuthError();
-      return;
-    }
-
-    const encodedCourse = encodeURIComponent(courseCode);
-    const encodedTerm = encodeURIComponent(term);
-    // Always refetch on toggle per requirements
-
     try {
-      const assessmentRes = await fetch(
-        `${API_BASE_URL.replace(/\/$/, "")}/api/assessment-table/get-assessment-table?courseCode=${encodedCourse}&term=${encodedTerm}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-        }
-      );
+      // Reads through the cache — no network call while the entry is fresh.
+      // Invalidated on assessment-table save and on syllabus upload completion.
+      const data = await queryClient.fetchQuery({
+        queryKey: qk.assessmentTable(courseCode, term),
+        queryFn: () => fetchAssessmentTable(courseCode, term),
+        staleTime: 5 * 60_000,
+        retry: queryRetry,
+      });
 
-      if (assessmentRes.status === 401) {
-        onAuthError();
-        return;
-      }
-
-      if (assessmentRes.status === 404) {
-        const syllabusRes = await fetch(
-          `${API_BASE_URL.replace(/\/$/, "")}/api/syllabus/assessments?courseCode=${encodedCourse}&term=${encodedTerm}`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Content-Type": "application/json",
-            },
-          }
-        );
-
-        if (syllabusRes.status === 401) {
-          onAuthError();
-          return;
-        }
-
-        if (syllabusRes.status === 404) {
-          setExternalResponseByCourse((prev) => ({
-            ...prev,
-            [key]: null,
-          }));
-          setExternalVersionByCourse((prev) => ({
-            ...prev,
-            [key]: (prev[key] ?? 0) + 1,
-          }));
-          return;
-        }
-
-        if (!syllabusRes.ok) {
-          throw new Error("Failed to load syllabus assessments");
-        }
-
-        const raw = await syllabusRes.text();
-        const data = raw ? JSON.parse(raw) : null;
-        setExternalResponseByCourse((prev) => ({
-          ...prev,
-          [key]: data,
-        }));
-        setExternalVersionByCourse((prev) => ({
-          ...prev,
-          [key]: (prev[key] ?? 0) + 1,
-        }));
-        return;
-      }
-
-      if (!assessmentRes.ok) {
-        throw new Error("Failed to load assessment table");
-      }
-
-      const raw = await assessmentRes.text();
-      const data = raw ? JSON.parse(raw) : null;
       setExternalResponseByCourse((prev) => ({
         ...prev,
         [key]: data,
@@ -416,6 +425,10 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
         [key]: (prev[key] ?? 0) + 1,
       }));
     } catch (err) {
+      if (isAuthError(err)) {
+        onAuthError();
+        return;
+      }
       if (externalResponseByCourse[key] === undefined) {
         setExternalResponseByCourse((prev) => ({
           ...prev,
@@ -513,6 +526,9 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
       ...prev,
       [key]: (prev[key] ?? 0) + 1,
     }));
+    // The extraction just replaced this course's table. Write the fresh result
+    // straight into the cache rather than evicting and refetching it.
+    queryClient.setQueryData(qk.assessmentTable(courseCode, term), data);
     return true;
   };
 
@@ -725,57 +741,11 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
     });
   };
 
-  const fetchCurrentCourses = async () => {
-    setLoadingCourses(true);
-    setCoursesError(null);
-
-    const token = await getToken();
-    if (!token) {
-      setLoadingCourses(false);
-      onAuthError();
-      return;
-    }
-
-    try {
-      const res = await fetch(
-        `${API_BASE_URL.replace(/\/$/, "")}/api/my-courses/current-courses`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
-      if (res.status === 401 || res.status === 403) {
-        onAuthError();
-        return;
-      }
-
-      if (!res.ok) {
-        throw new Error("Failed to load courses");
-      }
-
-      const data: CurrentCourseDTO[] = await res.json();
-      setCurrentCourses(data);
-
-      const gpaMap: Record<string, boolean> = {};
-      const gradeMap: Record<string, number> = {};
-      data.forEach((c, i) => {
-        const k = `${c.courseCode}-${c.term}-${i}`;
-        gpaMap[k] = c.includeInGpa;
-        if (c.grade != null) {
-          gradeMap[k] = c.grade;
-        }
-      });
-      setIncludeInGpaByCourse(gpaMap);
-      setBestGradesByCourse((prev) => ({ ...prev, ...gradeMap }));
-
-      await fetchRemainingUploads(token);
-    } catch (err: any) {
-      setCoursesError(err?.message ?? "Failed to load courses");
-    } finally {
-      setLoadingCourses(false);
-    }
+  // The term list carries a course count, and deleting the last course in a term drops that
+  // term from the picker entirely, so it is evicted alongside the course list.
+  const refetchCurrentCourses = () => {
+    queryClient.invalidateQueries({ queryKey: qk.currentCourses(selectedTerm) });
+    queryClient.invalidateQueries({ queryKey: qk.terms });
   };
 
   const deleteCurrentCourse = async (courseCode: string, term: string) => {
@@ -806,52 +776,48 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
       }
 
       if (res.ok) {
-        await fetchCurrentCourses();
+        // Removing a course changes the GPA the dashboard shows.
+        await refetchCurrentCourses();
+        queryClient.invalidateQueries({ queryKey: qk.dashboard });
       }
     } finally {
       setDeletingCourse(null);
     }
   };
 
-  const saveCourseGrade = async (courseCode: string, grade: number) => {
-    const token = await getToken();
-    if (!token) return;
-    try {
-      await fetch(
-        `${API_BASE_URL.replace(/\/$/, "")}/api/my-courses/update-grade`,
-        {
-          method: "PUT",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ courseCode, grade }),
-        }
-      );
-    } catch {}
+  // Toggling GPA inclusion changes the GPA in both directions, so this always
+  // runs — unlike a grade edit, which only matters when the course counts.
+  //
+  // The dashboard is unmounted while the user is here, so invalidating marks it
+  // stale and it refetches when they navigate back — one call on return rather
+  // than one now plus one later.
+  //
+  // current-courses is marked stale WITHOUT refetching: this screen is observing
+  // that key, and a refetch would overwrite the grade the user is still editing
+  // by way of the sync effect above.
+  const invalidateGpa = () => {
+    queryClient.invalidateQueries({
+      queryKey: qk.currentCourses(selectedTerm),
+      refetchType: "none",
+    });
+    queryClient.invalidateQueries({ queryKey: qk.dashboard });
   };
 
   const toggleIncludeInGpa = async (courseCode: string, key: string, value: boolean) => {
     setIncludeInGpaByCourse((prev) => ({ ...prev, [key]: value }));
-    const token = await getToken();
-    if (!token) return;
     try {
-      await fetch(
-        `${API_BASE_URL.replace(/\/$/, "")}/api/my-courses/toggle-gpa`,
-        {
-          method: "PUT",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ courseCode, includeInGpa: value }),
-        }
-      );
+      await authedFetch("/api/my-courses/toggle-gpa", {
+        method: "PUT",
+        body: JSON.stringify({ courseCode, term: selectedTerm, includeInGpa: value }),
+      });
+      invalidateGpa();
     } catch {}
   };
 
+  // The remaining-uploads quota is deliberately never cached — a stale count
+  // would let a student exceed their limit.
   useEffect(() => {
-    fetchCurrentCourses();
+    fetchRemainingUploads();
   }, []);
 
   useEffect(() => {
@@ -916,7 +882,8 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
       }
 
       showUploadSuccessBanner();
-      await fetchCurrentCourses();
+      // A transcript rewrites courses and GPA wholesale — drop every cached read.
+      queryClient.invalidateQueries();
     } catch (err: any) {
       setUploadError(err?.message ?? "Upload failed");
     } finally {
@@ -977,7 +944,8 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
     if (res.ok) {
       showSavedBanner();
       setRows([{ id: Date.now().toString(), courseCode: "", grade: "" }]);
-      await fetchCurrentCourses();
+      // Adding courses changes the GPA the dashboard shows.
+      queryClient.invalidateQueries();
     }
   };
 
@@ -1004,29 +972,50 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
           Manage your courses and ensure you're onTrack.
         </Text>
 
-        <Pressable
-          style={styles.addCoursesToggle}
-          onPress={() => {
-            setShowAddCourses((prev) => {
-              if (!prev) {
-                setTimeout(() => {
-                  scrollRef.current?.scrollToEnd({ animated: true });
-                }, 100);
-              }
-              return !prev;
-            });
-          }}
-        >
-          <Feather
-            name={showAddCourses ? "x" : "plus"}
-            size={18}
-            color="white"
-            style={{ marginRight: 6 }}
-          />
-          <Text style={styles.addCoursesToggleText}>
-            {showAddCourses ? "Cancel" : "Add Courses"}
-          </Text>
-        </Pressable>
+        {/* Always rendered, including for a student with one term: it is what names the term the
+            list below belongs to, and hiding it made looking back undiscoverable until a student
+            already had history. The arrows disable at the ends of the list instead. */}
+        <TermPicker />
+
+        {/* Said once, near the picker, rather than on every card below it. The picker above
+            already names the term and marks it "View only", so this adds only what that cannot:
+            what "view only" actually stops you doing. It also no longer calls the term "past",
+            which was wrong for a term the student is enrolled in ahead of the current one. */}
+        {!termEditable && selectedTerm !== "" && (
+          <View style={styles.readOnlyNotice}>
+            <Feather name="eye" size={14} color={colors.bodyText} />
+            <Text style={styles.readOnlyNoticeText}>
+              You can look, but not edit. Grades and courses are read only here.
+            </Text>
+          </View>
+        )}
+
+        {/* Adding a course writes an enrollment, so it belongs to the current term only. */}
+        {termEditable && (
+          <Pressable
+            style={styles.addCoursesToggle}
+            onPress={() => {
+              setShowAddCourses((prev) => {
+                if (!prev) {
+                  setTimeout(() => {
+                    scrollRef.current?.scrollToEnd({ animated: true });
+                  }, 100);
+                }
+                return !prev;
+              });
+            }}
+          >
+            <Feather
+              name={showAddCourses ? "x" : "plus"}
+              size={18}
+              color="white"
+              style={{ marginRight: 6 }}
+            />
+            <Text style={styles.addCoursesToggleText}>
+              {showAddCourses ? "Cancel" : "Add Courses"}
+            </Text>
+          </Pressable>
+        )}
 
         {loadingCourses && (
           <View style={styles.loadingRow}>
@@ -1040,8 +1029,12 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
 
         {currentCourses.map((course, index) => {
           const key = `${course.courseCode}-${course.term}-${index}`;
-          const effectiveTerm =
-            course.term === "Winter 2026" ? course.term : "Winter 2026";
+          // The course's own term, as the server reported it. This used to be pinned to a
+          // literal, which collapsed every term onto one cache entry.
+          const effectiveTerm = course.term;
+          // Asked of the course rather than worked out from the term, so a second editable
+          // term would need no change here.
+          const courseEditable = course.editable;
           const isExpanded = !!expandedCourses[key];
           const uploadState = getUploadState(key);
           const isAssessmentLoading = !!assessmentLoadingByCourse[key];
@@ -1086,13 +1079,16 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
               ]}
             />
             <View style={[styles.courseContent, isCompact && styles.courseContentCompact]}>
-              <Pressable
-                style={[styles.deleteIcon, deletingCourse !== null && { opacity: 0.4 }]}
-                onPress={() => deleteCurrentCourse(course.courseCode, effectiveTerm)}
-                disabled={deletingCourse !== null}
-              >
-                <Feather name="trash-2" size={16} color={colors.bodyText} />
-              </Pressable>
+              {/* Deleting is editing, so a past term's card carries no delete control. */}
+              {courseEditable && (
+                <Pressable
+                  style={[styles.deleteIcon, deletingCourse !== null && { opacity: 0.4 }]}
+                  onPress={() => deleteCurrentCourse(course.courseCode, effectiveTerm)}
+                  disabled={deletingCourse !== null}
+                >
+                  <Feather name="trash-2" size={16} color={colors.bodyText} />
+                </Pressable>
+              )}
               <View style={[styles.courseLeft, isCompact && styles.courseLeftCompact]}>
                 <View style={styles.courseHeader}>
                   <Text style={styles.courseCode}>{course.courseCode}</Text>
@@ -1119,8 +1115,11 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
                   </Text>
                 </View>
                 <View style={[styles.courseDivider, isCompact && styles.courseDividerCompact]} />
+                {/* Still shown for a past term, because whether a course counted is worth
+                    seeing. Not pressable, because changing it is a write. */}
                 <Pressable
                   style={styles.gpaPill}
+                  disabled={!courseEditable}
                   onPress={() =>
                     toggleIncludeInGpa(
                       course.courseCode,
@@ -1157,6 +1156,9 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
 
             {isExpanded && (
               <View style={styles.courseCalculatorContainer}>
+                {/* The whole syllabus panel is a write surface: uploading one replaces the
+                    course's assessment table. A past term does not get it at all. */}
+                {courseEditable && (
                 <View style={styles.syllabusBox}>
                   {showSyllabusPrompt ? (
                     <>
@@ -1254,26 +1256,32 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
                     </Pressable>
                   </View>
                 </View>
+                )}
                 <CourseCalculatorScreen
                   courseCode={course.courseCode}
                   term={effectiveTerm}
+                  editable={courseEditable}
                   onAuthError={onAuthError}
                   variant="inline"
                   onBestGradeChange={(grade) => {
+                    // Display only. The grade is persisted by the calculator's own
+                    // save, together with the table rows it was computed from.
+                    if (!Number.isFinite(grade)) return;
+                    if (grade < 0 || grade > 100) return;
+
                     setBestGradesByCourse((prev) =>
                       prev[key] === grade ? prev : { ...prev, [key]: grade }
                     );
-                    if (gradeUpdateTimers.current[key]) {
-                      clearTimeout(gradeUpdateTimers.current[key]);
-                    }
-                    gradeUpdateTimers.current[key] = setTimeout(() => {
-                      saveCourseGrade(course.courseCode, grade);
-                    }, 1500);
                   }}
                   externalResponse={externalResponseByCourse[key]}
                   externalVersion={externalVersionByCourse[key]}
                   skipFetch={true}
                   autoSaveVersion={autoSaveVersionByCourse[key]}
+                  onSaved={() =>
+                    queryClient.invalidateQueries({
+                      queryKey: qk.assessmentTable(course.courseCode, effectiveTerm),
+                    })
+                  }
                 />
               </View>
             )}
@@ -1619,6 +1627,21 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: colors.boldText,
     marginRight: spacing.sm,
+  },
+  readOnlyNotice: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingVertical: 10,
+    paddingHorizontal: spacing.md,
+    marginBottom: spacing.md,
+    borderRadius: 8,
+    backgroundColor: "#EEEEF5",
+  },
+  readOnlyNoticeText: {
+    flex: 1,
+    fontSize: 13,
+    color: colors.bodyText,
   },
   termPill: {
     backgroundColor: "#F2B94A",

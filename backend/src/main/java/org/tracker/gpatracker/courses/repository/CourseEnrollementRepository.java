@@ -16,9 +16,20 @@ import java.util.Optional;
 public interface CourseEnrollementRepository extends UserScopedRepository<CourseEnrollement, CourseEnrollementKey> {
     List<CourseEnrollement> findByStudentsId(Long studentId);
 
+    /**
+     * Every term's enrollments. Callers that feed a GPA or a calendar almost always want
+     * {@link #findByStudentsIdAndIdTermAndIncludeInGpaTrue} instead: once past terms exist, this
+     * returns rows the student has already graduated past.
+     */
     List<CourseEnrollement> findByStudentsIdAndIncludeInGpaTrue(Long studentId);
 
-    long countByStudentsId(Long studentId);
+    // "IdTerm" is how Spring Data walks into the embedded id, i.e. e.id.term.
+    List<CourseEnrollement> findByStudentsIdAndIdTerm(Long studentId, String term);
+
+    List<CourseEnrollement> findByStudentsIdAndIdTermAndIncludeInGpaTrue(Long studentId, String term);
+
+    /** Per term, not per student. A student's second term must not inherit their first term's cap. */
+    long countByStudentsIdAndIdTerm(Long studentId, String term);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT e FROM CourseEnrollement e WHERE e.id = :id")

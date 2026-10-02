@@ -13,6 +13,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.tracker.gpatracker.accounts.service.StudentService;
+import org.tracker.gpatracker.security.dto.AuthTokens;
 import org.tracker.gpatracker.security.exception.InvalidTokenException;
 import org.tracker.gpatracker.mailing.AccountVerificationEmailContext;
 import org.tracker.gpatracker.mailing.PasswordResetEmailContext;
@@ -30,6 +31,7 @@ import java.time.LocalDateTime;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.regex.Pattern;
 
 @Service
@@ -50,11 +52,13 @@ public class UserService {
     private final BCryptPasswordEncoder passwordEncoder;
     private final AuthenticationManager authManager;
     private final JWTService jwtService;
+    private final RefreshTokenService refreshTokenService;
 
     public UserService(UserRepo userRepo, StudentService studentService, EmailService emailService,
                        SecureTokenRepository secureTokenRepository, RolesRepo rolesRepo,
                        DefaultSecureTokenService secureTokenService, BCryptPasswordEncoder passwordEncoder,
-                       AuthenticationManager authManager, JWTService jwtService) {
+                       AuthenticationManager authManager, JWTService jwtService,
+                       RefreshTokenService refreshTokenService) {
         this.userRepo = userRepo;
         this.studentService = studentService;
         this.emailService = emailService;
@@ -64,6 +68,7 @@ public class UserService {
         this.passwordEncoder = passwordEncoder;
         this.authManager = authManager;
         this.jwtService = jwtService;
+        this.refreshTokenService = refreshTokenService;
     }
 
     @Transactional
@@ -260,33 +265,60 @@ public class UserService {
         user.setPassword(passwordEncoder.encode(newPassword));
         userRepo.save(user);
         secureTokenService.removeToken(decoded);
+        // A reset is how a user recovers a compromised account, so it must end every existing session.
+        refreshTokenService.revokeAll(user);
         logger.info("resetPassword — complete");
     }
 
-    public String verifyLogin(Users user) {
-        //If the user is not authenticated the authManager.authenticate returns an unchecked error
-        //unchecked errors don't need to be handled
-        //but we neeed to catch and handle the error if we want to output login failed to the user
-        try {
-            Authentication auth =
-                    authManager.authenticate(
-                            new UsernamePasswordAuthenticationToken(
-                                    user.getEmail(),
-                                    user.getPassword()
-                            )
-                    );
-            UserPrincipal principal = (UserPrincipal) auth.getPrincipal();
-            Long userId = principal.getId();
-            // Resolved once, here, and carried in the signed payload for the token's lifetime.
-            // Login requires a verified email and verification creates the Student row, so this
-            // is populated in practice; a null surfaces later as an explicit "no student id".
-            Long studentId = studentService.findStudentIdByUserId(userId);
-            return jwtService.generateToken(principal.getUsername(), userId, studentId);
+    /**
+     * Authenticates the credentials and starts a session.
+     *
+     * @throws DisabledException       when the email is not verified
+     * @throws AuthenticationException when the credentials are wrong
+     */
+    @Transactional
+    public AuthTokens verifyLogin(Users user) {
+        Authentication auth =
+                authManager.authenticate(
+                        new UsernamePasswordAuthenticationToken(
+                                user.getEmail(),
+                                user.getPassword()
+                        )
+                );
+        UserPrincipal principal = (UserPrincipal) auth.getPrincipal();
+        Long userId = principal.getId();
+        String accessToken = issueAccessToken(principal.getUsername(), userId);
+        String refreshToken = refreshTokenService.issue(userRepo.getReferenceById(userId));
+        return new AuthTokens(accessToken, refreshToken);
+    }
 
-        } catch (DisabledException e) {
-            return "Email Not Verified";
-        } catch (AuthenticationException e) {
-            return "Login Failed";
-        }
+    /**
+     * Trades a refresh token for a new access token and a new refresh token. Empty when the refresh
+     * token is not usable or the account can no longer sign in; the caller must send the user back
+     * to login.
+     */
+    @Transactional
+    public Optional<AuthTokens> refresh(String rawRefreshToken) {
+        return refreshTokenService.rotate(rawRefreshToken).flatMap(issued -> {
+            Users account = issued.user();
+            if (!account.isEmailVerified() || !account.isAccountEnabled() || account.isAccountLocked()) {
+                refreshTokenService.revokeAll(account);
+                return Optional.empty();
+            }
+            String accessToken = issueAccessToken(account.getEmail(), account.getId());
+            return Optional.of(new AuthTokens(accessToken, issued.rawToken()));
+        });
+    }
+
+    public void logout(String rawRefreshToken) {
+        refreshTokenService.revoke(rawRefreshToken);
+    }
+
+    private String issueAccessToken(String email, Long userId) {
+        // Resolved at issue time and carried in the signed payload for the token's lifetime.
+        // Login requires a verified email and verification creates the Student row, so this
+        // is populated in practice; a null surfaces later as an explicit "no student id".
+        Long studentId = studentService.findStudentIdByUserId(userId);
+        return jwtService.generateToken(email, userId, studentId);
     }
 }

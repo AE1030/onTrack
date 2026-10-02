@@ -110,7 +110,7 @@ public class ManualUploadService {
         return studentService.getPastCourses();
     }
 
-    public List<CurrentCourseDTO> getPresentCourses() {
-        return studentService.getPresentCourses();
+    public List<CurrentCourseDTO> getPresentCourses(String term) {
+        return studentService.getPresentCourses(term);
     }
 }

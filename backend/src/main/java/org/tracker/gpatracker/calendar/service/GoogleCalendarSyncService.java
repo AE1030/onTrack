@@ -74,7 +74,7 @@ public class GoogleCalendarSyncService {
 
     private void doSync(Long studentId) {
         // Step 1: Get current projection
-        CalendarEvents calendarEvents = calendarEventsRepository.findByStudentId(studentId)
+        CalendarEvents calendarEvents = calendarEventsRepository.findByOwnerId(studentId)
                 .orElseThrow(() -> new IllegalStateException("No calendar events found for student " + studentId));
 
         List<InternalCalendarEvent> currentEvents = calendarEvents.getEvents() != null
@@ -83,7 +83,7 @@ public class GoogleCalendarSyncService {
 
         // Step 2: Get latest export snapshot
         GoogleCalendarExport lastExport = exportRepository
-                .findTopByStudentIdOrderByExportedAtDesc(studentId)
+                .findTopByOwnerIdOrderByExportedAtDesc(studentId)
                 .orElse(null);
 
         List<GoogleCalendarEvent> previousEvents = lastExport != null && lastExport.getEvents() != null
@@ -129,7 +129,7 @@ public class GoogleCalendarSyncService {
 
         // Step 6: Save new export snapshot
         GoogleCalendarExport newExport = new GoogleCalendarExport();
-        newExport.setStudentId(studentId);
+        newExport.setOwnerId(studentId);
         newExport.setExportedAt(Instant.now());
         newExport.setEvents(newExportEvents);
         exportRepository.save(newExport);

@@ -19,7 +19,9 @@ public class JWTService {
     private final String secretkey;
     private final long expiryMs;
 
-    public JWTService(@Value("${JWT_SECRET_KEY}") String secretkey,
+    // Dotted key, not the raw JWT_SECRET_KEY env name. See the note in SecurityConfig: reading the
+    // env name directly let .env override the test profile's dummy secret.
+    public JWTService(@Value("${jwt.secret-key}") String secretkey,
                       @Value("${jwt.expiry.ms:3600000}") long expiryMs) {
         this.secretkey = secretkey;
         this.expiryMs = expiryMs;
