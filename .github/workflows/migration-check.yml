@@ -1,0 +1,104 @@
+name: Migration Check
+
+# Proves a migration is safe against real production data before it can merge.
+#
+# It forks a copy-on-write Neon branch from `production`, boots the backend against that branch
+# (Flyway migrates it, then ddl-auto=validate checks the entities still match), and throws the
+# branch away. Production itself is never touched.
+#
+# Same-repo PRs only. Fork PRs get no secrets, and must never be run with pull_request_target
+# because this job holds a Neon API key and a copy of production data.
+
+on:
+  pull_request:
+    paths:
+      - 'backend/src/main/resources/db/migration/**'
+      - 'backend/src/main/java/**/model/**'
+      - 'backend/pom.xml'
+      - '.github/workflows/migration-check.yml'
+
+concurrency:
+  group: migration-check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  migrate:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      BRANCH_NAME: pr-${{ github.event.pull_request.number }}-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Compute branch expiry
+        id: expiry
+        run: echo "at=$(date -u -d '+2 hours' +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Fork production
+        id: branch
+        uses: neondatabase/create-branch-action@v6
+        with:
+          project_id: ${{ vars.NEON_PROJECT_ID }}
+          api_key: ${{ secrets.NEON_API_KEY }}
+          branch_name: ${{ env.BRANCH_NAME }}
+          parent_branch: production
+          # Safety net if the delete step below never runs.
+          expires_at: ${{ steps.expiry.outputs.at }}
+
+      - name: Build jar
+        working-directory: backend
+        run: mvn -B -q -DskipTests package
+
+      # The row data is real, so keep the log quiet and mask anything that could identify it.
+      - name: Migrate and boot against the branch
+        working-directory: backend
+        env:
+          DB_HOST: ${{ steps.branch.outputs.db_host }}
+          DB_PASSWORD: ${{ steps.branch.outputs.password }}
+        run: |
+          echo "::add-mask::$DB_PASSWORD"
+          export DB_URL="jdbc:postgresql://${DB_HOST}/neondb?sslmode=require"
+          export DB_USERNAME=neondb_owner
+          export SPRING_PROFILES_ACTIVE=prod
+          # Throwaway values. Startup runs Flyway and schema validation but never decrypts a grade.
+          export JWT_SECRET_KEY=dGVzdER1bW15Snd0U2VjcmV0S2V5Rm9yVW5pdFRlc3RzMTIzNA==
+          export GRADE_ENCRYPTION_KEY=dGVzdER1bW15R3JhZGVFbmNyeXB0aW9uS2V5MTIzNDU=
+          export CALENDAR_LINK_TOKEN_SECRET=dGVzdER1bW15Q2FsZW5kYXJMaW5rVG9rZW5TZWNyZXQxMjM0
+          export RESEND_API_KEY=ci-dummy GEMINI_API_KEY=ci-dummy
+          export GOOGLE_OAUTH_CLIENT_ID=ci-dummy GOOGLE_OAUTH_CLIENT_SECRET=ci-dummy
+          export GOOGLE_OAUTH_REDIRECT_URI=http://localhost:8080/api/calendar/google/callback
+          export SITE_BASE_URL=http://localhost:8080 CORS_ALLOWED_ORIGIN=http://localhost:8081
+          export LEADERBOARD_RECOMPUTE_CRON=-
+          java -jar target/*.jar > app.log 2>&1 &
+          PID=$!
+          for i in $(seq 1 60); do
+            # /hello is behind auth, so 401 is expected. Any HTTP answer means the server is
+            # listening, which only happens after Flyway and schema validation succeeded.
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/hello || true)
+            if [ "$CODE" != "000" ] && [ -n "$CODE" ]; then
+              echo "Migrated and booted cleanly."
+              kill $PID
+              exit 0
+            fi
+            if ! kill -0 $PID 2>/dev/null; then break; fi
+            sleep 5
+          done
+          echo "Backend did not come up. Flyway or schema validation failed. Last log lines:"
+          grep -E 'Flyway|Migration|Schema-validation|ERROR|Caused by' app.log | tail -20
+          exit 1
+
+      - name: Delete the branch
+        if: always() && steps.branch.outputs.branch_id != ''
+        uses: neondatabase/delete-branch-action@v3
+        with:
+          project_id: ${{ vars.NEON_PROJECT_ID }}
+          api_key: ${{ secrets.NEON_API_KEY }}
+          branch: ${{ steps.branch.outputs.branch_id }}
