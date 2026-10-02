@@ -35,8 +35,14 @@ jobs:
         env:
           SPRING_PROFILES_ACTIVE: test
 
+  # Forks production on Neon and boots the new build against the copy, so a migration that would
+  # break real data fails here, before anything is deployed.
+  migration-check:
+    uses: ./.github/workflows/migration-check.yml
+    secrets: inherit
+
   deploy:
-    needs: test
+    needs: [test, migration-check]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

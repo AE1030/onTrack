@@ -1,0 +1,143 @@
+name: Migration Check
+
+# Proves a migration is safe against real production data before it can merge.
+#
+# It forks a copy-on-write Neon branch from `production`, boots the backend against that branch
+# (Flyway migrates it, then ddl-auto=validate checks the entities still match), and throws the
+# branch away. Production itself is never touched.
+#
+# Runs on pull requests, and is also called by backend-deploy.yml on every push to main so a
+# failing migration blocks the deploy instead of racing it.
+#
+# Same-repo PRs only. Fork PRs get no secrets, and must never be run with pull_request_target
+# because this job holds a Neon API key and a copy of production data.
+
+on:
+  pull_request:
+    paths:
+      - 'backend/src/main/resources/db/migration/**'
+      - 'backend/src/main/java/**/model/**'
+      - 'backend/pom.xml'
+      - '.github/workflows/migration-check.yml'
+
+  workflow_call:
+
+concurrency:
+  group: migration-check-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  migrate:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      BRANCH_NAME: check-${{ github.event.pull_request.number || 'main' }}-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build jar
+        working-directory: backend
+        run: mvn -B -q -DskipTests package
+
+      - name: Compute branch expiry
+        id: expiry
+        run: echo "at=$(date -u -d '+2 hours' +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      # This repo is public, so these logs are world-readable. A branch forked from production
+      # inherits the production role password, and Neon's GitHub Action prints it. So this step
+      # talks to the Neon API directly instead, and the moment the branch exists it resets
+      # neondb_owner's password ON THE BRANCH ONLY. That throwaway password is the only one this
+      # job ever uses or holds, so nothing here can leak a production credential. The password is
+      # masked at once, and no API response is ever echoed (never add set -x here).
+      - name: Fork production and boot against the copy
+        id: fork
+        working-directory: backend
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+          EXPIRES_AT: ${{ steps.expiry.outputs.at }}
+        run: |
+          set -euo pipefail
+          API="https://console.neon.tech/api/v2/projects/$NEON_PROJECT_ID"
+          neon() { curl -fsS -H "Authorization: Bearer $NEON_API_KEY" -H "Content-Type: application/json" "$@"; }
+
+          PARENT=$(neon "$API/branches" | jq -r '.branches[] | select(.name=="production") | .id')
+          [ -n "$PARENT" ] || { echo "No branch named production in the Neon project."; exit 1; }
+
+          RESP=$(neon -X POST "$API/branches" -d "$(jq -n \
+            --arg n "$BRANCH_NAME" --arg p "$PARENT" --arg e "$EXPIRES_AT" \
+            '{branch:{name:$n,parent_id:$p,expires_at:$e},endpoints:[{type:"read_write"}]}')")
+          BRANCH_ID=$(jq -r '.branch.id' <<<"$RESP")
+          ENDPOINT_ID=$(jq -r '.endpoints[0].id' <<<"$RESP")
+          DB_HOST=$(jq -r '.endpoints[0].host' <<<"$RESP")
+          unset RESP
+          # Written first so the delete step can clean up even if a later line fails.
+          echo "branch_id=$BRANCH_ID" >> "$GITHUB_OUTPUT"
+
+          for i in $(seq 1 30); do
+            STATE=$(neon "$API/endpoints/$ENDPOINT_ID" | jq -r '.endpoint.current_state')
+            if [ "$STATE" = "active" ] || [ "$STATE" = "idle" ]; then break; fi
+            sleep 2
+          done
+
+          DB_PASSWORD=$(neon -X POST "$API/branches/$BRANCH_ID/roles/neondb_owner/reset_password" | jq -r '.role.password')
+          echo "::add-mask::$DB_PASSWORD"
+          { [ -n "$DB_PASSWORD" ] && [ "$DB_PASSWORD" != "null" ]; } || { echo "Could not reset the branch password."; exit 1; }
+          export DB_PASSWORD
+
+          # The reset applies asynchronously. Wait until the branch accepts the new password.
+          READY=0
+          for i in $(seq 1 30); do
+            if PGPASSWORD="$DB_PASSWORD" psql "host=$DB_HOST dbname=neondb user=neondb_owner sslmode=require connect_timeout=10" -Atc 'select 1' > /dev/null 2>&1; then READY=1; break; fi
+            sleep 2
+          done
+          [ "$READY" = 1 ] || { echo "The branch never accepted the reset password."; exit 1; }
+
+          export DB_URL="jdbc:postgresql://${DB_HOST}/neondb?sslmode=require"
+          export DB_USERNAME=neondb_owner
+          export SPRING_PROFILES_ACTIVE=prod
+          # Throwaway values. Startup runs Flyway and schema validation but never decrypts a grade.
+          export JWT_SECRET_KEY=dGVzdER1bW15Snd0U2VjcmV0S2V5Rm9yVW5pdFRlc3RzMTIzNA==
+          export GRADE_ENCRYPTION_KEY=dGVzdER1bW15R3JhZGVFbmNyeXB0aW9uS2V5MTIzNDU=
+          export CALENDAR_LINK_TOKEN_SECRET=dGVzdER1bW15Q2FsZW5kYXJMaW5rVG9rZW5TZWNyZXQxMjM0
+          export RESEND_API_KEY=ci-dummy GEMINI_API_KEY=ci-dummy
+          export GOOGLE_OAUTH_CLIENT_ID=ci-dummy GOOGLE_OAUTH_CLIENT_SECRET=ci-dummy
+          export GOOGLE_OAUTH_REDIRECT_URI=http://localhost:8080/api/calendar/google/callback
+          export SITE_BASE_URL=http://localhost:8080 CORS_ALLOWED_ORIGIN=http://localhost:8081
+          export APP_CURRENT_TERM_SEASON=Winter APP_CURRENT_TERM_YEAR=2026
+          export LEADERBOARD_RECOMPUTE_CRON=-
+          java -jar target/*.jar > app.log 2>&1 &
+          PID=$!
+          for i in $(seq 1 60); do
+            # /hello is behind auth, so 401 is expected. Any HTTP answer means the server is
+            # listening, which only happens after Flyway and schema validation succeeded.
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/hello || true)
+            if [ "$CODE" != "000" ] && [ -n "$CODE" ]; then
+              echo "Migrated and booted cleanly."
+              kill $PID
+              exit 0
+            fi
+            if ! kill -0 $PID 2>/dev/null; then break; fi
+            sleep 5
+          done
+          echo "Backend did not come up. Flyway or schema validation failed. Last log lines:"
+          grep -E 'Flyway|Migration|Schema-validation|ERROR|Caused by' app.log | tail -20
+          exit 1
+
+      - name: Delete the branch
+        if: always() && steps.fork.outputs.branch_id != ''
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+          BRANCH_ID: ${{ steps.fork.outputs.branch_id }}
+        run: |
+          curl -fsS -X DELETE -H "Authorization: Bearer $NEON_API_KEY" \
+            "https://console.neon.tech/api/v2/projects/$NEON_PROJECT_ID/branches/$BRANCH_ID" > /dev/null
