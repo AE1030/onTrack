@@ -14,7 +14,7 @@ COPY pyproject.toml ./
 RUN pip install --no-cache-dir \
         "requests>=2.32,<3" \
         "beautifulsoup4>=4.12,<5" \
-        "pymongo>=4.8,<5" \
+        "psycopg2-binary>=2.9,<3" \
         "google-genai>=1.0,<2"
 
 COPY syllabus_pipeline ./syllabus_pipeline
