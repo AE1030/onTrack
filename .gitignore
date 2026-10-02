@@ -28,3 +28,8 @@ node_modules/
 # Root-level Neon config tooling (@neon/config, @neon/env), not an app package
 /package.json
 /package-lock.json
+
+# Local agent tooling
+.agents/
+.claude/
+skills-lock.json
