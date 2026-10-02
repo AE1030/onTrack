@@ -81,5 +81,5 @@ jobs:
             --max-retries=1 \
             --memory=1Gi \
             --cpu=1 \
-            --set-secrets=MONGODB_URI=MONGODB_URI:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest \
+            --set-secrets=DB_URL=DB_URL:latest,DB_USERNAME=DB_USERNAME:latest,DB_PASSWORD=DB_PASSWORD:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest \
             --set-env-vars=^@^SYLLABUS_TERM_STATUSES=current,future@TERM_START_DATE=${{ vars.TERM_START_DATE }}@DAILY_WINDOW_DAYS=14@WEEKLY_RUN_WEEKDAY=0@MAX_EXTRACTIONS_PER_RUN=250@SYLLABUS_REQUEST_DELAY_SEC=0.6@FAIL_ON_VIOLATIONS=true

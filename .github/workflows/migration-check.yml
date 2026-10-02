@@ -58,6 +58,14 @@ jobs:
           # Safety net if the delete step below never runs.
           expires_at: ${{ steps.expiry.outputs.at }}
 
+      # Neon's action does not mask its own outputs, and a branch forked from production carries the
+      # production role password. Mask it before any later step can print it, including the env
+      # block GitHub echoes at the top of a step. This repo is public, so logs are world-readable.
+      - name: Mask branch password
+        env:
+          BRANCH_PASSWORD: ${{ steps.branch.outputs.password }}
+        run: echo "::add-mask::$BRANCH_PASSWORD"
+
       - name: Build jar
         working-directory: backend
         run: mvn -B -q -DskipTests package
@@ -69,7 +77,6 @@ jobs:
           DB_HOST: ${{ steps.branch.outputs.db_host }}
           DB_PASSWORD: ${{ steps.branch.outputs.password }}
         run: |
-          echo "::add-mask::$DB_PASSWORD"
           export DB_URL="jdbc:postgresql://${DB_HOST}/neondb?sslmode=require"
           export DB_USERNAME=neondb_owner
           export SPRING_PROFILES_ACTIVE=prod
@@ -81,6 +88,7 @@ jobs:
           export GOOGLE_OAUTH_CLIENT_ID=ci-dummy GOOGLE_OAUTH_CLIENT_SECRET=ci-dummy
           export GOOGLE_OAUTH_REDIRECT_URI=http://localhost:8080/api/calendar/google/callback
           export SITE_BASE_URL=http://localhost:8080 CORS_ALLOWED_ORIGIN=http://localhost:8081
+          export APP_CURRENT_TERM_SEASON=Winter APP_CURRENT_TERM_YEAR=2026
           export LEADERBOARD_RECOMPUTE_CRON=-
           java -jar target/*.jar > app.log 2>&1 &
           PID=$!
