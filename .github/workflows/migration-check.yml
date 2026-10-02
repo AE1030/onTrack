@@ -43,40 +43,64 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Compute branch expiry
-        id: expiry
-        run: echo "at=$(date -u -d '+2 hours' +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
-
-      - name: Fork production
-        id: branch
-        uses: neondatabase/create-branch-action@v6
-        with:
-          project_id: ${{ vars.NEON_PROJECT_ID }}
-          api_key: ${{ secrets.NEON_API_KEY }}
-          branch_name: ${{ env.BRANCH_NAME }}
-          parent_branch: production
-          # Safety net if the delete step below never runs.
-          expires_at: ${{ steps.expiry.outputs.at }}
-
-      # Neon's action does not mask its own outputs, and a branch forked from production carries the
-      # production role password. Mask it before any later step can print it, including the env
-      # block GitHub echoes at the top of a step. This repo is public, so logs are world-readable.
-      - name: Mask branch password
-        env:
-          BRANCH_PASSWORD: ${{ steps.branch.outputs.password }}
-        run: echo "::add-mask::$BRANCH_PASSWORD"
-
       - name: Build jar
         working-directory: backend
         run: mvn -B -q -DskipTests package
 
-      # The row data is real, so keep the log quiet and mask anything that could identify it.
-      - name: Migrate and boot against the branch
+      - name: Compute branch expiry
+        id: expiry
+        run: echo "at=$(date -u -d '+2 hours' +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      # This repo is public, so these logs are world-readable. A branch forked from production
+      # inherits the production role password, and Neon's GitHub Action prints it. So this step
+      # talks to the Neon API directly instead, and the moment the branch exists it resets
+      # neondb_owner's password ON THE BRANCH ONLY. That throwaway password is the only one this
+      # job ever uses or holds, so nothing here can leak a production credential. The password is
+      # masked at once, and no API response is ever echoed (never add set -x here).
+      - name: Fork production and boot against the copy
+        id: fork
         working-directory: backend
         env:
-          DB_HOST: ${{ steps.branch.outputs.db_host }}
-          DB_PASSWORD: ${{ steps.branch.outputs.password }}
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+          EXPIRES_AT: ${{ steps.expiry.outputs.at }}
         run: |
+          set -euo pipefail
+          API="https://console.neon.tech/api/v2/projects/$NEON_PROJECT_ID"
+          neon() { curl -fsS -H "Authorization: Bearer $NEON_API_KEY" -H "Content-Type: application/json" "$@"; }
+
+          PARENT=$(neon "$API/branches" | jq -r '.branches[] | select(.name=="production") | .id')
+          [ -n "$PARENT" ] || { echo "No branch named production in the Neon project."; exit 1; }
+
+          RESP=$(neon -X POST "$API/branches" -d "$(jq -n \
+            --arg n "$BRANCH_NAME" --arg p "$PARENT" --arg e "$EXPIRES_AT" \
+            '{branch:{name:$n,parent_id:$p,expires_at:$e},endpoints:[{type:"read_write"}]}')")
+          BRANCH_ID=$(jq -r '.branch.id' <<<"$RESP")
+          ENDPOINT_ID=$(jq -r '.endpoints[0].id' <<<"$RESP")
+          DB_HOST=$(jq -r '.endpoints[0].host' <<<"$RESP")
+          unset RESP
+          # Written first so the delete step can clean up even if a later line fails.
+          echo "branch_id=$BRANCH_ID" >> "$GITHUB_OUTPUT"
+
+          for i in $(seq 1 30); do
+            STATE=$(neon "$API/endpoints/$ENDPOINT_ID" | jq -r '.endpoint.current_state')
+            if [ "$STATE" = "active" ] || [ "$STATE" = "idle" ]; then break; fi
+            sleep 2
+          done
+
+          DB_PASSWORD=$(neon -X POST "$API/branches/$BRANCH_ID/roles/neondb_owner/reset_password" | jq -r '.role.password')
+          echo "::add-mask::$DB_PASSWORD"
+          { [ -n "$DB_PASSWORD" ] && [ "$DB_PASSWORD" != "null" ]; } || { echo "Could not reset the branch password."; exit 1; }
+          export DB_PASSWORD
+
+          # The reset applies asynchronously. Wait until the branch accepts the new password.
+          READY=0
+          for i in $(seq 1 30); do
+            if PGPASSWORD="$DB_PASSWORD" psql "host=$DB_HOST dbname=neondb user=neondb_owner sslmode=require connect_timeout=10" -Atc 'select 1' > /dev/null 2>&1; then READY=1; break; fi
+            sleep 2
+          done
+          [ "$READY" = 1 ] || { echo "The branch never accepted the reset password."; exit 1; }
+
           export DB_URL="jdbc:postgresql://${DB_HOST}/neondb?sslmode=require"
           export DB_USERNAME=neondb_owner
           export SPRING_PROFILES_ACTIVE=prod
@@ -109,9 +133,11 @@ jobs:
           exit 1
 
       - name: Delete the branch
-        if: always() && steps.branch.outputs.branch_id != ''
-        uses: neondatabase/delete-branch-action@v3
-        with:
-          project_id: ${{ vars.NEON_PROJECT_ID }}
-          api_key: ${{ secrets.NEON_API_KEY }}
-          branch: ${{ steps.branch.outputs.branch_id }}
+        if: always() && steps.fork.outputs.branch_id != ''
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+          BRANCH_ID: ${{ steps.fork.outputs.branch_id }}
+        run: |
+          curl -fsS -X DELETE -H "Authorization: Bearer $NEON_API_KEY" \
+            "https://console.neon.tech/api/v2/projects/$NEON_PROJECT_ID/branches/$BRANCH_ID" > /dev/null
