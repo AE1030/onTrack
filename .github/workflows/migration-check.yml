@@ -6,6 +6,9 @@ name: Migration Check
 # (Flyway migrates it, then ddl-auto=validate checks the entities still match), and throws the
 # branch away. Production itself is never touched.
 #
+# Runs on pull requests, and is also called by backend-deploy.yml on every push to main so a
+# failing migration blocks the deploy instead of racing it.
+#
 # Same-repo PRs only. Fork PRs get no secrets, and must never be run with pull_request_target
 # because this job holds a Neon API key and a copy of production data.
 
@@ -17,17 +20,19 @@ on:
       - 'backend/pom.xml'
       - '.github/workflows/migration-check.yml'
 
+  workflow_call:
+
 concurrency:
-  group: migration-check-${{ github.event.pull_request.number }}
+  group: migration-check-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   migrate:
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      BRANCH_NAME: pr-${{ github.event.pull_request.number }}-${{ github.run_id }}
+      BRANCH_NAME: check-${{ github.event.pull_request.number || 'main' }}-${{ github.run_id }}
     steps:
       - uses: actions/checkout@v4
 
