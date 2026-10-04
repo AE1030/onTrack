@@ -154,11 +154,6 @@
             <version>LATEST</version>
         </dependency>
         <dependency>
-            <groupId>com.google.cloud.sql</groupId>
-            <artifactId>postgres-socket-factory</artifactId>
-            <version>1.28.1</version>
-        </dependency>
-        <dependency>
             <groupId>me.paulschwarz</groupId>
             <artifactId>spring-dotenv</artifactId>
             <version>4.0.0</version>
