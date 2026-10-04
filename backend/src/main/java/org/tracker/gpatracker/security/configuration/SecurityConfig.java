@@ -59,6 +59,9 @@ public class SecurityConfig {
                                 "/api/calendar/google/success",
                                 // Authorised by JobTriggerController's shared secret, not a JWT.
                                 "/internal/jobs/**",
+                                // Keep-warm ping target. Returns a fixed string and touches no data,
+                                // so Cloud Scheduler gets a 200 instead of logging a 401 every run.
+                                "/hello",
                                 "/error").permitAll()//These are the resources that don't need authentication
                         .anyRequest().authenticated()) //Any other request needs authentication
                 //.formLogin(Customizer.withDefaults()) //this is designed for a stateful session;because our session is stateless this is why in the browser we are stuck in a loop. It also contains an html code that contains the login form.
