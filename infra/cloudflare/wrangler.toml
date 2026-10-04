@@ -1,0 +1,10 @@
+# Deploys the api.ontrackmac.ca proxy: `npx wrangler deploy` from this folder.
+name = "ontrack-api-proxy"
+main = "api-proxy-worker.js"
+compatibility_date = "2026-10-01"
+
+# A custom domain makes Cloudflare create and manage the DNS record for api.ontrackmac.ca itself.
+# Any existing `api` DNS record must be deleted first or the deploy is refused.
+routes = [
+  { pattern = "api.ontrackmac.ca", custom_domain = true }
+]
