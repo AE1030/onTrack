@@ -1,8 +1,16 @@
 FROM eclipse-temurin:21-jdk-alpine AS build
 WORKDIR /app
+RUN apk add --no-cache maven
+
+# Dependencies first, in their own layer. Docker reuses a layer until its inputs change, so this
+# one is rebuilt only when pom.xml changes. Before this, source and pom were copied together and
+# every code edit re-downloaded the whole dependency tree.
 COPY pom.xml .
+RUN mvn -B -q dependency:go-offline
+
+# Source last, since it changes on nearly every commit.
 COPY src ./src
-RUN apk add --no-cache maven && mvn clean package -DskipTests
+RUN mvn -B -q clean package -DskipTests
 
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
