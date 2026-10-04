@@ -75,7 +75,7 @@ class TestTypeCoercion:
 
     def test_missing_occurrence_becomes_an_explicit_null(self):
         # The model routinely omits the key entirely. Java reads Integer, so absent and null
-        # look the same there, but one shape in the collection keeps the verify rules simple.
+        # look the same there, but one shape in the catalog keeps the verify rules simple.
         result = normalise(scheme(assessment(occurrence=None)))
         assert only_assessment(result)["occurrence"] == {"total": None}
 

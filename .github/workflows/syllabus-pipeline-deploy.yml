@@ -7,7 +7,7 @@ on:
     paths:
       - 'tools/syllabus-pipeline/**'
       - '.github/workflows/syllabus-pipeline-deploy.yml'
-  # The image is what Cloud Scheduler runs every day, so it needs a way to be rebuilt
+  # The image is what syllabus-pipeline-run.yml executes, so it needs a way to be rebuilt
   # without an unrelated commit to main.
   workflow_dispatch:
 
@@ -35,7 +35,7 @@ jobs:
         run: pip install -e ".[dev]"
 
       # The verify and normalise rules are pure functions over dictionaries, so they are
-      # tested here with no Mongo, no Gemini and no network. That is the whole reason the
+      # tested here with no database, no Gemini and no network. That is the whole reason the
       # checks moved out of the Spring integration test: they can now actually run in CI.
       - name: Test
         run: pytest -q
@@ -82,4 +82,4 @@ jobs:
             --memory=1Gi \
             --cpu=1 \
             --set-secrets=DB_URL=DB_URL:latest,DB_USERNAME=DB_USERNAME:latest,DB_PASSWORD=DB_PASSWORD:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest \
-            --set-env-vars=^@^SYLLABUS_TERM_STATUSES=current,future@TERM_START_DATE=${{ vars.TERM_START_DATE }}@DAILY_WINDOW_DAYS=14@WEEKLY_RUN_WEEKDAY=0@MAX_EXTRACTIONS_PER_RUN=250@SYLLABUS_REQUEST_DELAY_SEC=0.6@FAIL_ON_VIOLATIONS=true
+            --set-env-vars=^@^SYLLABUS_TERM_STATUSES=current,future@MAX_EXTRACTIONS_PER_RUN=250@SYLLABUS_REQUEST_DELAY_SEC=0.6@FAIL_ON_VIOLATIONS=true

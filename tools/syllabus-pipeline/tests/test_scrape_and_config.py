@@ -1,10 +1,9 @@
 """Tests for the pure parts of scrape and config: no network, no database."""
 
-from datetime import date
 
 import pytest
 
-from syllabus_pipeline.config import CadenceConfig, ConfigError, _dsn_from_jdbc
+from syllabus_pipeline.config import ConfigError, _dsn_from_jdbc
 from syllabus_pipeline.scrape import (
     ScrapeError,
     SimpleSyllabusClient,
@@ -193,35 +192,6 @@ class TestBlockHandling:
         assert calls["n"] == 1, "a 403 must cost exactly one request, not max_retries"
 
 
-class TestCadence:
-    """One daily Scheduler trigger, turned into daily-then-weekly here."""
-
-    def setup_method(self):
-        # Monday 5 January 2026.
-        self.cadence = CadenceConfig(
-            term_start=date(2026, 1, 5), daily_window_days=14, weekly_weekday=0
-        )
-
-    def test_before_the_term_nothing_runs(self):
-        due, reason = self.cadence.should_run(date(2026, 1, 1))
-        assert not due
-        assert "not started" in reason
-
-    def test_inside_the_window_every_day_runs(self):
-        for day in range(1, 15):
-            due, _ = self.cadence.should_run(date(2026, 1, 4 + day))
-            assert due, f"day {day} should run"
-
-    def test_after_the_window_only_the_weekly_day_runs(self):
-        assert self.cadence.should_run(date(2026, 1, 19))[0] is True  # Monday
-        assert self.cadence.should_run(date(2026, 1, 20))[0] is False  # Tuesday
-        assert self.cadence.should_run(date(2026, 1, 26))[0] is True  # Monday
-
-    def test_no_term_start_means_always_due(self):
-        always = CadenceConfig(term_start=None, daily_window_days=14, weekly_weekday=0)
-        assert always.should_run(date(2026, 7, 4))[0] is True
-
-
 class TestDsnFromJdbc:
     """The backend defines DB_URL as a JDBC url, which psycopg2 cannot parse.
 
@@ -291,7 +261,7 @@ class TestDsnFromJdbc:
 
     @pytest.mark.parametrize(
         "url",
-        ["mongodb://127.0.0.1:27017/OnTrack", "postgresql://h/db", "jdbc:mysql://h:3306/db"],
+        ["mysql://127.0.0.1:3306/OnTrack", "postgresql://h/db", "jdbc:mysql://h:3306/db"],
     )
     def test_a_non_postgres_jdbc_url_is_refused(self, url):
         with pytest.raises(ConfigError):

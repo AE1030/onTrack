@@ -2,7 +2,7 @@
 
 This is the Java integration test's job, moved to where the data is.
 
-SyllabusAssessmentServiceIntegrationTest asserted two things over the real collection: that
+SyllabusAssessmentServiceIntegrationTest asserted two things over the real catalog: that
 each scheme produced a non-empty list of assessments with a name and a weight, and that a
 scheme's weights did not exceed 100. It has been @Disabled since it was written, because it
 reads a table that the Testcontainers Postgres in CI starts empty. So the checks existed
@@ -19,7 +19,7 @@ grade calculator, or a WARNING, meaning it is incomplete but safe.
 
 Several of these are unreachable for documents this pipeline writes, because `normalise`
 rejects or coerces the same faults at write time. They are kept deliberately: verify is the
-check on what is *in* the collection, whatever put it there, and a rule that only ever passes
+check on what is *in* the catalog, whatever put it there, and a rule that only ever passes
 costs one comparison.
 """
 
@@ -195,8 +195,8 @@ def _check_assessment(
 def check_document(doc: dict[str, Any]) -> list[Violation]:
     out: list[Violation] = []
     # The store yields flat columns, so doc_code is normally top level. The nested lookup is kept
-    # for the unit-test fixtures, which build documents in the old Mongo shape with a composite
-    # _id -- harmless to support, and it keeps those tests exercising the real rule.
+    # for the unit-test fixtures, which build documents with a composite _id. Harmless to
+    # support, and it keeps those tests exercising the real rule.
     doc_id = doc.get("_id") or {}
     context = {
         "doc_code": doc_id.get("doc_code") or doc.get("doc_code") or "<unknown>",
@@ -225,7 +225,7 @@ def check_document(doc: dict[str, Any]) -> list[Violation]:
     if not isinstance(schemes, dict) or not schemes:
         # The Java test's first assertion. `normalise` rejects this at write time, so it
         # should be unreachable for anything the pipeline stores; it stays because verify
-        # checks what is in the collection whatever put it there.
+        # checks what is in the catalog whatever put it there.
         add("no_schemes", ERROR, "document has no grading scheme")
         return out
 

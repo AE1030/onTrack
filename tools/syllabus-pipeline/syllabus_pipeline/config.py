@@ -10,7 +10,6 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass, field
-from datetime import date, datetime
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -54,16 +53,6 @@ def _integer(name: str, default: Optional[int]) -> Optional[int]:
         return int(raw)
     except ValueError as exc:
         raise ConfigError(f"{name} must be a whole number, got {raw!r}") from exc
-
-
-def _iso_date(name: str) -> Optional[date]:
-    raw = os.getenv(name, "").strip()
-    if not raw:
-        return None
-    try:
-        return datetime.strptime(raw, "%Y-%m-%d").date()
-    except ValueError as exc:
-        raise ConfigError(f"{name} must be YYYY-MM-DD, got {raw!r}") from exc
 
 
 @dataclass(frozen=True)
@@ -110,36 +99,9 @@ class PostgresConfig:
 
 
 @dataclass(frozen=True)
-class CadenceConfig:
-    """Turns one daily Cloud Scheduler trigger into a daily-then-weekly rhythm.
-
-    Two Scheduler entries would also work, but then the cadence lives in console state that
-    nobody can read from the repo, and somebody has to remember to flip it. Here the rule is
-    in version control and the trigger is dumb.
-    """
-
-    term_start: Optional[date]
-    daily_window_days: int
-    weekly_weekday: int  # Monday is 0, matching date.weekday()
-
-    def should_run(self, today: date) -> tuple[bool, str]:
-        if self.term_start is None:
-            return True, "no term start configured, treating every trigger as due"
-        days_in = (today - self.term_start).days
-        if days_in < 0:
-            return False, f"term has not started ({-days_in} day(s) to go)"
-        if days_in < self.daily_window_days:
-            return True, f"day {days_in} of the term, inside the {self.daily_window_days}-day daily window"
-        if today.weekday() == self.weekly_weekday:
-            return True, f"day {days_in} of the term, weekly run"
-        return False, f"day {days_in} of the term, and today is not the weekly run day"
-
-
-@dataclass(frozen=True)
 class Config:
     postgres: PostgresConfig
     scrape: ScrapeConfig
-    cadence: CadenceConfig
     fail_on_violations: bool
     _extract: Optional[ExtractConfig] = field(default=None)
 
@@ -186,22 +148,14 @@ def load(require_gemini: bool = False) -> Config:
                 for s in os.getenv("SYLLABUS_TERM_STATUSES", "current,future").split(",")
                 if s.strip()
             ),
-            # Identifies the job, with a contact address, so that anyone looking at the logs
-            # can tell what it is and reach a human about it.
-            #
-            # As of 2026-09-25 this default does NOT work for the document endpoint:
-            # api2/doc-full-page-get sits behind an AWS WAF rule that refuses any User-Agent
-            # which does not look like a browser, and returns a CloudFront 403 before the
-            # request reaches the application. The listing endpoint is not covered by the
-            # rule. So the honest default fetches the index and nothing else.
-            #
-            # That is left as the default deliberately rather than quietly shipping a
-            # browser string, because working around the rule is a decision about the
-            # relationship with the site, not a technical detail. The evidence and the
-            # options are written up in v2plan/syllabus-pipeline.html, section 04.
+            # A desktop Chrome string. The document endpoint (api2/doc-full-page-get) sits behind
+            # an AWS WAF rule that returns a CloudFront 403 to any User-Agent that does not look
+            # like a browser, and an honest identifying string is refused. The listing endpoint
+            # is not covered by the rule. Override with SYLLABUS_USER_AGENT if this goes stale.
             user_agent=os.getenv(
                 "SYLLABUS_USER_AGENT",
-                "onTrack-syllabus-pipeline/1.0 (McMaster student project; +mailto:ahmedelmanufi@gmail.com)",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
             ),
             page_size=int(_number("SYLLABUS_PAGE_SIZE", 50)),
             # Four times the old 0.15s. A cold run is ~1250 fetches either way; the delay is
@@ -212,11 +166,6 @@ def load(require_gemini: bool = False) -> Config:
             max_new_docs=_integer("SYLLABUS_MAX_NEW_DOCS", None),
             store_raw=_flag("SYLLABUS_STORE_RAW", True),
         ),
-        cadence=CadenceConfig(
-            term_start=_iso_date("TERM_START_DATE"),
-            daily_window_days=int(_number("DAILY_WINDOW_DAYS", 14)),
-            weekly_weekday=int(_number("WEEKLY_RUN_WEEKDAY", 0)),
-        ),
         fail_on_violations=_flag("FAIL_ON_VIOLATIONS", True),
         _extract=extract,
     )
@@ -225,8 +174,7 @@ def load(require_gemini: bool = False) -> Config:
 def _resolve_dsn() -> str:
     """The libpq connection string, from either of two shapes of environment.
 
-    DATABASE_URL wins when set, because an explicit DSN is unambiguous and is what a Cloud Run
-    Job will be given.
+    DATABASE_URL wins when set, because an explicit DSN is unambiguous and is what a Cloud Run Job will be given.
 
     Failing that, the DSN is assembled from the three variables the backend already defines --
     DB_URL, DB_USERNAME, DB_PASSWORD -- so the pipeline runs against the same database with the

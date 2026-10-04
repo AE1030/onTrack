@@ -11,7 +11,6 @@ Exit codes matter here, because in Cloud Run they are the alert:
     0   ran, nothing wrong
     1   a stage failed outright, or verify found errors and FAIL_ON_VIOLATIONS is set
     2   misconfigured, nothing ran
-    3   skipped by the cadence rule, nothing to do today
 """
 
 from __future__ import annotations
@@ -21,7 +20,7 @@ import logging
 import re
 import sys
 import uuid
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from . import config as config_module
@@ -31,7 +30,6 @@ from .store import Store
 EXIT_OK = 0
 EXIT_FAILED = 1
 EXIT_MISCONFIGURED = 2
-EXIT_SKIPPED = 3
 
 ALL_STAGES = ("scrape", "extract", "verify")
 
@@ -61,12 +59,6 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         default=None,
         help="comma-separated term names to limit extract and verify to, "
              "for example 'Winter 2026'. Scrape is governed by SYLLABUS_TERM_STATUSES.",
-    )
-    parser.add_argument(
-        "--respect-cadence",
-        action="store_true",
-        help="exit 3 without doing anything if TERM_START_DATE says today is not a run day. "
-             "Cloud Scheduler triggers daily and this decides whether that trigger is due.",
     )
     parser.add_argument(
         "--ignore-violations",
@@ -134,12 +126,6 @@ def main(argv: Optional[list[str]] = None) -> int:
     terms = (
         [t.strip() for t in args.terms.split(",") if t.strip()] if args.terms else None
     )
-
-    if args.respect_cadence and args.command != "status":
-        due, reason = cfg.cadence.should_run(date.today())
-        log.info("cadence: %s", reason)
-        if not due:
-            return EXIT_SKIPPED
 
     run_id = f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}-{uuid.uuid4().hex[:8]}"
 

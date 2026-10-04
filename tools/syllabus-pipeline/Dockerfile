@@ -23,7 +23,7 @@ COPY syllabus_pipeline ./syllabus_pipeline
 RUN useradd --create-home --uid 1001 pipeline
 USER pipeline
 
-# Overridden per Scheduler entry with --args. The default is the whole pipeline, gated on the
-# cadence rule, which is what the daily trigger should do.
+# Overridden per execution with --args (see syllabus-pipeline-run.yml). The default is the whole
+# pipeline.
 ENTRYPOINT ["python", "-m", "syllabus_pipeline"]
-CMD ["run", "--respect-cadence"]
+CMD ["run"]

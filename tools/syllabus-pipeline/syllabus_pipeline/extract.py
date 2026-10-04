@@ -13,7 +13,7 @@ hundred syllabi, the model will answer with a boolean most of the time and the s
 the rest, and the same goes for every numeric field. The Java model declares Boolean, int and
 Integer for three of them, and would be leaning on Spring's conversion service to absorb the
 difference. `normalise` below is where the contract is enforced instead, before anything is
-written, so the collection only ever holds one shape.
+written, so the catalog only ever holds one shape.
 """
 
 from __future__ import annotations

@@ -8,7 +8,7 @@ second record of something the database already knew, updated on a different sch
 So there are no state files. "What still needs doing" is a query, and a run that dies halfway
 leaves the next run with a correct picture by construction.
 
-Three tables, all created by the backend's Flyway migration V16 rather than by this module:
+Three tables, all created by the backend's Flyway baseline migration (V1) rather than by this module:
 
     syllabus_source        one row per scraped section, keyed by doc_code. Holds the flattened
                            text the extractor reads and a sha256 of it.
@@ -16,8 +16,7 @@ Three tables, all created by the backend's Flyway migration V16 rather than by t
                            Carries source_text_sha256, which is how extract knows what is stale.
     syllabus_pipeline_run  one row per run: counts, timings, and any verify violations.
 
-This replaced a MongoDB store when the collections were folded into Postgres. Two things about
-that are worth knowing before changing anything here:
+Two things are worth knowing before changing anything here:
 
   * The JSON written into `assessments` is the extractor's output unchanged, snake_case keys and
     all. The backend reads it with a Jackson mapper configured for SNAKE_CASE
@@ -96,7 +95,7 @@ class Store:
                 "missing table(s): "
                 + ", ".join(missing)
                 + ". The backend's Flyway migrations own this schema -- run the backend against "
-                "this database once (V16 creates them), or apply V16__mongo_to_postgres.sql by hand."
+                "this database once (V1 creates them), or apply V1__baseline_schema.sql by hand."
             )
 
     # ---------------------------------------------------------------- sources
@@ -313,7 +312,7 @@ class Store:
 def _dumps(value: Any) -> str:
     """json.dumps that tolerates what a run report actually contains.
 
-    A verify report carries Violation objects and datetimes. Mongo's BSON encoder accepted
-    datetimes directly, so this never came up before; psycopg2's Json needs to be told.
+    A verify report carries Violation objects and datetimes, which psycopg2's Json cannot
+    serialise on its own, so anything unknown is stringified.
     """
     return json.dumps(value, default=str)

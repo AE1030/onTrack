@@ -2,7 +2,7 @@
 
 Skipped unless SYLLABUS_TEST_DSN names a database that has the backend's Flyway migrations
 applied. Deliberately not a fixture that creates the tables itself: Flyway owns this schema, and a
-test that built its own copy would keep passing after V16 and the store drifted apart, which is the
+test that built its own copy would keep passing after V1 and the store drifted apart, which is the
 one failure worth catching here.
 
 To run locally:
@@ -276,8 +276,8 @@ class TestRuns:
         assert row["results"]["extracted"] == 3
 
     def test_a_report_containing_objects_and_datetimes_still_serialises(self, store):
-        # BSON accepted datetimes directly, so this never came up on Mongo. A verify report carries
-        # Violation objects and timestamps, and an unserialisable report must not lose the run.
+        # A verify report carries Violation objects and timestamps, and an unserialisable report
+        # must not lose the run.
         from datetime import datetime, timezone
 
         class Violation:

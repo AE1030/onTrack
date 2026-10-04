@@ -1,6 +1,6 @@
 """Tests for the verify rules, including the two carried over from the Java test.
 
-SyllabusAssessmentServiceIntegrationTest asserted these against the live collection and has
+SyllabusAssessmentServiceIntegrationTest asserted these against the live catalog and has
 been @Disabled since it was written, because the Testcontainers Postgres it runs against starts
 empty. Here they are pure functions over dictionaries, so they run on every build.
 """
