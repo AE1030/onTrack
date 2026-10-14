@@ -10,11 +10,11 @@ import org.tracker.gpatracker.calendar.dto.GoogleCalendarEventRequest;
 import org.tracker.gpatracker.calendar.dto.GoogleTokens;
 import org.tracker.gpatracker.calendar.model.CalendarEvents;
 import org.tracker.gpatracker.calendar.model.CalendarEvents.InternalCalendarEvent;
-import org.tracker.gpatracker.calendar.model.GoogleCalendarAccount;
+import org.tracker.gpatracker.calendar.model.CalendarAccount;
 import org.tracker.gpatracker.calendar.model.CalendarProvider;
 import org.tracker.gpatracker.calendar.model.GoogleCalendarExport;
 import org.tracker.gpatracker.calendar.model.GoogleCalendarExport.GoogleCalendarEvent;
-import org.tracker.gpatracker.calendar.repository.GoogleCalendarAccountRepository;
+import org.tracker.gpatracker.calendar.repository.CalendarAccountRepository;
 import org.tracker.gpatracker.calendar.repository.CalendarEventsRepository;
 import org.tracker.gpatracker.calendar.repository.GoogleCalendarExportRepository;
 
@@ -38,7 +38,7 @@ public class GoogleCalendarSyncService {
 
     private final CalendarEventsRepository calendarEventsRepository;
     private final GoogleCalendarExportRepository exportRepository;
-    private final GoogleCalendarAccountRepository googleCalendarAccountRepository;
+    private final CalendarAccountRepository calendarAccountRepository;
     private final StudentRepo studentRepo;
     private final GoogleCalendarService googleCalendarService;
     private final GoogleOAuthService googleOAuthService;
@@ -46,14 +46,14 @@ public class GoogleCalendarSyncService {
     public GoogleCalendarSyncService(
             CalendarEventsRepository calendarEventsRepository,
             GoogleCalendarExportRepository exportRepository,
-            GoogleCalendarAccountRepository googleCalendarAccountRepository,
+            CalendarAccountRepository calendarAccountRepository,
             StudentRepo studentRepo,
             GoogleCalendarService googleCalendarService,
             GoogleOAuthService googleOAuthService
     ) {
         this.calendarEventsRepository = calendarEventsRepository;
         this.exportRepository = exportRepository;
-        this.googleCalendarAccountRepository = googleCalendarAccountRepository;
+        this.calendarAccountRepository = calendarAccountRepository;
         this.studentRepo = studentRepo;
         this.googleCalendarService = googleCalendarService;
         this.googleOAuthService = googleOAuthService;
@@ -182,21 +182,21 @@ public class GoogleCalendarSyncService {
      * token. The caller establishes the tenant scope, so the owner is stamped on persist.
      */
     public void upsertCalendarAccount(Long studentId, GoogleTokens tokens) {
-        googleCalendarAccountRepository
+        calendarAccountRepository
                 .findByOwnerIdAndProvider(studentId, CalendarProvider.GOOGLE)
-                .ifPresent(googleCalendarAccountRepository::delete);
+                .ifPresent(calendarAccountRepository::delete);
 
-        GoogleCalendarAccount account = new GoogleCalendarAccount();
+        CalendarAccount account = new CalendarAccount();
         account.setProvider(CalendarProvider.GOOGLE);
         account.setAccessToken(tokens.accessToken());
         account.setRefreshToken(tokens.refreshToken());
         account.setExpiresAt(tokens.expiresAt());
         account.setEmail(tokens.email());
-        googleCalendarAccountRepository.save(account);
+        calendarAccountRepository.save(account);
     }
 
     public boolean isAccountConnectedForEmail(Long studentId, String email) {
-        return googleCalendarAccountRepository
+        return calendarAccountRepository
                 .findByOwnerIdAndProvider(studentId, CalendarProvider.GOOGLE)
                 .map(account -> email.equalsIgnoreCase(account.getEmail()))
                 .orElse(false);
@@ -205,7 +205,7 @@ public class GoogleCalendarSyncService {
     private String resolveAccessToken(Long studentId) {
         // The account is keyed by student now, so the Student -> Users hop this used to make
         // purely to obtain a user id is gone.
-        GoogleCalendarAccount account = googleCalendarAccountRepository
+        CalendarAccount account = calendarAccountRepository
                 .findByOwnerIdAndProvider(studentId, CalendarProvider.GOOGLE)
                 .orElseThrow(() -> new IllegalStateException("Google Calendar not connected for student " + studentId));
 
@@ -217,10 +217,10 @@ public class GoogleCalendarSyncService {
                     account.setRefreshToken(refreshed.refreshToken());
                 }
                 account.setExpiresAt(refreshed.expiresAt());
-                googleCalendarAccountRepository.save(account);
+                calendarAccountRepository.save(account);
             } catch (Exception e) {
                 logger.warn("Refresh token revoked/expired for student {}, removing stale account", studentId);
-                googleCalendarAccountRepository.delete(account);
+                calendarAccountRepository.delete(account);
                 throw new IllegalStateException("Google Calendar authorization expired. Please reconnect your account.");
             }
         }

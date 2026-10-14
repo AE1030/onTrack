@@ -25,7 +25,7 @@ import java.time.Instant;
         }
 )
 @Filter(name = OwnerFilter.NAME)
-public class GoogleCalendarAccount extends UserOwnedEntity {
+public class CalendarAccount extends UserOwnedEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
