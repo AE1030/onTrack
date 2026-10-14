@@ -14,11 +14,11 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.view.RedirectView;
 import org.tracker.gpatracker.calendar.config.GoogleOAuthProperties;
 import org.tracker.gpatracker.calendar.dto.CalendarConnectRequest;
-import org.tracker.gpatracker.calendar.dto.GoogleTokens;
+import org.tracker.gpatracker.calendar.dto.OAuthTokens;
 import org.tracker.gpatracker.calendar.dto.LinkTokenPayload;
 import org.tracker.gpatracker.calendar.model.CalendarProvider;
 import org.tracker.gpatracker.accounts.service.StudentService;
-import org.tracker.gpatracker.calendar.service.GoogleCalendarSyncService;
+import org.tracker.gpatracker.calendar.service.CalendarSyncService;
 import org.tracker.gpatracker.calendar.service.GoogleOAuthService;
 import org.tracker.gpatracker.calendar.service.LinkTokenService;
 import org.tracker.gpatracker.security.model.UserPrincipal;
@@ -40,7 +40,7 @@ public class GoogleCalendarController {
     private final GoogleOAuthProperties googleOAuthProperties;
     private final LinkTokenService linkTokenService;
     private final GoogleOAuthService googleOAuthService;
-    private final GoogleCalendarSyncService googleCalendarSyncService;
+    private final CalendarSyncService calendarSyncService;
     private final StudentService studentService;
     private final String successRedirectUrl;
 
@@ -48,14 +48,14 @@ public class GoogleCalendarController {
             GoogleOAuthProperties googleOAuthProperties,
             LinkTokenService linkTokenService,
             GoogleOAuthService googleOAuthService,
-            GoogleCalendarSyncService googleCalendarSyncService,
+            CalendarSyncService calendarSyncService,
             StudentService studentService,
             org.springframework.core.env.Environment environment
     ) {
         this.googleOAuthProperties = googleOAuthProperties;
         this.linkTokenService = linkTokenService;
         this.googleOAuthService = googleOAuthService;
-        this.googleCalendarSyncService = googleCalendarSyncService;
+        this.calendarSyncService = calendarSyncService;
         this.studentService = studentService;
         this.successRedirectUrl = environment.getProperty("calendar.oauth.success-redirect", "/");
     }
@@ -93,7 +93,7 @@ public class GoogleCalendarController {
             return new RedirectView(successRedirectUrl);
         }
 
-        GoogleTokens tokens;
+        OAuthTokens tokens;
         try {
             tokens = googleOAuthService.exchangeCode(code);
         } catch (RuntimeException ex) {
@@ -111,7 +111,7 @@ public class GoogleCalendarController {
             return new RedirectView(successRedirectUrl);
         }
         UserContext.runAs(payload.userId(), studentId,
-                () -> googleCalendarSyncService.upsertCalendarAccount(studentId, tokens));
+                () -> calendarSyncService.upsertCalendarAccount(studentId, CalendarProvider.GOOGLE, tokens));
         logger.info("Google calendar connected for user {}", payload.userId());
         return new RedirectView(successRedirectUrl);
     }
@@ -134,7 +134,7 @@ public class GoogleCalendarController {
         Long userId = principal.getId();
         Long studentId = studentService.getStudentID();
 
-        if (!googleCalendarSyncService.isAccountConnectedForEmail(studentId, email)) {
+        if (!calendarSyncService.isAccountConnectedForEmail(studentId, CalendarProvider.GOOGLE, email)) {
             String state = linkTokenService.createStateToken(userId, CalendarProvider.GOOGLE);
             String authorizationUrl = buildAuthorizationUrl(state, email);
             return ResponseEntity.status(HttpStatus.CONFLICT)
@@ -142,7 +142,7 @@ public class GoogleCalendarController {
         }
 
         try {
-            googleCalendarSyncService.sync(studentId);
+            calendarSyncService.sync(studentId, CalendarProvider.GOOGLE);
         } catch (IllegalStateException e) {
             String state = linkTokenService.createStateToken(userId, CalendarProvider.GOOGLE);
             String authorizationUrl = buildAuthorizationUrl(state, email);

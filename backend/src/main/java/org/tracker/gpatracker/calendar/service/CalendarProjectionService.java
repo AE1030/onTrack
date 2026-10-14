@@ -32,20 +32,20 @@ public class CalendarProjectionService {
 
     private final AssessmentTableDocumentRepository assessmentTableRepository;
     private final CalendarEventsRepository calendarEventsRepository;
-    private final GoogleCalendarSyncService googleCalendarSyncService;
+    private final CalendarSyncService calendarSyncService;
     private final StudentService studentService;
     private final TermService termService;
 
     public CalendarProjectionService(
             AssessmentTableDocumentRepository assessmentTableRepository,
             CalendarEventsRepository calendarEventsRepository,
-            GoogleCalendarSyncService googleCalendarSyncService,
+            CalendarSyncService calendarSyncService,
             StudentService studentService,
             TermService termService
     ) {
         this.assessmentTableRepository = assessmentTableRepository;
         this.calendarEventsRepository = calendarEventsRepository;
-        this.googleCalendarSyncService = googleCalendarSyncService;
+        this.calendarSyncService = calendarSyncService;
         this.studentService = studentService;
         this.termService = termService;
     }
@@ -56,11 +56,7 @@ public class CalendarProjectionService {
         logger.info("Recomputing calendar projection for student {}", studentId);
         recompute(studentId);
 
-        try {
-            googleCalendarSyncService.sync(studentId);
-        } catch (Exception e) {
-            logger.warn("Google Calendar sync skipped for student {}: {}", studentId, e.getMessage());
-        }
+        calendarSyncService.syncAll(studentId);
     }
 
     public List<InternalCalendarEvent> getUpcomingEvents(Long studentId) {

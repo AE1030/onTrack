@@ -10,7 +10,7 @@ import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 import org.tracker.gpatracker.calendar.config.GoogleOAuthProperties;
-import org.tracker.gpatracker.calendar.dto.GoogleTokens;
+import org.tracker.gpatracker.calendar.dto.OAuthTokens;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -34,7 +34,7 @@ public class GoogleOAuthService {
         this.restClient = RestClient.create();
     }
 
-    public GoogleTokens exchangeCode(String code) {
+    public OAuthTokens exchangeCode(String code) {
         String clientId = properties.getClientId();
         String clientSecret = properties.getClientSecret();
         String redirectUri = properties.getRedirectUri();
@@ -68,7 +68,7 @@ public class GoogleOAuthService {
         }
 
         Instant expiresAt = Instant.now().plusSeconds(tokenResponse.getExpiresIn());
-        return new GoogleTokens(
+        return new OAuthTokens(
                 tokenResponse.getAccessToken(),
                 tokenResponse.getRefreshToken(),
                 expiresAt,
@@ -77,7 +77,7 @@ public class GoogleOAuthService {
         );
     }
 
-    public GoogleTokens refreshAccessToken(String refreshToken) {
+    public OAuthTokens refreshAccessToken(String refreshToken) {
         String clientId = properties.getClientId();
         String clientSecret = properties.getClientSecret();
         logger.info("Refreshing Google access token with clientId={}", clientId);
@@ -105,7 +105,7 @@ public class GoogleOAuthService {
         }
 
         Instant expiresAt = Instant.now().plusSeconds(tokenResponse.getExpiresIn());
-        return new GoogleTokens(tokenResponse.getAccessToken(), refreshToken, expiresAt, null);
+        return new OAuthTokens(tokenResponse.getAccessToken(), refreshToken, expiresAt, null);
     }
 
     private String fetchUserEmail(String accessToken) {
