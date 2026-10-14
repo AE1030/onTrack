@@ -69,15 +69,16 @@ jobs:
       # `jobs deploy` creates the job on first run and updates it after, so this workflow is
       # the only thing that defines the job and there is no console state to drift from.
       #
-      # Timeout is generous because a cold run is ~1250 fetches at 0.6s plus up to
-      # MAX_EXTRACTIONS_PER_RUN Gemini calls. A warm daily run finishes in under a minute.
+      # Timeout is 3 hours because gemini-2.5-pro takes about 30s a document, so
+      # MAX_EXTRACTIONS_PER_RUN=250 needs roughly 2 hours. At 1 hour the task was killed
+      # part way through and Cloud Run started a second attempt.
       - name: Deploy Cloud Run Job
         run: |
           gcloud run jobs deploy "$JOB" \
             --image="$IMAGE:${{ github.sha }}" \
             --region="$REGION" \
             --project="$PROJECT" \
-            --task-timeout=3600s \
+            --task-timeout=10800s \
             --max-retries=1 \
             --memory=1Gi \
             --cpu=1 \
