@@ -1,0 +1,32 @@
+name: Course Scrapper Run
+
+# Manual trigger only. Actions tab, pick this workflow, Run workflow. Deploying the job
+# (course-scrapper-deploy.yml) defines it but never starts it. It runs on Cloud Run rather
+# than on the GitHub runner so the requests leave from a Google Cloud address.
+on:
+  workflow_dispatch:
+
+env:
+  REGION: us-east5
+  PROJECT: gen-lang-client-0316039122
+  JOB: course-scrapper
+
+jobs:
+  execute:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      # --wait holds this step open until the job finishes and fails it on a non-zero exit.
+      - name: Execute Cloud Run Job
+        run: |
+          gcloud run jobs execute "$JOB" \
+            --region="$REGION" \
+            --project="$PROJECT" \
+            --wait

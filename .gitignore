@@ -33,3 +33,7 @@ node_modules/
 .agents/
 .claude/
 skills-lock.json
+
+# Course scrapper local run output
+tools/course-scrapper/*.csv
+tools/course-scrapper/*.json
