@@ -2,6 +2,7 @@ package org.tracker.gpatracker.calendar.service;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import org.tracker.gpatracker.assessmenttable.model.AssessmentScheme;
@@ -9,6 +10,7 @@ import org.tracker.gpatracker.assessmenttable.model.AssessmentTableDocument;
 import org.tracker.gpatracker.assessmenttable.model.SchemeAssessment;
 import org.tracker.gpatracker.assessmenttable.repository.AssessmentTableDocumentRepository;
 import org.tracker.gpatracker.calendar.event.AssessmentTableUpdatedEvent;
+import org.tracker.gpatracker.calendar.event.CalendarProjectionUpdatedEvent;
 import org.tracker.gpatracker.calendar.model.AbstractCalendarEvent;
 import org.tracker.gpatracker.calendar.model.CalendarEvents;
 import org.tracker.gpatracker.calendar.model.CalendarEvents.InternalCalendarEvent;
@@ -32,31 +34,44 @@ public class CalendarProjectionService {
 
     private final AssessmentTableDocumentRepository assessmentTableRepository;
     private final CalendarEventsRepository calendarEventsRepository;
-    private final CalendarSyncService calendarSyncService;
+    private final ApplicationEventPublisher eventPublisher;
     private final StudentService studentService;
     private final TermService termService;
 
     public CalendarProjectionService(
             AssessmentTableDocumentRepository assessmentTableRepository,
             CalendarEventsRepository calendarEventsRepository,
-            CalendarSyncService calendarSyncService,
+            ApplicationEventPublisher eventPublisher,
             StudentService studentService,
             TermService termService
     ) {
         this.assessmentTableRepository = assessmentTableRepository;
         this.calendarEventsRepository = calendarEventsRepository;
-        this.calendarSyncService = calendarSyncService;
+        this.eventPublisher = eventPublisher;
         this.studentService = studentService;
         this.termService = termService;
     }
 
+    /**
+     * Rebuilds the projection synchronously, so the screen that saved the assessment table reads
+     * fresh events straight after, then hands the external calendar sync to
+     * {@link CalendarSyncListener} in the background.
+     */
     @EventListener
     public void updateCalendarProjection(AssessmentTableUpdatedEvent event) {
         Long studentId = event.getStudentId();
         logger.info("Recomputing calendar projection for student {}", studentId);
         recompute(studentId);
 
-        calendarSyncService.syncAll(studentId);
+        try {
+            eventPublisher.publishEvent(new CalendarProjectionUpdatedEvent(studentId));
+        } catch (RuntimeException e) {
+            // The async executor rejects work once its queue is full, and that rejection is thrown
+            // here, on the request thread. The assessment table is already saved, so failing the
+            // request would tell the student their save failed when it did not. The next save
+            // syncs everything this one missed.
+            logger.warn("External calendar sync not scheduled for student {}: {}", studentId, e.getMessage());
+        }
     }
 
     public List<InternalCalendarEvent> getUpcomingEvents(Long studentId) {

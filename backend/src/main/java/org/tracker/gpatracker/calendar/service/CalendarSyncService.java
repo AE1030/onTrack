@@ -39,7 +39,13 @@ public class CalendarSyncService {
 
     private static final Logger logger = LoggerFactory.getLogger(CalendarSyncService.class);
 
-    private final ConcurrentHashMap<String, Boolean> activeSyncs = new ConcurrentHashMap<>();
+    private enum SyncState { RUNNING, RERUN_REQUESTED }
+
+    /**
+     * Keyed by student and provider. In-memory, so it only coordinates syncs within one instance;
+     * two instances can still sync the same account at once.
+     */
+    private final ConcurrentHashMap<String, SyncState> inFlight = new ConcurrentHashMap<>();
 
     private final CalendarEventsRepository calendarEventsRepository;
     private final CalendarExportRepository exportRepository;
@@ -80,16 +86,27 @@ public class CalendarSyncService {
      *         the controller turns this into a reconnect prompt
      */
     public void sync(Long studentId, CalendarProvider provider) {
-        // Prevent concurrent syncs for the same account
+        // At most one sync per account at a time, but a request arriving mid-sync is never
+        // dropped: it flags the running sync to go round again, and that next pass reads the
+        // projection as it stands by then. Skipping instead would leave the calendar showing
+        // whatever the student had before their latest save, until they happened to save again.
         String key = studentId + ":" + provider;
-        if (activeSyncs.putIfAbsent(key, Boolean.TRUE) != null) {
-            logger.info("{} sync already in progress for student {}, skipping", provider, studentId);
+        SyncState state = inFlight.compute(key, (k, current) -> current == null ? SyncState.RUNNING : SyncState.RERUN_REQUESTED);
+        if (state == SyncState.RERUN_REQUESTED) {
+            logger.info("{} sync already in progress for student {}, queued a rerun", provider, studentId);
             return;
         }
         try {
-            doSync(studentId, provider);
-        } finally {
-            activeSyncs.remove(key);
+            do {
+                inFlight.put(key, SyncState.RUNNING);
+                doSync(studentId, provider);
+                // remove(key, RUNNING) only succeeds if nobody asked for a rerun in the meantime.
+            } while (!inFlight.remove(key, SyncState.RUNNING));
+        } catch (Throwable t) {
+            // Not a finally: on the success path the key is already gone, and removing it again
+            // could evict a sync another thread started in the gap.
+            inFlight.remove(key);
+            throw t;
         }
     }
 

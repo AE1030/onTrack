@@ -22,6 +22,8 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -29,6 +31,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -147,7 +150,58 @@ class CalendarSyncServiceTest {
         verify(exportRepository, never()).save(any());
     }
 
+    @Test
+    @DisplayName("a sync requested while one is running is rerun afterwards, not dropped")
+    void midSyncRequestTriggersRerun() throws Exception {
+        connect(CalendarProvider.GOOGLE, "a@gmail.com");
+        projection(event("CS101", "Midterm", "2026-11-01"));
+        CountDownLatch insideFirstSync = new CountDownLatch(1);
+        CountDownLatch releaseFirstSync = new CountDownLatch(1);
+        google.onCreate = () -> {
+            if (insideFirstSync.getCount() > 0) {
+                insideFirstSync.countDown();
+                await(releaseFirstSync);
+            }
+        };
+
+        Thread first = new Thread(() -> service.sync(STUDENT, CalendarProvider.GOOGLE));
+        first.start();
+        assertThat(insideFirstSync.await(5, TimeUnit.SECONDS)).isTrue();
+
+        // Returns straight away: the running sync owns the account and takes the rerun.
+        service.sync(STUDENT, CalendarProvider.GOOGLE);
+        verify(exportRepository, never()).save(any());
+
+        releaseFirstSync.countDown();
+        first.join(5000);
+
+        verify(exportRepository, times(2)).save(any());
+    }
+
+    @Test
+    @DisplayName("a sync that throws releases the account, so the next request runs")
+    void failedSyncReleasesAccount() {
+        connect(CalendarProvider.GOOGLE, "a@gmail.com");
+        when(eventsRepository.findByOwnerId(STUDENT)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.sync(STUDENT, CalendarProvider.GOOGLE))
+                .isInstanceOf(IllegalStateException.class);
+
+        projection(event("CS101", "Midterm", "2026-11-01"));
+        service.sync(STUDENT, CalendarProvider.GOOGLE);
+
+        assertThat(google.created).containsExactly("CS101|Midterm|2026-11-01");
+    }
+
     // ------------------------------------------------------------------ fixtures
+
+    private static void await(CountDownLatch latch) {
+        try {
+            latch.await(5, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
 
     private final List<CalendarAccount> accounts = new ArrayList<>();
 
@@ -213,6 +267,8 @@ class CalendarSyncServiceTest {
         final List<String> deleted = new ArrayList<>();
         final List<String> tokensUsed = new ArrayList<>();
         boolean failRefresh;
+        /** Runs inside createEvent, so a test can hold a sync open mid-flight. */
+        Runnable onCreate = () -> { };
 
         FakeStrategy(CalendarProvider provider) {
             this.provider = provider;
@@ -233,6 +289,7 @@ class CalendarSyncServiceTest {
 
         @Override
         public String createEvent(String accessToken, InternalCalendarEvent event) {
+            onCreate.run();
             tokensUsed.add(accessToken);
             created.add(event.getEventKey());
             return provider + "-" + event.getEventKey();
