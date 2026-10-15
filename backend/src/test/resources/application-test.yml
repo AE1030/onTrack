@@ -15,6 +15,7 @@ calendar:
     issuer: onTrack
   oauth:
     success-redirect: /api/calendar/google/success
+    failure-redirect: /api/calendar/google/failure
 
 # Dummy key to satisfy ResendConfig bean condition — not used in tests
 resend:

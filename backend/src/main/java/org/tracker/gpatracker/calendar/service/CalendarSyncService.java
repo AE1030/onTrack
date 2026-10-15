@@ -3,7 +3,11 @@ package org.tracker.gpatracker.calendar.service;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.tracker.gpatracker.calendar.dto.CalendarAccountStatus;
 import org.tracker.gpatracker.calendar.dto.OAuthTokens;
+import org.tracker.gpatracker.calendar.exception.CalendarAuthorizationRevokedException;
+import org.tracker.gpatracker.calendar.exception.CalendarReconnectRequiredException;
+import org.tracker.gpatracker.calendar.exception.CalendarSyncUnavailableException;
 import org.tracker.gpatracker.calendar.model.CalendarAccount;
 import org.tracker.gpatracker.calendar.model.CalendarEvents;
 import org.tracker.gpatracker.calendar.model.CalendarEvents.InternalCalendarEvent;
@@ -11,14 +15,18 @@ import org.tracker.gpatracker.calendar.model.CalendarExport;
 import org.tracker.gpatracker.calendar.model.CalendarExport.ExportedEvent;
 import org.tracker.gpatracker.calendar.model.CalendarProvider;
 import org.tracker.gpatracker.calendar.repository.CalendarAccountRepository;
-import org.tracker.gpatracker.calendar.repository.CalendarEventsRepository;
 import org.tracker.gpatracker.calendar.repository.CalendarExportRepository;
 import org.tracker.gpatracker.calendar.strategy.CalendarStrategy;
 import org.tracker.gpatracker.calendar.strategy.CalendarStrategyRegistry;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -39,6 +47,12 @@ public class CalendarSyncService {
 
     private static final Logger logger = LoggerFactory.getLogger(CalendarSyncService.class);
 
+    /**
+     * Refresh an access token this long before it expires. Checking against "now" alone let a
+     * token with seconds left pass, expire partway through the sync, and fail every call after.
+     */
+    static final Duration REFRESH_MARGIN = Duration.ofMinutes(5);
+
     private enum SyncState { RUNNING, RERUN_REQUESTED }
 
     /**
@@ -47,18 +61,18 @@ public class CalendarSyncService {
      */
     private final ConcurrentHashMap<String, SyncState> inFlight = new ConcurrentHashMap<>();
 
-    private final CalendarEventsRepository calendarEventsRepository;
+    private final CalendarProjectionService calendarProjectionService;
     private final CalendarExportRepository exportRepository;
     private final CalendarAccountRepository calendarAccountRepository;
     private final CalendarStrategyRegistry strategyRegistry;
 
     public CalendarSyncService(
-            CalendarEventsRepository calendarEventsRepository,
+            CalendarProjectionService calendarProjectionService,
             CalendarExportRepository exportRepository,
             CalendarAccountRepository calendarAccountRepository,
             CalendarStrategyRegistry strategyRegistry
     ) {
-        this.calendarEventsRepository = calendarEventsRepository;
+        this.calendarProjectionService = calendarProjectionService;
         this.exportRepository = exportRepository;
         this.calendarAccountRepository = calendarAccountRepository;
         this.strategyRegistry = strategyRegistry;
@@ -70,6 +84,10 @@ public class CalendarSyncService {
      */
     public void syncAll(Long studentId) {
         for (CalendarAccount account : calendarAccountRepository.findByOwnerId(studentId)) {
+            if (account.isNeedsReconnect()) {
+                // Already flagged and shown to the student; calling the provider again cannot help.
+                continue;
+            }
             try {
                 sync(studentId, account.getProvider());
             } catch (Exception e) {
@@ -82,8 +100,8 @@ public class CalendarSyncService {
     /**
      * Sync one provider.
      *
-     * @throws IllegalStateException if the account is not connected or its authorization has lapsed;
-     *         the controller turns this into a reconnect prompt
+     * @throws CalendarReconnectRequiredException if the account is not connected or its authorization
+     *         has lapsed; the controller turns this into a reconnect prompt
      */
     public void sync(Long studentId, CalendarProvider provider) {
         // At most one sync per account at a time, but a request arriving mid-sync is never
@@ -113,12 +131,18 @@ public class CalendarSyncService {
     private void doSync(Long studentId, CalendarProvider provider) {
         CalendarAccount account = calendarAccountRepository
                 .findByOwnerIdAndProvider(studentId, provider)
-                .orElseThrow(() -> new IllegalStateException(provider + " calendar not connected for student " + studentId));
+                .orElseThrow(() -> new CalendarReconnectRequiredException(provider + " calendar not connected for student " + studentId));
+        if (account.isNeedsReconnect()) {
+            throw new CalendarReconnectRequiredException(provider + " calendar needs reconnecting for student " + studentId);
+        }
         CalendarStrategy strategy = strategyRegistry.forProvider(provider);
 
         // Step 1: Get current projection
-        CalendarEvents calendarEvents = calendarEventsRepository.findByOwnerId(studentId)
-                .orElseThrow(() -> new IllegalStateException("No calendar events found for student " + studentId));
+        // Builds the projection if the student has never saved a table or opened the calendar.
+        // An empty projection is a normal sync, not an error: against an existing snapshot it
+        // removes everything, which is right for a student who deleted all their assessments.
+        CalendarEvents calendarEvents = calendarProjectionService.getCalendarEvents(studentId)
+                .orElseGet(CalendarEvents::new);
 
         List<InternalCalendarEvent> currentEvents = calendarEvents.getEvents() != null
                 ? calendarEvents.getEvents()
@@ -156,16 +180,13 @@ public class CalendarSyncService {
         String accessToken = resolveAccessToken(account, strategy);
 
         // Step 5: Apply provider operations
-        deleteRemovedEvents(strategy, accessToken, toDelete, previousMap);
-
         List<ExportedEvent> newExportEvents = new ArrayList<>();
 
-        // Keep existing events that are still current
-        for (ExportedEvent prev : previousEvents) {
-            if (!toDelete.contains(prev.getEventKey())) {
-                newExportEvents.add(prev);
-            }
-        }
+        // Remove events gone from the projection; failed deletes stay in the snapshot for a retry
+        int deleted = deleteRemovedEvents(strategy, accessToken, toDelete, previousMap, newExportEvents);
+
+        // Keep existing events that are still current, pushing any whose content changed
+        int updated = updateChangedEvents(strategy, accessToken, previousEvents, toDelete, currentMap, newExportEvents);
 
         // Add new events
         createNewEvents(strategy, accessToken, toAdd, currentMap, newExportEvents);
@@ -177,24 +198,123 @@ public class CalendarSyncService {
         newExport.setAccountEmail(account.getEmail());
         newExport.setExportedAt(Instant.now());
         newExport.setEvents(newExportEvents);
-        exportRepository.save(newExport);
+        CalendarExport saved = exportRepository.save(newExport);
 
-        logger.info("{} calendar sync completed for student {}: {} added, {} deleted, {} kept",
-                provider, studentId, toAdd.size(), toDelete.size(), newExportEvents.size() - toAdd.size());
+        // Only the newest snapshot per account is ever read; drop the ones it replaces. A failure
+        // here leaves extra rows, not wrong ones, so it must not fail a sync that already pushed.
+        try {
+            exportRepository.deleteOlderSnapshots(studentId, provider, account.getEmail(), saved.getId());
+        } catch (RuntimeException e) {
+            logger.warn("Pruning old {} snapshots failed for student {}: {}", provider, studentId, e.getMessage());
+        }
+
+        logger.info("{} calendar sync completed for student {}: {} added, {} updated, {} deleted",
+                provider, studentId, toAdd.size(), updated, deleted);
     }
 
-    private void deleteRemovedEvents(CalendarStrategy strategy, String accessToken,
-                                     Set<String> toDelete, Map<String, ExportedEvent> previousMap) {
+    /**
+     * Carries every surviving snapshot entry into the new snapshot. The eventKey only covers course,
+     * name and due date, so an entry whose key still matches can have a new time, description or
+     * location; those are detected by content hash and pushed with an update.
+     *
+     * <p>An entry from before hashes were stored has no hash, so it counts as changed and is
+     * updated once, which backfills its hash. A failed update keeps the old entry and its old hash,
+     * so the next sync tries again.
+     *
+     * @return how many events were updated
+     */
+    private int updateChangedEvents(CalendarStrategy strategy, String accessToken,
+                                    List<ExportedEvent> previousEvents, Set<String> toDelete,
+                                    Map<String, InternalCalendarEvent> currentMap,
+                                    List<ExportedEvent> newExportEvents) {
+        int updated = 0;
+        for (ExportedEvent prev : previousEvents) {
+            String key = prev.getEventKey();
+            if (toDelete.contains(key)) continue;
+
+            InternalCalendarEvent current = currentMap.get(key);
+            String hash = contentHash(current);
+            if (hash.equals(prev.getContentHash()) || prev.getExternalEventId() == null) {
+                newExportEvents.add(prev);
+                continue;
+            }
+            try {
+                strategy.updateEvent(accessToken, prev.getExternalEventId(), current);
+                newExportEvents.add(toExported(current, prev.getExternalEventId()));
+                updated++;
+                logger.info("Updated {} calendar event: {}", strategy.provider(), key);
+            } catch (Exception e) {
+                newExportEvents.add(prev);
+                logger.error("Failed to update {} calendar event {}: {}", strategy.provider(), key, e.getMessage());
+            }
+        }
+        return updated;
+    }
+
+    /**
+     * Hash of every field a provider is sent. Two events with the same hash look the same in the
+     * external calendar, so no update is needed.
+     */
+    static String contentHash(InternalCalendarEvent event) {
+        String content = String.join("\u0000",
+                String.valueOf(event.getCourseCode()),
+                String.valueOf(event.getAssessmentName()),
+                String.valueOf(event.getDueDate()),
+                String.valueOf(event.getStartTime()),
+                String.valueOf(event.getEndTime()),
+                String.valueOf(event.isAllDay()),
+                String.valueOf(event.getDescription()),
+                String.valueOf(event.getLocation()));
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest(content.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 not available", e);
+        }
+    }
+
+    private static ExportedEvent toExported(InternalCalendarEvent current, String externalEventId) {
+        ExportedEvent exported = new ExportedEvent();
+        exported.setCourseCode(current.getCourseCode());
+        exported.setAssessmentName(current.getAssessmentName());
+        exported.setDueDate(current.getDueDate());
+        exported.setStartTime(current.getStartTime());
+        exported.setEndTime(current.getEndTime());
+        exported.setAllDay(current.isAllDay());
+        exported.setEventKey(current.getEventKey());
+        exported.setExternalEventId(externalEventId);
+        exported.setContentHash(contentHash(current));
+        return exported;
+    }
+
+    /**
+     * Deletes events that are in the snapshot but no longer in the projection.
+     *
+     * <p>A failed delete keeps its entry in the new snapshot. The snapshot is the only place the
+     * event's external id survives once it has left the projection, so dropping the entry would
+     * leave the event in the external calendar with nothing left that could ever remove it. Kept,
+     * it shows up as a delete again on the next sync.
+     *
+     * @return how many events were deleted
+     */
+    private int deleteRemovedEvents(CalendarStrategy strategy, String accessToken,
+                                    Set<String> toDelete, Map<String, ExportedEvent> previousMap,
+                                    List<ExportedEvent> newExportEvents) {
+        int deleted = 0;
         for (String key : toDelete) {
             ExportedEvent prev = previousMap.get(key);
             if (prev.getExternalEventId() == null) continue;
             try {
                 strategy.deleteEvent(accessToken, prev.getExternalEventId());
+                deleted++;
                 logger.info("Deleted {} calendar event: {}", strategy.provider(), key);
             } catch (Exception e) {
-                logger.error("Failed to delete {} calendar event {}: {}", strategy.provider(), key, e.getMessage());
+                newExportEvents.add(prev);
+                logger.error("Failed to delete {} calendar event {}, will retry: {}",
+                        strategy.provider(), key, e.getMessage());
             }
         }
+        return deleted;
     }
 
     private void createNewEvents(CalendarStrategy strategy, String accessToken, Set<String> toAdd,
@@ -204,16 +324,7 @@ public class CalendarSyncService {
             InternalCalendarEvent current = currentMap.get(key);
             try {
                 String externalEventId = strategy.createEvent(accessToken, current);
-                ExportedEvent exported = new ExportedEvent();
-                exported.setCourseCode(current.getCourseCode());
-                exported.setAssessmentName(current.getAssessmentName());
-                exported.setDueDate(current.getDueDate());
-                exported.setStartTime(current.getStartTime());
-                exported.setEndTime(current.getEndTime());
-                exported.setAllDay(current.isAllDay());
-                exported.setEventKey(current.getEventKey());
-                exported.setExternalEventId(externalEventId);
-                newExportEvents.add(exported);
+                newExportEvents.add(toExported(current, externalEventId));
                 logger.info("Created {} calendar event: {}", strategy.provider(), key);
             } catch (Exception e) {
                 logger.error("Failed to create {} calendar event {}: {}", strategy.provider(), key, e.getMessage());
@@ -239,15 +350,22 @@ public class CalendarSyncService {
         calendarAccountRepository.save(account);
     }
 
+    /** Every external calendar the student has connected, including ones waiting on a reconnect. */
+    public List<CalendarAccountStatus> accountStatuses(Long studentId) {
+        return calendarAccountRepository.findByOwnerId(studentId).stream()
+                .map(a -> new CalendarAccountStatus(a.getProvider(), a.getEmail(), a.isNeedsReconnect()))
+                .toList();
+    }
+
     public boolean isAccountConnectedForEmail(Long studentId, CalendarProvider provider, String email) {
         return calendarAccountRepository
                 .findByOwnerIdAndProvider(studentId, provider)
-                .map(account -> email.equalsIgnoreCase(account.getEmail()))
+                .map(account -> !account.isNeedsReconnect() && email.equalsIgnoreCase(account.getEmail()))
                 .orElse(false);
     }
 
     private String resolveAccessToken(CalendarAccount account, CalendarStrategy strategy) {
-        if (account.getExpiresAt().isBefore(Instant.now())) {
+        if (account.getExpiresAt().isBefore(Instant.now().plus(REFRESH_MARGIN))) {
             try {
                 OAuthTokens refreshed = strategy.refreshAccessToken(account.getRefreshToken());
                 account.setAccessToken(refreshed.accessToken());
@@ -256,12 +374,22 @@ public class CalendarSyncService {
                 }
                 account.setExpiresAt(refreshed.expiresAt());
                 calendarAccountRepository.save(account);
-            } catch (Exception e) {
-                logger.warn("Refresh token revoked/expired for {} account of student {}, removing stale account",
+            } catch (CalendarAuthorizationRevokedException e) {
+                // Flagged, not deleted: the app reads the flag to tell the student which account
+                // to reconnect. A background sync has no other way to reach them.
+                logger.warn("Refresh token revoked/expired for {} account of student {}, flagging for reconnect",
                         account.getProvider(), account.getOwnerId());
-                calendarAccountRepository.delete(account);
-                throw new IllegalStateException(account.getProvider()
-                        + " calendar authorization expired. Please reconnect your account.");
+                account.setNeedsReconnect(true);
+                calendarAccountRepository.save(account);
+                throw new CalendarReconnectRequiredException(account.getProvider()
+                        + " calendar authorization expired for student " + account.getOwnerId());
+            } catch (Exception e) {
+                // Anything else (a provider 5xx, a timeout) says nothing about the refresh token,
+                // so the account is kept and the next sync tries again.
+                logger.warn("Token refresh failed for {} account of student {}, keeping account: {}",
+                        account.getProvider(), account.getOwnerId(), e.getMessage());
+                throw new CalendarSyncUnavailableException(account.getProvider()
+                        + " token refresh failed", e);
             }
         }
 

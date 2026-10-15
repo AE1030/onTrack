@@ -9,7 +9,6 @@ import {
   Modal,
   TextInput,
   ActivityIndicator,
-  Alert,
 } from "react-native";
 import { Calendar, DateData } from "react-native-calendars";
 import * as WebBrowser from "expo-web-browser";
@@ -34,6 +33,9 @@ type InternalCalendarEvent = {
   location: string | null;
 };
 
+// Shown inside the export modal. Alert.alert does nothing on web, so results are rendered inline.
+type ExportStatus = { tone: "success" | "info" | "error"; text: string };
+
 type Props = {
   onAuthError: () => void;
   onBack: () => void;
@@ -43,6 +45,7 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
   const [exportModalVisible, setExportModalVisible] = useState(false);
   const [email, setEmail] = useState("");
   const [exporting, setExporting] = useState(false);
+  const [exportStatus, setExportStatus] = useState<ExportStatus | null>(null);
   const [outlookModalVisible, setOutlookModalVisible] = useState(false);
   const [currentDate, setCurrentDate] = useState(() => {
     const now = new Date();
@@ -71,9 +74,20 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
     if (isAuthError(eventsQuery.error)) onAuthError();
   }, [eventsQuery.error, onAuthError]);
 
+  const openExportModal = () => {
+    setExportStatus(null);
+    setExportModalVisible(true);
+  };
+
+  const closeExportModal = () => {
+    setExportModalVisible(false);
+    setExportStatus(null);
+  };
+
   const handleExport = async () => {
     if (!email.trim()) return;
     setExporting(true);
+    setExportStatus(null);
 
     try {
       const token = await getToken();
@@ -95,32 +109,28 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
 
       if (res.status === 409 && data.action === "connect") {
         setExportModalVisible(false);
+        // The backend runs the first sync itself once OAuth completes, and the page Google
+        // redirects to tells the student how it went. No retry here: openBrowserAsync resolves
+        // as soon as the tab opens on web and Android, long before the student has consented.
         await WebBrowser.openBrowserAsync(data.authorizationUrl);
-        // After OAuth completes, automatically retry sync with the same email
-        const retryRes = await fetch(`${API_BASE_URL}/api/calendar/google/sync`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ calendarEmail: email.trim() }),
-        });
-        if (retryRes.ok) {
-          Alert.alert("Success", "Events synced to Google Calendar.");
-        } else {
-          Alert.alert("Error", "Sync failed after connecting. Please try again.");
-        }
         return;
       }
 
       if (res.ok) {
-        setExportModalVisible(false);
-        Alert.alert("Success", "Events synced to Google Calendar.");
+        const count: number = data.eventCount ?? 0;
+        setExportStatus(
+          count === 0
+            ? { tone: "info", text: "No assessments with due dates to export yet." }
+            : {
+                tone: "success",
+                text: `Synced ${count} ${count === 1 ? "assessment" : "assessments"} to Google Calendar.`,
+              },
+        );
       } else {
-        Alert.alert("Error", data.error ?? "Sync failed. Please try again.");
+        setExportStatus({ tone: "error", text: data.error ?? "Sync failed. Please try again." });
       }
     } catch {
-      Alert.alert("Error", "Could not connect to server.");
+      setExportStatus({ tone: "error", text: "Could not connect to server." });
     } finally {
       setExporting(false);
     }
@@ -183,7 +193,7 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
         <View style={styles.headerActions}>
           <Pressable
             style={styles.exportButton}
-            onPress={() => setExportModalVisible(true)}
+            onPress={openExportModal}
           >
             <Feather name="upload-cloud" size={16} color={colors.primary} style={{ marginRight: 6 }} />
             <Text style={styles.exportButtonText}>Export to Google</Text>
@@ -261,11 +271,11 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
         visible={exportModalVisible}
         transparent
         animationType="fade"
-        onRequestClose={() => setExportModalVisible(false)}
+        onRequestClose={closeExportModal}
       >
         <Pressable
           style={styles.modalOverlay}
-          onPress={() => setExportModalVisible(false)}
+          onPress={closeExportModal}
         >
           <Pressable style={styles.modalContent} onPress={() => {}}>
             <Text style={styles.modalTitle}>Export to Google Calendar</Text>
@@ -279,14 +289,30 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
               keyboardType="email-address"
               autoCapitalize="none"
               value={email}
-              onChangeText={setEmail}
+              onChangeText={(value) => {
+                setEmail(value);
+                setExportStatus(null);
+              }}
             />
+            {exportStatus && (
+              <Text
+                style={[
+                  styles.exportStatus,
+                  exportStatus.tone === "success" && styles.exportStatusSuccess,
+                  exportStatus.tone === "error" && styles.exportStatusError,
+                ]}
+              >
+                {exportStatus.text}
+              </Text>
+            )}
             <View style={styles.modalActions}>
               <Pressable
                 style={styles.cancelButton}
-                onPress={() => setExportModalVisible(false)}
+                onPress={closeExportModal}
               >
-                <Text style={styles.cancelText}>Cancel</Text>
+                <Text style={styles.cancelText}>
+                  {exportStatus?.tone === "success" ? "Close" : "Cancel"}
+                </Text>
               </Pressable>
               <Pressable
                 style={[
@@ -488,6 +514,17 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: spacing.md,
     color: colors.boldText,
+  },
+  exportStatus: {
+    fontSize: 14,
+    color: colors.bodyText,
+    marginBottom: spacing.md,
+  },
+  exportStatusSuccess: {
+    color: colors.success,
+  },
+  exportStatusError: {
+    color: colors.danger,
   },
   modalActions: {
     flexDirection: "row",

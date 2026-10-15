@@ -108,6 +108,20 @@ public class CalendarExport extends UserOwnedEntity {
         /** The provider's id for the event, which is the only handle we have to delete it later. */
         private String externalEventId;
 
+        /**
+         * Hash of the content last pushed for this event. Null on entries written before hashes
+         * were stored, which the sync treats as changed.
+         */
+        private String contentHash;
+
+        public String getContentHash() {
+            return contentHash;
+        }
+
+        public void setContentHash(String contentHash) {
+            this.contentHash = contentHash;
+        }
+
         public String getExternalEventId() {
             return externalEventId;
         }

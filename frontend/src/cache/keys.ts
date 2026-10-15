@@ -7,6 +7,8 @@ export const qk = {
   upcomingEvents: ["upcoming-events"] as const,
   pastCourses: ["past-courses"] as const,
   calendarEvents: ["calendar-events"] as const,
+  /** Connected external calendars and whether any needs reconnecting. Polled by the app shell. */
+  calendarAccounts: ["calendar-accounts"] as const,
 
   /** Which terms this student has. Changes only when a course is added or deleted. */
   terms: ["terms"] as const,

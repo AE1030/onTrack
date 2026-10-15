@@ -10,6 +10,7 @@ import CalendarScreen from "../screens/CalendarScreen";
 import LeaderboardScreen from "../screens/LeaderboardScreen";
 import LeaderboardOnboardingScreen from "../screens/LeaderboardOnboardingScreen";
 import SideDrawer from "../screens/components/SideDrawer";
+import CalendarReconnectBanner from "../screens/components/CalendarReconnectBanner";
 import { endSession, getToken, removeToken } from "../src/utils/tokenStorage";
 import { API_BASE_URL } from "../src/config/api";
 import { queryClient } from "../src/cache/queryClient";
@@ -247,6 +248,10 @@ export default function Home() {
 
       {/* Main content */}
       <View style={styles.content}>{renderScreen()}</View>
+
+      {/* Calendar connection warning, on every screen. At the bottom so it never sits under the
+          hamburger or a screen's own full-bleed header. */}
+      <CalendarReconnectBanner />
 
       {/* Side drawer overlay */}
       <SideDrawer

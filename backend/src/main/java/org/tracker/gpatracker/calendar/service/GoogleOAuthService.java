@@ -11,6 +11,7 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 import org.tracker.gpatracker.calendar.config.GoogleOAuthProperties;
 import org.tracker.gpatracker.calendar.dto.OAuthTokens;
+import org.tracker.gpatracker.calendar.exception.CalendarAuthorizationRevokedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -96,6 +97,9 @@ public class GoogleOAuthService {
                     .retrieve()
                     .body(GoogleTokenResponse.class);
         } catch (RestClientResponseException ex) {
+            if (isInvalidGrant(ex)) {
+                throw new CalendarAuthorizationRevokedException("Google refresh token revoked or expired", ex);
+            }
             throw ex;
         }
 
@@ -106,6 +110,21 @@ public class GoogleOAuthService {
 
         Instant expiresAt = Instant.now().plusSeconds(tokenResponse.getExpiresIn());
         return new OAuthTokens(tokenResponse.getAccessToken(), refreshToken, expiresAt, null);
+    }
+
+    /**
+     * Google answers a revoked or expired refresh token with 400 and {@code "error": "invalid_grant"}.
+     * Other 400s (a bad client id, say) are our misconfiguration, not the student's token.
+     */
+    boolean isInvalidGrant(RestClientResponseException ex) {
+        if (ex.getStatusCode().value() != 400) {
+            return false;
+        }
+        try {
+            return "invalid_grant".equals(objectMapper.readTree(ex.getResponseBodyAsString()).path("error").asText());
+        } catch (IOException e) {
+            return false;
+        }
     }
 
     private String fetchUserEmail(String accessToken) {

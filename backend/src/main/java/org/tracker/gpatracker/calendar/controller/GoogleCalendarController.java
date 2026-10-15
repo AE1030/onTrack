@@ -1,7 +1,7 @@
 package org.tracker.gpatracker.calendar.controller;
 
-import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -12,12 +12,17 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.view.RedirectView;
+import org.springframework.web.util.UriComponentsBuilder;
 import org.tracker.gpatracker.calendar.config.GoogleOAuthProperties;
 import org.tracker.gpatracker.calendar.dto.CalendarConnectRequest;
 import org.tracker.gpatracker.calendar.dto.OAuthTokens;
 import org.tracker.gpatracker.calendar.dto.LinkTokenPayload;
+import org.tracker.gpatracker.calendar.exception.CalendarReconnectRequiredException;
+import org.tracker.gpatracker.calendar.exception.CalendarSyncUnavailableException;
 import org.tracker.gpatracker.calendar.model.CalendarProvider;
 import org.tracker.gpatracker.accounts.service.StudentService;
+import org.tracker.gpatracker.calendar.event.CalendarProjectionUpdatedEvent;
+import org.tracker.gpatracker.calendar.service.CalendarProjectionService;
 import org.tracker.gpatracker.calendar.service.CalendarSyncService;
 import org.tracker.gpatracker.calendar.service.GoogleOAuthService;
 import org.tracker.gpatracker.calendar.service.LinkTokenService;
@@ -42,7 +47,10 @@ public class GoogleCalendarController {
     private final GoogleOAuthService googleOAuthService;
     private final CalendarSyncService calendarSyncService;
     private final StudentService studentService;
+    private final CalendarProjectionService calendarProjectionService;
+    private final ApplicationEventPublisher eventPublisher;
     private final String successRedirectUrl;
+    private final String failureRedirectUrl;
 
     public GoogleCalendarController(
             GoogleOAuthProperties googleOAuthProperties,
@@ -50,6 +58,8 @@ public class GoogleCalendarController {
             GoogleOAuthService googleOAuthService,
             CalendarSyncService calendarSyncService,
             StudentService studentService,
+            CalendarProjectionService calendarProjectionService,
+            ApplicationEventPublisher eventPublisher,
             org.springframework.core.env.Environment environment
     ) {
         this.googleOAuthProperties = googleOAuthProperties;
@@ -57,7 +67,10 @@ public class GoogleCalendarController {
         this.googleOAuthService = googleOAuthService;
         this.calendarSyncService = calendarSyncService;
         this.studentService = studentService;
+        this.calendarProjectionService = calendarProjectionService;
+        this.eventPublisher = eventPublisher;
         this.successRedirectUrl = environment.getProperty("calendar.oauth.success-redirect", "/");
+        this.failureRedirectUrl = environment.getProperty("calendar.oauth.failure-redirect", "/");
     }
 
     @PostMapping("/connect")
@@ -73,24 +86,37 @@ public class GoogleCalendarController {
         return ResponseEntity.ok(Map.of(AUTHORIZATION_URL_KEY, authorizationUrl));
     }
 
+    /**
+     * Google's redirect target. Every outcome ends in a redirect to a page the student sees in the
+     * browser, so failures go to the failure page rather than setting an error status: a redirect
+     * replaces the status, which used to send every failure to the "Connected" page.
+     */
     @GetMapping("/callback")
     public RedirectView callback(
-            @RequestParam("code") String code,
-            @RequestParam("state") String state,
-            HttpServletResponse response
+            @RequestParam(value = "code", required = false) String code,
+            @RequestParam(value = "state", required = false) String state,
+            @RequestParam(value = "error", required = false) String error
     ) {
+        // Google sends ?error=access_denied, and no code, when the student cancels on the consent screen.
+        if (error != null) {
+            logger.info("Google callback returned error={}", error);
+            return failure("access_denied".equals(error) ? FailureReason.CANCELLED : FailureReason.ERROR);
+        }
+        if (code == null || state == null) {
+            logger.warn("Google callback missing code or state");
+            return failure(FailureReason.ERROR);
+        }
+
         LinkTokenPayload payload;
         try {
             payload = linkTokenService.parseStateToken(state);
         } catch (RuntimeException ex) {
             logger.warn("Google callback state validation failed: {}", ex.getMessage());
-            response.setStatus(HttpStatus.BAD_REQUEST.value());
-            return new RedirectView(successRedirectUrl);
+            return failure(FailureReason.EXPIRED);
         }
         if (payload.provider() != CalendarProvider.GOOGLE) {
             logger.warn("Google callback provider mismatch: {}", payload.provider());
-            response.setStatus(HttpStatus.BAD_REQUEST.value());
-            return new RedirectView(successRedirectUrl);
+            return failure(FailureReason.ERROR);
         }
 
         OAuthTokens tokens;
@@ -98,8 +124,7 @@ public class GoogleCalendarController {
             tokens = googleOAuthService.exchangeCode(code);
         } catch (RuntimeException ex) {
             logger.error("Google token exchange failed for user {}: {}", payload.userId(), ex.getMessage());
-            response.setStatus(HttpStatus.BAD_REQUEST.value());
-            return new RedirectView(successRedirectUrl);
+            return failure(FailureReason.ERROR);
         }
         // Pre-JWT path: no Authorization header, so nothing has bound a tenant. Identity comes
         // from the signed state token, which is what makes this a legitimate escape hatch rather
@@ -107,12 +132,30 @@ public class GoogleCalendarController {
         Long studentId = studentService.findStudentIdByUserId(payload.userId());
         if (studentId == null) {
             logger.warn("Google callback for user {} that has no student account", payload.userId());
-            response.setStatus(HttpStatus.BAD_REQUEST.value());
-            return new RedirectView(successRedirectUrl);
+            return failure(FailureReason.ERROR);
         }
-        UserContext.runAs(payload.userId(), studentId,
-                () -> calendarSyncService.upsertCalendarAccount(studentId, CalendarProvider.GOOGLE, tokens));
+        try {
+            UserContext.runAs(payload.userId(), studentId,
+                    () -> calendarSyncService.upsertCalendarAccount(studentId, CalendarProvider.GOOGLE, tokens));
+        } catch (RuntimeException ex) {
+            logger.error("Saving Google calendar account failed for user {}: {}", payload.userId(), ex.getMessage());
+            return failure(FailureReason.ERROR);
+        }
         logger.info("Google calendar connected for user {}", payload.userId());
+
+        // Start the first sync here rather than leaving it to the app. Only the server knows when
+        // OAuth has finished; the app's openBrowserAsync resolves as soon as the tab opens on web
+        // and Android, so a retry from there always ran before the account existed.
+        //
+        // Published inside runAs so TenantTaskDecorator hands this tenant to the async listener.
+        // A failure here does not undo the connection, so the student still sees the success
+        // page; the next table save or manual sync catches up.
+        try {
+            UserContext.runAs(payload.userId(), studentId,
+                    () -> eventPublisher.publishEvent(new CalendarProjectionUpdatedEvent(studentId)));
+        } catch (RuntimeException ex) {
+            logger.warn("First Google calendar sync not started for user {}: {}", payload.userId(), ex.getMessage());
+        }
         return new RedirectView(successRedirectUrl);
     }
 
@@ -121,8 +164,50 @@ public class GoogleCalendarController {
         return new ModelAndView("calendar/oauth-success");
     }
 
+    @GetMapping("/failure")
+    public ModelAndView oauthFailure(@RequestParam(value = "reason", required = false) String reason) {
+        FailureReason parsed = FailureReason.parse(reason);
+        ModelAndView view = new ModelAndView("calendar/oauth-failure");
+        view.addObject("title", parsed.title);
+        view.addObject("message", parsed.message);
+        return view;
+    }
+
+    private RedirectView failure(FailureReason reason) {
+        return new RedirectView(UriComponentsBuilder.fromUriString(failureRedirectUrl)
+                .queryParam("reason", reason.name().toLowerCase())
+                .toUriString());
+    }
+
+    /** What the failure page tells the student. Only the name travels in the URL. */
+    enum FailureReason {
+        CANCELLED("Connection cancelled",
+                "Google Calendar was not connected. Return to the app and try again when you're ready."),
+        EXPIRED("Link expired",
+                "This connection link has expired. Return to the app and start the export again."),
+        ERROR("Couldn't connect Google Calendar",
+                "Something went wrong while connecting. Return to the app and try again.");
+
+        final String title;
+        final String message;
+
+        FailureReason(String title, String message) {
+            this.title = title;
+            this.message = message;
+        }
+
+        static FailureReason parse(String value) {
+            if (value != null) {
+                for (FailureReason r : values()) {
+                    if (r.name().equalsIgnoreCase(value)) return r;
+                }
+            }
+            return ERROR;
+        }
+    }
+
     @PostMapping("/sync")
-    public ResponseEntity<Map<String, String>> sync(
+    public ResponseEntity<Map<String, Object>> sync(
             @AuthenticationPrincipal UserPrincipal principal,
             @Valid @RequestBody CalendarConnectRequest request
     ) {
@@ -143,13 +228,21 @@ public class GoogleCalendarController {
 
         try {
             calendarSyncService.sync(studentId, CalendarProvider.GOOGLE);
-        } catch (IllegalStateException e) {
+        } catch (CalendarSyncUnavailableException e) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .body(Map.of("error", "Google Calendar is not responding right now. Please try again in a few minutes."));
+        } catch (CalendarReconnectRequiredException e) {
             String state = linkTokenService.createStateToken(userId, CalendarProvider.GOOGLE);
             String authorizationUrl = buildAuthorizationUrl(state, email);
             return ResponseEntity.status(HttpStatus.CONFLICT)
                     .body(Map.of("action", "connect", AUTHORIZATION_URL_KEY, authorizationUrl));
         }
-        return ResponseEntity.ok(Map.of("status", "synced"));
+        // What the student's Google Calendar now holds, so the app can say "nothing to export"
+        // instead of a success message for an empty sync.
+        int eventCount = calendarProjectionService.getCalendarEvents(studentId)
+                .map(e -> e.getEvents() == null ? 0 : e.getEvents().size())
+                .orElse(0);
+        return ResponseEntity.ok(Map.of("status", "synced", "eventCount", eventCount));
     }
 
     private String buildAuthorizationUrl(String state, String email) {

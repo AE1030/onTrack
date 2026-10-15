@@ -25,6 +25,10 @@ public interface CalendarStrategy {
      *
      * <p>The returned refresh token may differ from the one passed in (Microsoft rotates them on
      * every use), so callers must persist it when non-null.
+     *
+     * @throws org.tracker.gpatracker.calendar.exception.CalendarAuthorizationRevokedException only
+     *         when the provider rejects the refresh token itself; the caller deletes the account.
+     *         Any other failure must surface as some other exception.
      */
     OAuthTokens refreshAccessToken(String refreshToken);
 

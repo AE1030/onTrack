@@ -57,6 +57,7 @@ public class SecurityConfig {
                                 "/forgot-password","/reset-password",
                                 "/api/calendar/google/callback",
                                 "/api/calendar/google/success",
+                                "/api/calendar/google/failure",
                                 // Authorised by JobTriggerController's shared secret, not a JWT.
                                 "/internal/jobs/**",
                                 // Keep-warm ping target. Returns a fixed string and touches no data,
