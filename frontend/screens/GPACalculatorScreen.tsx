@@ -52,12 +52,18 @@ export default function GPACalculatorScreen({ onAuthError }: Props) {
   const isWide = width >= WIDE_BREAKPOINT;
   const scrollRef = useRef<ScrollView>(null);
 
-  const [mode, setMode] = useState<"manual" | "transcript">("manual");
+  const queryClient = useQueryClient();
+  // Reopen on the transcript tab when an upload from an earlier visit is still
+  // running or holds a result, so leaving and coming back lands on it.
+  const [mode, setMode] = useState<"manual" | "transcript">(() =>
+    queryClient.getMutationCache().find({ mutationKey: qk.transcriptGpa })
+      ? "transcript"
+      : "manual"
+  );
   const [rows, setRows] = useState<CourseRow[]>([
     { id: "1", courseName: "", credits: "", grade: "A" },
   ]);
 
-  const queryClient = useQueryClient();
   const seededRows = useRef(false);
 
   const [loading, setLoading] = useState(false);
@@ -72,6 +78,11 @@ export default function GPACalculatorScreen({ onAuthError }: Props) {
   const animatedIndicatorStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: tabPosition.value }],
   }));
+
+  // The indicator starts at the manual tab. Move it once the width is known if we opened on transcript.
+  useEffect(() => {
+    if (mode === "transcript" && tabWidth) tabPosition.value = tabWidth / 2;
+  }, [tabWidth]);
 
   const switchMode = (next: "manual" | "transcript") => {
     setMode(next);

@@ -1,11 +1,18 @@
 import { View, Text, Pressable, StyleSheet, Platform } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
 import { Feather } from "@expo/vector-icons";
+import {
+  useMutation,
+  useMutationState,
+  useQueryClient,
+  type MutationState,
+} from "@tanstack/react-query";
 import { colors } from "../src/theme/colors";
 import { spacing } from "../src/theme/spacing";
 import { getToken } from "../src/utils/tokenStorage";
 import { API_BASE_URL } from "../src/config/api";
-import { useState } from "react";
+import { AuthError, isAuthError } from "../src/cache/authedGet";
+import { qk } from "../src/cache/keys";
 
 type Props = {
   onBack: () => void;
@@ -13,18 +20,91 @@ type Props = {
   onUploadSuccess?: () => void;
 };
 
+type GpaResult = {
+  gpa: number;
+  totalCredits: number;
+};
+
+type UploadVariables = {
+  file: DocumentPicker.DocumentPickerAsset;
+};
+
+const UNREADABLE_MESSAGE =
+  "We couldn't read that transcript. Make sure it's your full PDF transcript.";
+
+async function uploadTranscript({ file }: UploadVariables): Promise<GpaResult> {
+  const token = await getToken();
+  if (!token) throw new AuthError();
+
+  const formData = new FormData();
+
+  //WEB FIX
+  if (Platform.OS === "web") {
+    // On web, the actual File object exists here
+    formData.append("file", file.file as File);
+  } else {
+    // Native (iOS/Android)
+    formData.append("file", {
+      uri: file.uri,
+      name: file.name,
+      type: file.mimeType ?? "application/pdf",
+    } as any);
+  }
+
+  const res = await fetch(
+    `${API_BASE_URL.replace(/\/$/, "")}/api/transcript/calculateGPA`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+    }
+  );
+
+  if (res.status === 401 || res.status === 403) throw new AuthError();
+  if (!res.ok) throw new Error(UNREADABLE_MESSAGE);
+  return res.json();
+}
+
+/**
+ * The upload runs as a mutation in the shared query client rather than in this
+ * screen's state, so leaving the screen mid-upload neither loses the request
+ * nor its result. useMutationState reads it back on the next visit. Cleared on
+ * sign-out along with the rest of the cache.
+ */
 export default function TranscriptUploadScreen({
   onBack,
   onAuthError,
   onUploadSuccess,
 }: Props) {
-  const [uploading, setUploading] = useState(false);
-  const [fileName, setFileName] = useState<string | null>(null);
-  const [result, setResult] = useState<{
-    gpa: number;
-    totalCredits: number;
-  } | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
+  const { mutate } = useMutation({
+    mutationKey: qk.transcriptGpa,
+    mutationFn: uploadTranscript,
+    // Kept until replaced or signed out, not dropped five minutes after the screen unmounts.
+    gcTime: Infinity,
+    // Hook-level callbacks, unlike ones passed to mutate(), still fire after an unmount.
+    onSuccess: () => onUploadSuccess?.(),
+    onError: (err) => {
+      if (isAuthError(err)) onAuthError();
+    },
+  });
+
+  const states = useMutationState<MutationState<GpaResult, Error, UploadVariables>>({
+    filters: { mutationKey: qk.transcriptGpa },
+    select: (m) => m.state as MutationState<GpaResult, Error, UploadVariables>,
+  });
+  const latest = states[states.length - 1];
+
+  const uploading = latest?.status === "pending";
+  const fileName = latest?.variables?.file.name ?? null;
+  const result = latest?.status === "success" ? latest.data ?? null : null;
+  const failure = latest?.status === "error" ? latest.error : null;
+  // Auth failures are handed to onAuthError instead of shown here.
+  const error =
+    failure && !isAuthError(failure) ? (failure as Error).message || UNREADABLE_MESSAGE : null;
 
   const pickAndUpload = async () => {
     const token = await getToken();
@@ -33,59 +113,18 @@ export default function TranscriptUploadScreen({
       return;
     }
 
-    const result = await DocumentPicker.getDocumentAsync({
+    const picked = await DocumentPicker.getDocumentAsync({
       type: ["application/pdf", "image/*"],
       copyToCacheDirectory: true,
     });
 
-    if (result.canceled) return;
+    if (picked.canceled) return;
 
-    const file = result.assets[0];
-    setFileName(file.name);
-    setUploading(true);
+    // Only the newest upload matters. Drop older ones so they do not pile up.
+    const cache = queryClient.getMutationCache();
+    cache.findAll({ mutationKey: qk.transcriptGpa }).forEach((m) => cache.remove(m));
 
-    const formData = new FormData();
-
-    //WEB FIX
-    if (Platform.OS === "web") {
-      // On web, the actual File object exists here
-      formData.append("file", file.file as File);
-    } else {
-      // Native (iOS/Android)
-      formData.append("file", {
-        uri: file.uri,
-        name: file.name,
-        type: file.mimeType ?? "application/pdf",
-      } as any);
-    }
-
-    const res = await fetch(
-      `${API_BASE_URL.replace(/\/$/, "")}/api/transcript/calculateGPA`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-        body: formData,
-      }
-    );
-
-    setUploading(false);
-
-    if (res.status === 401 || res.status === 403) {
-      onAuthError();
-      return;
-    }
-
-    if (!res.ok) {
-      setError("We couldn't read that transcript. Make sure it's your full PDF transcript.");
-      return;
-    }
-
-    setError(null);
-    const data = await res.json();
-    setResult(data);
-    onUploadSuccess?.();
+    mutate({ file: picked.assets[0] });
   };
 
 

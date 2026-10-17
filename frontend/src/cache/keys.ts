@@ -31,4 +31,10 @@ export const qk = {
   // change when the ranking job has run (three times a day).
   leaderboard: ["leaderboard"] as const,
   leaderboardStatus: ["leaderboard-status"] as const,
+
+  /**
+   * A mutation key, not a query key: the GPA calculator's transcript upload. Its result is read
+   * back with useMutationState so it survives the screen unmounting.
+   */
+  transcriptGpa: ["transcript-gpa"] as const,
 };
