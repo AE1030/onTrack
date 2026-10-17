@@ -4,9 +4,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.tracker.gpatracker.calendar.dto.CalendarAccountStatus;
+import org.tracker.gpatracker.calendar.dto.CalendarDisconnectResult;
 import org.tracker.gpatracker.calendar.dto.OAuthTokens;
 import org.tracker.gpatracker.calendar.exception.CalendarAuthorizationRevokedException;
 import org.tracker.gpatracker.calendar.exception.CalendarReconnectRequiredException;
+import org.tracker.gpatracker.calendar.exception.CalendarSyncInProgressException;
 import org.tracker.gpatracker.calendar.exception.CalendarSyncUnavailableException;
 import org.tracker.gpatracker.calendar.model.CalendarAccount;
 import org.tracker.gpatracker.calendar.model.CalendarEvents;
@@ -30,6 +32,7 @@ import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
@@ -192,21 +195,7 @@ public class CalendarSyncService {
         createNewEvents(strategy, accessToken, toAdd, currentMap, newExportEvents);
 
         // Step 6: Save new export snapshot
-        CalendarExport newExport = new CalendarExport();
-        newExport.setOwnerId(studentId);
-        newExport.setProvider(provider);
-        newExport.setAccountEmail(account.getEmail());
-        newExport.setExportedAt(Instant.now());
-        newExport.setEvents(newExportEvents);
-        CalendarExport saved = exportRepository.save(newExport);
-
-        // Only the newest snapshot per account is ever read; drop the ones it replaces. A failure
-        // here leaves extra rows, not wrong ones, so it must not fail a sync that already pushed.
-        try {
-            exportRepository.deleteOlderSnapshots(studentId, provider, account.getEmail(), saved.getId());
-        } catch (RuntimeException e) {
-            logger.warn("Pruning old {} snapshots failed for student {}: {}", provider, studentId, e.getMessage());
-        }
+        saveSnapshot(studentId, provider, account.getEmail(), newExportEvents);
 
         logger.info("{} calendar sync completed for student {}: {} added, {} updated, {} deleted",
                 provider, studentId, toAdd.size(), updated, deleted);
@@ -348,6 +337,118 @@ public class CalendarSyncService {
         account.setExpiresAt(tokens.expiresAt());
         account.setEmail(tokens.email());
         calendarAccountRepository.save(account);
+    }
+
+    /**
+     * Removes the student's account for one provider, optionally deleting the events onTrack pushed
+     * to it first.
+     *
+     * <p>Without removal the account's last snapshot is kept: if the student reconnects the same
+     * address later, the snapshot is what stops the sync creating every event a second time. With
+     * removal a new snapshot is saved holding only the events that could not be deleted, which is
+     * exactly what is still in that calendar, so a later reconnect neither duplicates nor loses them.
+     *
+     * @return empty if the student has no account for the provider
+     * @throws CalendarSyncInProgressException if a sync of this account is running
+     */
+    public Optional<CalendarDisconnectResult> disconnect(Long studentId, CalendarProvider provider, boolean removeEvents) {
+        // Same key as sync(). Holding it keeps a sync from starting mid-disconnect; one that
+        // arrives meanwhile only flags a rerun, which is dropped with the key below. That is
+        // right here, since the account it would sync is gone.
+        String key = studentId + ":" + provider;
+        if (inFlight.putIfAbsent(key, SyncState.RUNNING) != null) {
+            throw new CalendarSyncInProgressException(provider + " sync in progress for student " + studentId);
+        }
+        try {
+            return calendarAccountRepository.findByOwnerIdAndProvider(studentId, provider)
+                    .map(account -> doDisconnect(studentId, account, removeEvents));
+        } finally {
+            inFlight.remove(key);
+        }
+    }
+
+    private CalendarDisconnectResult doDisconnect(Long studentId, CalendarAccount account, boolean removeEvents) {
+        CalendarProvider provider = account.getProvider();
+        CalendarStrategy strategy = strategyRegistry.forProvider(provider);
+        int removed = 0;
+        int notRemoved = 0;
+
+        if (removeEvents) {
+            List<ExportedEvent> pushed = exportRepository
+                    .findTopByOwnerIdAndProviderAndAccountEmailOrderByExportedAtDesc(studentId, provider, account.getEmail())
+                    .map(CalendarExport::getEvents)
+                    .orElse(Collections.emptyList());
+            if (pushed != null && !pushed.isEmpty()) {
+                List<ExportedEvent> remaining = new ArrayList<>(pushed);
+                String accessToken = accessTokenForRemoval(account, strategy);
+                if (accessToken != null) {
+                    remaining.clear();
+                    for (ExportedEvent event : pushed) {
+                        if (event.getExternalEventId() == null) continue;
+                        try {
+                            strategy.deleteEvent(accessToken, event.getExternalEventId());
+                            removed++;
+                        } catch (Exception e) {
+                            remaining.add(event);
+                            logger.warn("Failed to remove {} calendar event {} on disconnect: {}",
+                                    provider, event.getEventKey(), e.getMessage());
+                        }
+                    }
+                }
+                notRemoved = remaining.size();
+                saveSnapshot(studentId, provider, account.getEmail(), remaining);
+            }
+        }
+
+        // Best effort: the account row is what onTrack uses, and it goes either way.
+        try {
+            strategy.revoke(account.getRefreshToken());
+        } catch (Exception e) {
+            logger.warn("Revoking {} access failed for student {}: {}", provider, studentId, e.getMessage());
+        }
+        calendarAccountRepository.delete(account);
+
+        logger.info("{} calendar disconnected for student {}: {} events removed, {} left in place",
+                provider, studentId, removed, notRemoved);
+        return new CalendarDisconnectResult(removed, notRemoved);
+    }
+
+    /**
+     * An access token good enough to delete with, or null when there is none to be had. A disconnect
+     * must not fail because the provider is down or access was already revoked: the student asked
+     * to be disconnected, and the events left behind are reported back instead.
+     */
+    private String accessTokenForRemoval(CalendarAccount account, CalendarStrategy strategy) {
+        if (account.isNeedsReconnect()) {
+            return null;
+        }
+        try {
+            return resolveAccessToken(account, strategy);
+        } catch (CalendarReconnectRequiredException | CalendarSyncUnavailableException e) {
+            logger.warn("Cannot remove {} events on disconnect for student {}: {}",
+                    account.getProvider(), account.getOwnerId(), e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Saves a new snapshot for one account and drops the ones it replaces, since only the newest
+     * per account is ever read. A failed prune leaves extra rows, not wrong ones, so it must not
+     * fail a sync or disconnect that already reached the provider.
+     */
+    private void saveSnapshot(Long studentId, CalendarProvider provider, String accountEmail, List<ExportedEvent> events) {
+        CalendarExport export = new CalendarExport();
+        export.setOwnerId(studentId);
+        export.setProvider(provider);
+        export.setAccountEmail(accountEmail);
+        export.setExportedAt(Instant.now());
+        export.setEvents(events);
+        CalendarExport saved = exportRepository.save(export);
+        try {
+            exportRepository.deleteOlderSnapshots(studentId, provider, accountEmail, saved.getId());
+        } catch (RuntimeException e) {
+            logger.warn("Pruning old {} snapshots failed for student {}: {}", provider, studentId, e.getMessage());
+        }
     }
 
     /** Every external calendar the student has connected, including ones waiting on a reconnect. */

@@ -5,9 +5,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.tracker.gpatracker.calendar.dto.CalendarAccountStatus;
+import org.tracker.gpatracker.calendar.dto.CalendarDisconnectResult;
 import org.tracker.gpatracker.calendar.dto.OAuthTokens;
 import org.tracker.gpatracker.calendar.exception.CalendarAuthorizationRevokedException;
 import org.tracker.gpatracker.calendar.exception.CalendarReconnectRequiredException;
+import org.tracker.gpatracker.calendar.exception.CalendarSyncInProgressException;
 import org.tracker.gpatracker.calendar.exception.CalendarSyncUnavailableException;
 import org.tracker.gpatracker.calendar.model.AbstractCalendarEvent;
 import org.tracker.gpatracker.calendar.model.CalendarAccount;
@@ -403,6 +405,124 @@ class CalendarSyncServiceTest {
         assertThat(google.created).containsExactly("CS101|Midterm|2026-11-01");
     }
 
+    // ------------------------------------------------------------------ disconnect
+
+    @Test
+    @DisplayName("disconnecting without removal deletes the account, revokes access and leaves the calendar and snapshot alone")
+    void disconnectKeepsEvents() {
+        CalendarAccount account = connect(CalendarProvider.GOOGLE, "a@gmail.com");
+        account.setRefreshToken("refresh");
+        lastExport(CalendarProvider.GOOGLE, "a@gmail.com", exported("CS101", "Midterm", "2026-11-01", "g1"));
+
+        assertThat(service.disconnect(STUDENT, CalendarProvider.GOOGLE, false))
+                .contains(new CalendarDisconnectResult(0, 0));
+
+        assertThat(google.deleted).isEmpty();
+        assertThat(google.revoked).containsExactly("refresh");
+        verify(accountRepository).delete(account);
+        // The old snapshot is what stops a reconnect of the same address from duplicating events.
+        verify(exportRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("disconnecting with removal deletes every pushed event and leaves an empty snapshot")
+    void disconnectRemovesEvents() {
+        CalendarAccount account = connect(CalendarProvider.GOOGLE, "a@gmail.com");
+        lastExport(CalendarProvider.GOOGLE, "a@gmail.com",
+                exported("CS101", "Midterm", "2026-11-01", "g1"),
+                exported("CS101", "Quiz", "2026-10-20", "g2"));
+
+        assertThat(service.disconnect(STUDENT, CalendarProvider.GOOGLE, true))
+                .contains(new CalendarDisconnectResult(2, 0));
+
+        assertThat(google.deleted).containsExactlyInAnyOrder("g1", "g2");
+        assertThat(savedExport().getEvents()).isEmpty();
+        verify(exportRepository).deleteOlderSnapshots(STUDENT, CalendarProvider.GOOGLE, "a@gmail.com", "new-snapshot");
+        verify(accountRepository).delete(account);
+    }
+
+    @Test
+    @DisplayName("events that fail to delete are reported and kept in the snapshot, and the account still goes")
+    void disconnectFailedRemoval() {
+        CalendarAccount account = connect(CalendarProvider.GOOGLE, "a@gmail.com");
+        ExportedEvent g1 = exported("CS101", "Midterm", "2026-11-01", "g1");
+        lastExport(CalendarProvider.GOOGLE, "a@gmail.com", g1);
+        google.failDelete = true;
+
+        assertThat(service.disconnect(STUDENT, CalendarProvider.GOOGLE, true))
+                .contains(new CalendarDisconnectResult(0, 1));
+
+        assertThat(savedExport().getEvents()).containsExactly(g1);
+        verify(accountRepository).delete(account);
+    }
+
+    @Test
+    @DisplayName("an account whose access is already gone is disconnected without calling the provider")
+    void disconnectRevokedAccount() {
+        CalendarAccount account = connect(CalendarProvider.GOOGLE, "a@gmail.com");
+        account.setNeedsReconnect(true);
+        lastExport(CalendarProvider.GOOGLE, "a@gmail.com", exported("CS101", "Midterm", "2026-11-01", "g1"));
+
+        assertThat(service.disconnect(STUDENT, CalendarProvider.GOOGLE, true))
+                .contains(new CalendarDisconnectResult(0, 1));
+
+        assertThat(google.deleted).isEmpty();
+        verify(accountRepository).delete(account);
+    }
+
+    @Test
+    @DisplayName("a refresh that finds the token revoked still disconnects, reporting the events left behind")
+    void disconnectRefreshRevoked() {
+        CalendarAccount account = connect(CalendarProvider.GOOGLE, "a@gmail.com");
+        account.setExpiresAt(Instant.now().minusSeconds(60));
+        lastExport(CalendarProvider.GOOGLE, "a@gmail.com", exported("CS101", "Midterm", "2026-11-01", "g1"));
+        google.failRefresh = true;
+
+        assertThat(service.disconnect(STUDENT, CalendarProvider.GOOGLE, true))
+                .contains(new CalendarDisconnectResult(0, 1));
+        verify(accountRepository).delete(account);
+    }
+
+    @Test
+    @DisplayName("a failed revoke does not stop the disconnect")
+    void disconnectRevokeFailure() {
+        CalendarAccount account = connect(CalendarProvider.GOOGLE, "a@gmail.com");
+        google.failRevoke = true;
+
+        assertThat(service.disconnect(STUDENT, CalendarProvider.GOOGLE, false)).isPresent();
+        verify(accountRepository).delete(account);
+    }
+
+    @Test
+    @DisplayName("disconnecting a provider that was never connected is empty")
+    void disconnectNothing() {
+        assertThat(service.disconnect(STUDENT, CalendarProvider.MICROSOFT, true)).isEmpty();
+        verify(accountRepository, never()).delete(any());
+    }
+
+    @Test
+    @DisplayName("a disconnect is refused while that account is syncing, and allowed once it finishes")
+    void disconnectDuringSync() throws InterruptedException {
+        connect(CalendarProvider.GOOGLE, "a@gmail.com");
+        projection(event("CS101", "Midterm", "2026-11-01"));
+        CountDownLatch insideSync = new CountDownLatch(1);
+        CountDownLatch releaseSync = new CountDownLatch(1);
+        google.onCreate = () -> {
+            insideSync.countDown();
+            await(releaseSync);
+        };
+        Thread sync = new Thread(() -> service.sync(STUDENT, CalendarProvider.GOOGLE));
+        sync.start();
+        assertThat(insideSync.await(5, TimeUnit.SECONDS)).isTrue();
+
+        assertThatThrownBy(() -> service.disconnect(STUDENT, CalendarProvider.GOOGLE, false))
+                .isInstanceOf(CalendarSyncInProgressException.class);
+
+        releaseSync.countDown();
+        sync.join(5000);
+        assertThat(service.disconnect(STUDENT, CalendarProvider.GOOGLE, false)).isPresent();
+    }
+
     // ------------------------------------------------------------------ fixtures
 
     private static void await(CountDownLatch latch) {
@@ -486,6 +606,8 @@ class CalendarSyncServiceTest {
         final List<String> deleted = new ArrayList<>();
         final List<String> updated = new ArrayList<>();
         final List<String> tokensUsed = new ArrayList<>();
+        final List<String> revoked = new ArrayList<>();
+        boolean failRevoke;
         /** Makes refresh fail the way a revoked token does. */
         boolean failRefresh;
         /** Thrown from refresh when set, for failures that say nothing about the token. */
@@ -530,6 +652,14 @@ class CalendarSyncServiceTest {
             }
             tokensUsed.add(accessToken);
             updated.add(externalEventId);
+        }
+
+        @Override
+        public void revoke(String refreshToken) {
+            if (failRevoke) {
+                throw new IllegalStateException("provider unavailable");
+            }
+            revoked.add(refreshToken);
         }
 
         @Override

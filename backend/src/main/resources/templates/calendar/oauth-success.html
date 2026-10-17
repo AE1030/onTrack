@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="UTF-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
@@ -21,8 +21,8 @@
     <div class="card">
         <div class="logo"><span class="on">on</span><span class="track">Track</span><span class="dot"></span></div>
         <div class="checkmark">&#10003;</div>
-        <p class="title">Google Calendar Connected</p>
-        <p class="subtitle">Your assessments are being added to Google Calendar. You can close this window and return to the app.</p>
+        <p class="title" th:text="${title}">Google Calendar Connected</p>
+        <p class="subtitle" th:text="${message}">Your assessments are being added to Google Calendar. You can close this window and return to the app.</p>
     </div>
 </body>
 </html>

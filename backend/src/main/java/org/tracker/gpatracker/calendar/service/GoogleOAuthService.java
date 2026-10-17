@@ -113,6 +113,31 @@ public class GoogleOAuthService {
     }
 
     /**
+     * Revokes the grant behind a refresh token, which also invalidates its access tokens and removes
+     * onTrack from the student's "Third-party apps" list in their Google Account. Google answers 400
+     * for a token that is already invalid, which is the outcome we wanted, so that is not an error.
+     */
+    public void revoke(String refreshToken) {
+        if (refreshToken == null) {
+            return;
+        }
+        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+        form.add("token", refreshToken);
+        try {
+            restClient.post()
+                    .uri(properties.getRevokeUri())
+                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                    .body(form)
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (RestClientResponseException ex) {
+            if (ex.getStatusCode().value() != 400) {
+                throw ex;
+            }
+        }
+    }
+
+    /**
      * Google answers a revoked or expired refresh token with 400 and {@code "error": "invalid_grant"}.
      * Other 400s (a bad client id, say) are our misconfiguration, not the student's token.
      */

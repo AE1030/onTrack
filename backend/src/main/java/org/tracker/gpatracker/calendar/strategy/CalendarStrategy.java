@@ -42,4 +42,14 @@ public interface CalendarStrategy {
     void updateEvent(String accessToken, String externalEventId, InternalCalendarEvent event);
 
     void deleteEvent(String accessToken, String externalEventId);
+
+    /**
+     * Withdraw onTrack's access to the account, called on disconnect after any event removal.
+     * Best effort: the caller logs a failure and deletes the account regardless.
+     *
+     * <p>A no-op by default, for providers with no per-app revocation endpoint (Microsoft's only
+     * option signs the user out of every session, which is far more than a disconnect means).
+     */
+    default void revoke(String refreshToken) {
+    }
 }

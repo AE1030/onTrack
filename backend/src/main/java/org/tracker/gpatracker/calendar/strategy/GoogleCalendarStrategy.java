@@ -46,6 +46,11 @@ public class GoogleCalendarStrategy implements CalendarStrategy {
     }
 
     @Override
+    public void revoke(String refreshToken) {
+        googleOAuthService.revoke(refreshToken);
+    }
+
+    @Override
     public String createEvent(String accessToken, InternalCalendarEvent event) {
         GoogleCalendarEventResponse response = restClient.post()
                 .uri(CALENDAR_BASE_URL + "/calendars/{calendarId}/events", PRIMARY_CALENDAR)

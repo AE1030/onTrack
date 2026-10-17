@@ -13,13 +13,20 @@ import {
 import { Calendar, DateData } from "react-native-calendars";
 import * as WebBrowser from "expo-web-browser";
 import { Feather } from "@expo/vector-icons";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { colors } from "../src/theme/colors";
 import { spacing } from "../src/theme/spacing";
 import { API_BASE_URL } from "../src/config/api";
 import { getToken } from "../src/utils/tokenStorage";
 import { qk } from "../src/cache/keys";
-import { authedFetch, isAuthError, queryRetry } from "../src/cache/authedGet";
+import {
+  authedFetch,
+  authedGet,
+  authedMutate,
+  HttpError,
+  isAuthError,
+  queryRetry,
+} from "../src/cache/authedGet";
 
 type InternalCalendarEvent = {
   courseCode: string;
@@ -31,6 +38,21 @@ type InternalCalendarEvent = {
   eventKey: string;
   description: string | null;
   location: string | null;
+};
+
+type CalendarProvider = "GOOGLE" | "MICROSOFT";
+
+type CalendarAccountStatus = {
+  provider: CalendarProvider;
+  email: string | null;
+  needsReconnect: boolean;
+};
+
+type DisconnectResult = { eventsRemoved: number; eventsNotRemoved: number };
+
+const PROVIDER_LABEL: Record<CalendarProvider, string> = {
+  GOOGLE: "Google Calendar",
+  MICROSOFT: "Outlook Calendar",
 };
 
 // Shown inside the export modal. Alert.alert does nothing on web, so results are rendered inline.
@@ -47,6 +69,11 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
   const [exporting, setExporting] = useState(false);
   const [exportStatus, setExportStatus] = useState<ExportStatus | null>(null);
   const [outlookModalVisible, setOutlookModalVisible] = useState(false);
+  const [disconnectTarget, setDisconnectTarget] = useState<CalendarAccountStatus | null>(null);
+  const [removeEvents, setRemoveEvents] = useState(true);
+  const [disconnecting, setDisconnecting] = useState(false);
+  const [disconnectStatus, setDisconnectStatus] = useState<ExportStatus | null>(null);
+  const queryClient = useQueryClient();
   const [currentDate, setCurrentDate] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
@@ -67,6 +94,15 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
     retry: queryRetry,
   });
 
+  // Same key the reconnect banner polls, so the two never disagree about what is connected.
+  const accountsQuery = useQuery({
+    queryKey: qk.calendarAccounts,
+    queryFn: () => authedGet<CalendarAccountStatus[]>("/api/calendar/accounts"),
+    staleTime: 60_000,
+    retry: queryRetry,
+  });
+  const accounts = accountsQuery.data ?? [];
+
   const events = eventsQuery.data ?? [];
   const loading = eventsQuery.isPending;
 
@@ -76,6 +112,8 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
 
   const openExportModal = () => {
     setExportStatus(null);
+    const google = accounts.find((a) => a.provider === "GOOGLE");
+    if (!email.trim() && google?.email) setEmail(google.email);
     setExportModalVisible(true);
   };
 
@@ -133,6 +171,62 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
       setExportStatus({ tone: "error", text: "Could not connect to server." });
     } finally {
       setExporting(false);
+    }
+  };
+
+  const openDisconnectModal = (account: CalendarAccountStatus) => {
+    setRemoveEvents(true);
+    setDisconnectStatus(null);
+    setDisconnectTarget(account);
+  };
+
+  const closeDisconnectModal = () => {
+    if (disconnecting) return;
+    setDisconnectTarget(null);
+    setDisconnectStatus(null);
+  };
+
+  const handleDisconnect = async () => {
+    if (!disconnectTarget) return;
+    const label = PROVIDER_LABEL[disconnectTarget.provider];
+    setDisconnecting(true);
+    setDisconnectStatus(null);
+    try {
+      const res = await authedMutate(
+        `/api/calendar/accounts/${disconnectTarget.provider.toLowerCase()}?removeEvents=${removeEvents}`,
+        { method: "DELETE" },
+      );
+      const result: DisconnectResult = await res.json();
+      await queryClient.invalidateQueries({ queryKey: qk.calendarAccounts });
+      if (result.eventsNotRemoved > 0) {
+        // Keep the modal open so the student sees what was left behind.
+        const n = result.eventsNotRemoved;
+        setDisconnectStatus({
+          tone: "info",
+          text: `Disconnected. ${n} ${n === 1 ? "assessment" : "assessments"} couldn't be removed from ${label}, so you may need to delete ${n === 1 ? "it" : "them"} there yourself.`,
+        });
+      } else {
+        setDisconnectTarget(null);
+      }
+    } catch (err) {
+      if (isAuthError(err)) {
+        onAuthError();
+        return;
+      }
+      if (err instanceof HttpError && err.status === 404) {
+        // Already gone, from another device say. The list is stale, not wrong to act on.
+        await queryClient.invalidateQueries({ queryKey: qk.calendarAccounts });
+        setDisconnectTarget(null);
+        return;
+      }
+      setDisconnectStatus({
+        tone: "error",
+        text:
+          (err instanceof HttpError && err.serverMessage) ||
+          "Couldn't disconnect. Please try again.",
+      });
+    } finally {
+      setDisconnecting(false);
     }
   };
 
@@ -206,6 +300,23 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
             <Text style={styles.exportButtonText}>Export to Outlook</Text>
           </Pressable>
         </View>
+        {accounts.map((account) => (
+          <View key={account.provider} style={styles.connectedRow}>
+            <Feather name="check-circle" size={16} color={colors.success} />
+            <Text style={styles.connectedText} numberOfLines={1}>
+              {account.email
+                ? `Connected to ${PROVIDER_LABEL[account.provider]} as ${account.email}`
+                : `Connected to ${PROVIDER_LABEL[account.provider]}`}
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => openDisconnectModal(account)}
+              style={styles.disconnectLink}
+            >
+              <Text style={styles.disconnectLinkText}>Disconnect</Text>
+            </Pressable>
+          </View>
+        ))}
       </View>
 
       {/* Calendar Card */}
@@ -333,6 +444,88 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
         </Pressable>
       </Modal>
 
+      {/* Disconnect Modal */}
+      <Modal
+        visible={disconnectTarget !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={closeDisconnectModal}
+      >
+        <Pressable style={styles.modalOverlay} onPress={closeDisconnectModal}>
+          <Pressable style={styles.modalContent} onPress={() => {}}>
+            {disconnectTarget && (
+              <>
+                <Text style={styles.modalTitle}>
+                  Disconnect {PROVIDER_LABEL[disconnectTarget.provider]}?
+                </Text>
+                <Text style={styles.modalSubtitle}>
+                  {disconnectTarget.email
+                    ? `onTrack will stop sending your assessments to ${disconnectTarget.email}.`
+                    : "onTrack will stop sending your assessments to this calendar."}
+                </Text>
+                {disconnectStatus?.tone !== "info" && (
+                  <Pressable
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: removeEvents }}
+                    style={styles.checkboxRow}
+                    onPress={() => setRemoveEvents((v) => !v)}
+                    disabled={disconnecting}
+                  >
+                    <Feather
+                      name={removeEvents ? "check-square" : "square"}
+                      size={20}
+                      color={colors.primary}
+                    />
+                    <Text style={styles.checkboxLabel}>
+                      Also remove the assessments onTrack added to{" "}
+                      {PROVIDER_LABEL[disconnectTarget.provider]}
+                    </Text>
+                  </Pressable>
+                )}
+                {disconnectStatus && (
+                  <Text
+                    style={[
+                      styles.exportStatus,
+                      disconnectStatus.tone === "error" && styles.exportStatusError,
+                    ]}
+                  >
+                    {disconnectStatus.text}
+                  </Text>
+                )}
+                <View style={styles.modalActions}>
+                  {disconnectStatus?.tone === "info" ? (
+                    <Pressable style={styles.exportSubmitButton} onPress={closeDisconnectModal}>
+                      <Text style={styles.exportSubmitText}>Close</Text>
+                    </Pressable>
+                  ) : (
+                    <>
+                      <Pressable
+                        style={styles.cancelButton}
+                        onPress={closeDisconnectModal}
+                        disabled={disconnecting}
+                      >
+                        <Text style={styles.cancelText}>Cancel</Text>
+                      </Pressable>
+                      <Pressable
+                        style={[styles.disconnectButton, disconnecting && styles.disabledButton]}
+                        onPress={handleDisconnect}
+                        disabled={disconnecting}
+                      >
+                        {disconnecting ? (
+                          <ActivityIndicator size="small" color="white" />
+                        ) : (
+                          <Text style={styles.exportSubmitText}>Disconnect</Text>
+                        )}
+                      </Pressable>
+                    </>
+                  )}
+                </View>
+              </>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       {/* Outlook Coming Soon Modal */}
       <Modal
         visible={outlookModalVisible}
@@ -408,6 +601,44 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontWeight: "600",
     fontSize: 14,
+  },
+  connectedRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: spacing.sm,
+  },
+  connectedText: {
+    flexShrink: 1,
+    color: colors.bodyText,
+    fontSize: 14,
+  },
+  disconnectLink: {
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+  },
+  disconnectLinkText: {
+    color: colors.danger,
+    fontWeight: "600",
+    fontSize: 14,
+  },
+  checkboxRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    marginBottom: spacing.md,
+  },
+  checkboxLabel: {
+    flex: 1,
+    fontSize: 14,
+    color: colors.boldText,
+    lineHeight: 20,
+  },
+  disconnectButton: {
+    backgroundColor: colors.danger,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 10,
   },
   card: {
     backgroundColor: "white",

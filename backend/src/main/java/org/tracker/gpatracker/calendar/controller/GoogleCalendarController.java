@@ -161,7 +161,11 @@ public class GoogleCalendarController {
 
     @GetMapping("/success")
     public ModelAndView oauthSuccess() {
-        return new ModelAndView("calendar/oauth-success");
+        ModelAndView view = new ModelAndView("calendar/oauth-success");
+        view.addObject("title", "Google Calendar Connected");
+        view.addObject("message",
+                "Your assessments are being added to Google Calendar. You can close this window and return to the app.");
+        return view;
     }
 
     @GetMapping("/failure")
