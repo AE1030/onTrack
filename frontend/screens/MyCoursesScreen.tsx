@@ -700,6 +700,14 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
         return;
       }
 
+      if (res.status === 415) {
+        updateUploadState(key, {
+          uploading: false,
+          error: "That file is not a PDF. Upload the syllabus as a PDF.",
+        });
+        return;
+      }
+
       if (!res.ok) {
         const errorText = await res.text();
         throw new Error(errorText || "Upload failed");
