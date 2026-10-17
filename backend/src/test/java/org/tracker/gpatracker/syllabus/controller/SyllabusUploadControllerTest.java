@@ -12,6 +12,7 @@ import org.tracker.gpatracker.syllabus.service.GeminiSyllabusExtractionService;
 import org.tracker.gpatracker.terms.TermService;
 
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -58,6 +59,21 @@ class SyllabusUploadControllerTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
         verify(extractionService).createJob("COMP 2140", "Fall 2026");
+    }
+
+    @Test
+    @DisplayName("recent jobs are returned for the requested term")
+    void recentJobs() {
+        SyllabusExtractionJob job = new SyllabusExtractionJob();
+        job.setId("job-1");
+        job.setCourseCode("COMP 2140");
+        job.setTerm("Fall 2026");
+        when(extractionService.getRecentJobs("Fall 2026")).thenReturn(List.of(job));
+
+        ResponseEntity<List<SyllabusExtractionJobResponse>> response = controller.getRecentJobs("Fall 2026");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).extracting(SyllabusExtractionJobResponse::getId).containsExactly("job-1");
     }
 
     @Test

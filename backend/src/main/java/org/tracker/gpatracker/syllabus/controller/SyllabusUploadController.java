@@ -19,6 +19,7 @@ import org.tracker.gpatracker.terms.TermService;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/syllabus/upload")
@@ -81,6 +82,15 @@ public class SyllabusUploadController {
             return false;
         }
         return Arrays.equals(bytes, 0, PDF_MAGIC.length, PDF_MAGIC, 0, PDF_MAGIC.length);
+    }
+
+    /** The caller's latest job per course in the term, from the last few minutes. See getRecentJobs. */
+    @GetMapping("/recent")
+    public ResponseEntity<List<SyllabusExtractionJobResponse>> getRecentJobs(@RequestParam String term) {
+        List<SyllabusExtractionJobResponse> jobs = extractionService.getRecentJobs(term).stream()
+                .map(SyllabusExtractionJobResponse::from)
+                .toList();
+        return ResponseEntity.ok(jobs);
     }
 
     @GetMapping("/{jobId}")

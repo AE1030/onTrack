@@ -36,6 +36,10 @@ import CourseCalculatorScreen from "./CourseCalculatorScreen";
 
 const GRADE_REGEX = /^\d{0,3}(\.\d{0,2})?$/;
 const MAX_SYLLABUS_BYTES = 10 * 1024 * 1024;
+// Stop polling a job this old. One minute past the server's 15-minute stale
+// sweep, so normally the poll sees the sweep's FAILED (with its refund message)
+// first and this only catches the case where it does not.
+const MAX_JOB_POLL_MS = 16 * 60_000;
 const UPLOAD_COOLDOWN_MS = 20_000;
 
 
@@ -545,6 +549,9 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
     term: string
   ) => {
     stopPolling(key);
+    // The job's own age, not how long this screen has watched it: a job resumed
+    // from an earlier visit may already be most of the way to the limit.
+    const startedAt = Date.now();
     pollingRefs.current[key] = setInterval(async () => {
       const token = await getToken();
       if (!token) {
@@ -575,6 +582,24 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
         }
 
         const job: SyllabusJobResponse = await res.json();
+        const createdAt = Date.parse(job.createdAt);
+        const age = Date.now() - (Number.isNaN(createdAt) ? startedAt : createdAt);
+        if (
+          (job.status === "QUEUED" || job.status === "PROCESSING") &&
+          age > MAX_JOB_POLL_MS
+        ) {
+          stopPolling(key);
+          updateUploadState(key, {
+            job,
+            // Cleared so the card falls back to the global count refreshed below.
+            remainingUploads: null,
+            error: "This upload stopped responding. Try uploading it again.",
+          });
+          // The count endpoint runs the server's stale sweep, which refunds the upload.
+          fetchRemainingUploads();
+          return;
+        }
+
         updateUploadState(key, {
           job,
           remainingUploads: job.remainingUploads ?? null,
@@ -610,6 +635,54 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
         stopPolling(key);
       }
     }, 2000);
+  };
+
+  /**
+   * Picks up jobs that outlived a previous visit. The job runs on the server
+   * regardless, but its id and polling timer died with the old screen, so ask
+   * the server for this term's recent jobs and reattach to each one.
+   */
+  const resumeRecentJobs = async (term: string, courses: CurrentCourseDTO[]) => {
+    let jobs: SyllabusJobResponse[];
+    try {
+      jobs = await authedGet<SyllabusJobResponse[]>(
+        `/api/syllabus/upload/recent?term=${encodeURIComponent(term)}`
+      );
+    } catch (err) {
+      if (isAuthError(err)) onAuthError();
+      return;
+    }
+
+    jobs.forEach((job) => {
+      const index = courses.findIndex(
+        (c) => c.courseCode === job.courseCode && c.term === job.term
+      );
+      if (index === -1) return;
+      const key = `${job.courseCode}-${job.term}-${index}`;
+      // Already being watched: an upload started on this visit.
+      if (pollingRefs.current[key]) return;
+
+      if (job.status === "QUEUED" || job.status === "PROCESSING") {
+        updateUploadState(key, {
+          job,
+          remainingUploads: job.remainingUploads ?? null,
+          error: null,
+        });
+        startPollingJob(key, job.id, job.courseCode, job.term);
+      } else if (job.status === "DONE") {
+        // Finished while we were away, so nothing wrote the new table into
+        // the cache. Mark it stale and the next expand refetches.
+        queryClient.invalidateQueries({
+          queryKey: qk.assessmentTable(job.courseCode, job.term),
+        });
+      } else if (job.status === "FAILED") {
+        updateUploadState(key, {
+          job,
+          remainingUploads: job.remainingUploads ?? null,
+          error: job.error ?? "Syllabus extraction failed.",
+        });
+      }
+    });
   };
 
   const uploadSyllabus = async (
@@ -827,6 +900,15 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
   useEffect(() => {
     fetchRemainingUploads();
   }, []);
+
+  // Once per term, after its courses have loaded (job keys need the course's index).
+  const resumedTermRef = useRef<string | null>(null);
+  useEffect(() => {
+    const courses = currentCoursesQuery.data;
+    if (!selectedTerm || !courses || resumedTermRef.current === selectedTerm) return;
+    resumedTermRef.current = selectedTerm;
+    resumeRecentJobs(selectedTerm, courses);
+  }, [selectedTerm, currentCoursesQuery.data]);
 
   useEffect(() => {
     return () => {
@@ -1244,7 +1326,7 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
                     <Pressable
                       style={[
                         styles.uploadButton,
-                        (uploadState.uploading || cooldownRemaining > 0) &&
+                        (uploadState.uploading || cooldownRemaining > 0 || isPolling) &&
                           styles.uploadButtonDisabled,
                         ]}
                       onPress={() =>
@@ -1254,7 +1336,8 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
                           effectiveTerm
                         )
                       }
-                      disabled={uploadState.uploading || cooldownRemaining > 0}
+                      // A second upload while one is processing would be charged twice.
+                      disabled={uploadState.uploading || cooldownRemaining > 0 || isPolling}
                       >
                         <Text style={styles.uploadButtonText}>
                           {uploadState.uploading

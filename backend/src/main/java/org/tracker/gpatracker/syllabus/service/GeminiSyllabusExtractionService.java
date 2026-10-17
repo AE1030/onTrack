@@ -32,6 +32,13 @@ import org.tracker.gpatracker.syllabus.exception.GeminiParseException;
 import org.tracker.gpatracker.syllabus.exception.InvalidSyllabusException;
 import org.tracker.gpatracker.syllabus.exception.SyllabusErrorType;
 
+import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
 @Service
 public class GeminiSyllabusExtractionService {
     private static final Logger logger = LoggerFactory.getLogger(GeminiSyllabusExtractionService.class);
@@ -39,6 +46,10 @@ public class GeminiSyllabusExtractionService {
     private static final double TEMPERATURE = 0.0;
     private static final int THINKING_BUDGET = 8311;
     private static final String NO_SYLLABUS_ERROR_CODE = "NO_SYLLABUS_DATA";
+    // How far back getRecentJobs looks. Long enough to cover a slow extraction, short enough that a
+    // job orphaned by a restart (stuck in PROCESSING, never touched again) ages out instead of
+    // being polled forever.
+    private static final Duration RECENT_JOB_WINDOW = Duration.ofMinutes(15);
 
     private final ObjectMapper objectMapper = new ObjectMapper()
             .setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE);
@@ -48,6 +59,7 @@ public class GeminiSyllabusExtractionService {
     private final SyllabusExtractionJobRepository jobRepository;
     private final SyllabusUploadQuotaService quotaService;
     private final AssessmentTableService assessmentTableService;
+    private final StaleSyllabusJobSweeper staleJobSweeper;
     private final Client geminiClient;
 
     public GeminiSyllabusExtractionService(@Value("${gemini.api.key}") String apiKey,
@@ -55,7 +67,8 @@ public class GeminiSyllabusExtractionService {
                                            UserSyllabusRepository userSyllabusRepository,
                                            SyllabusExtractionJobRepository jobRepository,
                                            SyllabusUploadQuotaService quotaService,
-                                           AssessmentTableService assessmentTableService) {
+                                           AssessmentTableService assessmentTableService,
+                                           StaleSyllabusJobSweeper staleJobSweeper) {
         this.geminiClient = Client.builder()
                 .apiKey(apiKey)
                 .build();
@@ -64,11 +77,14 @@ public class GeminiSyllabusExtractionService {
         this.jobRepository = jobRepository;
         this.quotaService = quotaService;
         this.assessmentTableService = assessmentTableService;
+        this.staleJobSweeper = staleJobSweeper;
     }
 
 
     public SyllabusExtractionJob createJob(String courseCode, String term) {
         Long studentId = studentService.getStudentID();
+        // Before charging, so an upload refunded by the sweep is available to spend right now.
+        staleJobSweeper.sweep(studentId);
         int remaining = quotaService.consumeUploadQuota(studentId);
         SyllabusExtractionJob job = new SyllabusExtractionJob();
         job.setOwnerId(studentId);
@@ -81,13 +97,33 @@ public class GeminiSyllabusExtractionService {
     }
 
     public SyllabusExtractionJob getJob(String jobId) {
+        staleJobSweeper.sweep(studentService.getStudentID());
         return jobRepository.findById(jobId).orElse(null);
+    }
+
+    /**
+     * Each course's latest job in the term, if it changed within {@link #RECENT_JOB_WINDOW}.
+     *
+     * <p>The client polls a job by id, and that id is lost when the student leaves the screen. This
+     * is how it finds the job again: still running means resume polling, finished means its cached
+     * assessment table is stale. Scoped to the caller by the owner filter.
+     */
+    public List<SyllabusExtractionJob> getRecentJobs(String term) {
+        staleJobSweeper.sweep(studentService.getStudentID());
+        Instant since = Instant.now().minus(RECENT_JOB_WINDOW);
+        Map<String, SyllabusExtractionJob> latestByCourse = new LinkedHashMap<>();
+        for (SyllabusExtractionJob job : jobRepository.findByTermAndUpdatedAtAfterOrderByCreatedAtDesc(term, since)) {
+            latestByCourse.putIfAbsent(job.getCourseCode(), job);
+        }
+        return new ArrayList<>(latestByCourse.values());
     }
 
     @Async
     public void processJobAsync(String jobId, byte[] pdfBytes, String courseCode, String term) {
         SyllabusExtractionJob job = jobRepository.findById(jobId).orElse(null);
-        if (job == null) {
+        // Not QUEUED means the sweep failed and refunded it while it waited for a thread. Running it
+        // now would hand the student a table for an upload they were given back.
+        if (job == null || job.getStatus() != JobStatus.QUEUED) {
             return;
         }
         try {
@@ -99,23 +135,30 @@ public class GeminiSyllabusExtractionService {
             } catch (Exception e) {
                 logger.warn("Failed to refresh assessment table for {}: {}", courseCode, e.getMessage());
             }
+            // If the sweep failed this job while Gemini was still working, this overwrites the
+            // FAILED with DONE. The refund stands: one free upload, in exchange for the table the
+            // student paid for actually arriving.
             job.setStatus(JobStatus.DONE);
             job.setErrorType(null);
+            job.setError(null);
             job.setRemainingUploads(quotaService.getRemainingUploads(job.getOwnerId()));
             jobRepository.save(job);
         } catch (Exception ex) {
-            job.setStatus(JobStatus.FAILED);
+            Long ownerId = job.getOwnerId();
             String message = ex.getMessage();
-            job.setError(message == null ? "Gemini extraction failed." : message);
-            job.setErrorType(classifyError(ex));
+            SyllabusErrorType errorType = classifyError(ex);
+            // Conditional: if the sweep already failed this job it has also refunded it, and a
+            // second refund here would give the student an upload they never spent.
+            if (jobRepository.failIfActive(jobId, ownerId, errorType,
+                    message == null ? "Gemini extraction failed." : message, Instant.now()) == 0) {
+                return;
+            }
             // Restore quota for non-chargeable failures (API errors, parse errors)
             // Keep the charge for invalid syllabus uploads
-            if (job.getErrorType() != SyllabusErrorType.INVALID_SYLLABUS) {
-                job.setRemainingUploads(quotaService.restoreQuota(job.getOwnerId()));
-            } else {
-                job.setRemainingUploads(quotaService.getRemainingUploads(job.getOwnerId()));
-            }
-            jobRepository.save(job);
+            int remaining = errorType != SyllabusErrorType.INVALID_SYLLABUS
+                    ? quotaService.restoreQuota(ownerId)
+                    : quotaService.getRemainingUploads(ownerId);
+            jobRepository.setRemainingUploads(jobId, ownerId, remaining);
         }
     }
 
