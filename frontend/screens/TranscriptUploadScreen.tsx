@@ -13,6 +13,7 @@ import { getToken } from "../src/utils/tokenStorage";
 import { API_BASE_URL } from "../src/config/api";
 import { AuthError, isAuthError } from "../src/cache/authedGet";
 import { qk } from "../src/cache/keys";
+import { toUserMessage } from "../src/utils/errorMessage";
 
 type Props = {
   onBack: () => void;
@@ -104,7 +105,7 @@ export default function TranscriptUploadScreen({
   const failure = latest?.status === "error" ? latest.error : null;
   // Auth failures are handed to onAuthError instead of shown here.
   const error =
-    failure && !isAuthError(failure) ? (failure as Error).message || UNREADABLE_MESSAGE : null;
+    failure && !isAuthError(failure) ? toUserMessage(failure, UNREADABLE_MESSAGE) : null;
 
   const pickAndUpload = async () => {
     const token = await getToken();

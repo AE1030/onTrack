@@ -31,16 +31,34 @@ export class HttpError extends Error {
   }
 }
 
-/** Pulls the error sentence out of a failed response, or null when there isn't one. */
+/**
+ * Pulls the error sentence out of a failed response, or null when there isn't one.
+ *
+ * Most endpoints answer through GlobalExceptionHandler's {"error": "..."} shape, but a few auth
+ * endpoints (forgot-password, verify/resend) answer with a bare sentence. Those are accepted too,
+ * as long as they look like a sentence: an HTML error page from a proxy, or JSON in some other
+ * shape, must never reach the screen.
+ */
 export async function readServerError(res: Response): Promise<string | null> {
+  let raw: string;
   try {
-    const raw = await res.text();
-    if (!raw) return null;
-    const body = JSON.parse(raw);
-    return typeof body?.error === "string" ? body.error : null;
+    raw = (await res.text()).trim();
   } catch {
     return null;
   }
+  if (!raw) return null;
+  try {
+    const body = JSON.parse(raw);
+    return typeof body?.error === "string" ? body.error : null;
+  } catch {
+    const looksLikeSentence = raw.length <= 200 && !/[\n<{[]/.test(raw);
+    return looksLikeSentence ? raw : null;
+  }
+}
+
+/** An HttpError for a failed response, carrying the server's sentence when it sent one. */
+export async function toHttpError(res: Response): Promise<HttpError> {
+  return new HttpError(res.status, (await readServerError(res)) ?? undefined);
 }
 
 /**
@@ -90,7 +108,7 @@ export async function authedMutate(
   init: RequestInit = {}
 ): Promise<Response> {
   const res = await authedFetch(path, init);
-  if (!res.ok) throw new HttpError(res.status, (await readServerError(res)) ?? undefined);
+  if (!res.ok) throw await toHttpError(res);
   return res;
 }
 
@@ -100,7 +118,7 @@ export async function authedMutate(
  */
 export async function authedGet<T>(path: string): Promise<T> {
   const res = await authedFetch(path);
-  if (!res.ok) throw new HttpError(res.status, (await readServerError(res)) ?? undefined);
+  if (!res.ok) throw await toHttpError(res);
 
   const raw = await res.text();
   return (raw ? JSON.parse(raw) : null) as T;

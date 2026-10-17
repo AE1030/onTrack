@@ -29,6 +29,7 @@ import { getToken } from "../src/utils/tokenStorage";
 import { API_BASE_URL } from "../src/config/api";
 import { qk } from "../src/cache/keys";
 import { authedFetch, authedGet, isAuthError, queryRetry } from "../src/cache/authedGet";
+import { toUserMessage } from "../src/utils/errorMessage";
 import { useCourseSearch } from "../src/hooks/useCourseSearch";
 import { useTerm } from "../src/terms/TermContext";
 import TermPicker from "./components/TermPicker";
@@ -77,6 +78,23 @@ type SyllabusJobResponse = {
   remainingUploads: number | null;
   createdAt: string;
   updatedAt: string;
+};
+
+/**
+ * What to tell the student about a failed extraction job.
+ *
+ * job.error is the server's exception message (a Gemini client error, or "NO_SYLLABUS: ..."), which
+ * is for logs, not for students. errorType says what kind of failure it was, and that is enough.
+ */
+const jobErrorMessage = (job: SyllabusJobResponse): string => {
+  switch (job.errorType) {
+    case "INVALID_SYLLABUS":
+      return "That file does not look like a course syllabus. Upload the course outline PDF.";
+    case "TIMED_OUT":
+      return "This upload stopped responding. Try uploading it again.";
+    default:
+      return "We could not read this syllabus. It did not count toward your uploads. Try again.";
+  }
 };
 
 type UploadState = {
@@ -603,7 +621,7 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
         updateUploadState(key, {
           job,
           remainingUploads: job.remainingUploads ?? null,
-          error: job.error ?? null,
+          error: job.error ? jobErrorMessage(job) : null,
         });
 
         if (job.error) {
@@ -628,9 +646,9 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
             }));
           }
         }
-      } catch (err: any) {
+      } catch (err) {
         updateUploadState(key, {
-          error: err?.message ?? "Failed to poll upload job",
+          error: toUserMessage(err, "Lost track of this upload. Reopen My Courses to check on it."),
         });
         stopPolling(key);
       }
@@ -679,7 +697,7 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
         updateUploadState(key, {
           job,
           remainingUploads: job.remainingUploads ?? null,
-          error: job.error ?? "Syllabus extraction failed.",
+          error: jobErrorMessage(job),
         });
       }
     });
@@ -781,26 +799,31 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
         return;
       }
 
-      if (!res.ok) {
-        const errorText = await res.text();
-        throw new Error(errorText || "Upload failed");
+      if (res.status === 413) {
+        updateUploadState(key, {
+          uploading: false,
+          error: "That file is too large to upload.",
+        });
+        return;
       }
+
+      if (!res.ok) throw new Error("Upload failed");
 
       const job: SyllabusJobResponse = await res.json();
       updateUploadState(key, {
         uploading: false,
         job,
         remainingUploads: job.remainingUploads ?? null,
-        error: job.error ?? null,
+        error: job.error ? jobErrorMessage(job) : null,
       });
 
       if (job.id) {
         startPollingJob(key, job.id, courseCode, term);
       }
-    } catch (err: any) {
+    } catch (err) {
       updateUploadState(key, {
         uploading: false,
-        error: err?.message ?? "Upload failed",
+        error: toUserMessage(err, "Upload failed. Try again in a moment."),
       });
     }
   };
@@ -974,8 +997,8 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
       showUploadSuccessBanner();
       // A transcript rewrites courses and GPA wholesale — drop every cached read.
       queryClient.invalidateQueries();
-    } catch (err: any) {
-      setUploadError(err?.message ?? "Upload failed");
+    } catch (err) {
+      setUploadError(toUserMessage(err, "Upload failed. Try again in a moment."));
     } finally {
       setUploading(false);
     }

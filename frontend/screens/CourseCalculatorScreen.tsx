@@ -16,6 +16,7 @@ import { colors } from "../src/theme/colors";
 import { getToken } from "../src/utils/tokenStorage";
 import { API_BASE_URL } from "../src/config/api";
 import { qk } from "../src/cache/keys";
+import { toUserMessage } from "../src/utils/errorMessage";
 import {
   HttpError,
   authedMutate,
@@ -360,8 +361,8 @@ export default function CourseCalculatorScreen({
       setSchemes(nextSchemes);
       setDirty(false);
       setSaveState("idle");
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(toUserMessage(err, "Could not load this course's assessments. Try again in a moment."));
     } finally {
       setLoading(false);
     }

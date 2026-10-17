@@ -13,6 +13,8 @@ import { Feather } from "@expo/vector-icons";
 import { colors } from "../src/theme/colors";
 import { spacing } from "../src/theme/spacing";
 import { API_BASE_URL } from "../src/config/api";
+import { toHttpError } from "../src/cache/authedGet";
+import { toUserMessage } from "../src/utils/errorMessage";
 import OnTrackLogo from "./components/OnTrackLogo";
 
 type Props = {
@@ -111,18 +113,11 @@ export default function RegisterScreen({ onGoToLogin }: Props) {
         body: JSON.stringify({ email, username, password }),
       });
 
-      if (res.status === 400 || res.status === 409) {
-        const data = await res.text();
-        throw new Error(data || "Registration failed");
-      }
-
-      if (!res.ok) {
-        throw new Error("Registration failed");
-      }
+      if (!res.ok) throw await toHttpError(res);
 
       setSuccess(true);
-    } catch (err: any) {
-      setError(err.message || "Something went wrong");
+    } catch (err) {
+      setError(toUserMessage(err, "Registration failed. Try again in a moment."));
     } finally {
       setLoading(false);
     }

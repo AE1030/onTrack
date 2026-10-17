@@ -11,6 +11,8 @@ import { useState } from "react";
 import { colors } from "../src/theme/colors";
 import { spacing } from "../src/theme/spacing";
 import { API_BASE_URL } from "../src/config/api";
+import { toHttpError } from "../src/cache/authedGet";
+import { toUserMessage } from "../src/utils/errorMessage";
 import OnTrackLogo from "./components/OnTrackLogo";
 
 type Props = {
@@ -43,14 +45,11 @@ export default function ForgotPasswordScreen({ onGoToLogin }: Props) {
         }
       );
 
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || "Something went wrong");
-      }
+      if (!res.ok) throw await toHttpError(res);
 
       setSent(true);
-    } catch (err: any) {
-      setError(err.message || "Could not connect to server.");
+    } catch (err) {
+      setError(toUserMessage(err, "Something went wrong. Try again in a moment."));
     } finally {
       setLoading(false);
     }

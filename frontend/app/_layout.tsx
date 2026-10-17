@@ -17,10 +17,9 @@ import { queryClient } from '../src/cache/queryClient';
 import { TermProvider } from '../src/terms/TermContext';
 import { ThemeProvider, useTheme, useThemeControl } from '../src/theme/ThemeContext';
 
-export {
-  // Catch any errors thrown by the Layout component.
-  ErrorBoundary,
-} from 'expo-router';
+// Catches any error thrown under the root layout. Replaces Expo Router's stock boundary, which
+// prints the raw error message on screen.
+export { default as ErrorBoundary } from '../components/ErrorFallback';
 
 export const unstable_settings = {
   initialRouteName: 'index',

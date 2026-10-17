@@ -13,6 +13,7 @@ import { colors } from "../src/theme/colors";
 import { spacing } from "../src/theme/spacing";
 import { setTokens } from "../src/utils/tokenStorage";
 import { API_BASE_URL } from "../src/config/api";
+import { readServerError } from "../src/cache/authedGet";
 import OnTrackLogo from "./components/OnTrackLogo";
 
 const VERIFY_RESEND_URL = `${API_BASE_URL.replace(/\/$/, "")}/verify/resend`;
@@ -94,8 +95,8 @@ export default function LoginScreen({ onLoginSuccess, onGoToRegister, onGoToForg
       if (res.ok) {
         setResendMessage("Verification email sent");
       } else {
-        const text = await res.text();
-        setResendMessage(text || "Failed to resend. Please try again.");
+        const message = res.status < 500 ? await readServerError(res) : null;
+        setResendMessage(message || "Failed to resend. Please try again.");
       }
     } catch {
       setResendMessage("Could not connect to server.");
