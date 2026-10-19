@@ -6,6 +6,7 @@ import { normalizeAvatar } from "../../../src/leaderboard/avatar";
 import { fmtScore } from "../../../src/leaderboard/scoring";
 import PlayerAvatar from "./PlayerAvatar";
 import { ModePill, MovementArrow } from "./Indicators";
+import { radius } from "../../../src/theme/spacing";
 
 /**
  * One ranked row, from fourth place down.
@@ -89,12 +90,12 @@ const styles = StyleSheet.create({
   },
   rowMine: {
     borderWidth: 1.5,
-    borderRadius: 12,
+    borderRadius: radius.md,
     marginVertical: 2,
   },
   rowPinned: {
     borderWidth: 1.5,
-    borderRadius: 14,
+    borderRadius: radius.lg,
     borderBottomWidth: 1.5,
     marginHorizontal: 12,
   },

@@ -15,7 +15,7 @@ import * as WebBrowser from "expo-web-browser";
 import { Feather } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { colors } from "../src/theme/colors";
-import { spacing } from "../src/theme/spacing";
+import { spacing, radius } from "../src/theme/spacing";
 import { API_BASE_URL } from "../src/config/api";
 import { getToken } from "../src/utils/tokenStorage";
 import { qk } from "../src/cache/keys";
@@ -593,7 +593,7 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
     paddingVertical: 10,
     paddingHorizontal: spacing.md,
-    borderRadius: 10,
+    borderRadius: radius.md,
     flexDirection: "row",
     alignItems: "center",
   },
@@ -638,11 +638,11 @@ const styles = StyleSheet.create({
     backgroundColor: colors.danger,
     paddingVertical: 10,
     paddingHorizontal: 20,
-    borderRadius: 10,
+    borderRadius: radius.md,
   },
   card: {
     backgroundColor: "white",
-    borderRadius: 16,
+    borderRadius: radius.lg,
     padding: spacing.md,
     marginBottom: spacing.md,
     boxShadow: "0px 2px 6px rgba(0, 0, 0, 0.06)",
@@ -664,7 +664,7 @@ const styles = StyleSheet.create({
   navArrow: {
     width: 32,
     height: 32,
-    borderRadius: 8,
+    borderRadius: radius.sm,
     backgroundColor: colors.background,
     justifyContent: "center",
     alignItems: "center",
@@ -672,7 +672,7 @@ const styles = StyleSheet.create({
   todayButton: {
     paddingHorizontal: 12,
     paddingVertical: 4,
-    borderRadius: 8,
+    borderRadius: radius.sm,
     backgroundColor: colors.background,
   },
   todayButtonText: {
@@ -719,7 +719,7 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     backgroundColor: "white",
-    borderRadius: 16,
+    borderRadius: radius.lg,
     padding: spacing.lg,
     width: "85%",
     maxWidth: 400,
@@ -740,7 +740,7 @@ const styles = StyleSheet.create({
   emailInput: {
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 10,
+    borderRadius: radius.md,
     padding: 12,
     fontSize: 16,
     marginBottom: spacing.md,
@@ -765,7 +765,7 @@ const styles = StyleSheet.create({
   cancelButton: {
     paddingVertical: 10,
     paddingHorizontal: 20,
-    borderRadius: 10,
+    borderRadius: radius.md,
   },
   cancelText: {
     color: colors.bodyText,
@@ -775,7 +775,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     paddingVertical: 10,
     paddingHorizontal: 20,
-    borderRadius: 10,
+    borderRadius: radius.md,
   },
   exportSubmitText: {
     color: "white",

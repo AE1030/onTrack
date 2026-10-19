@@ -6,6 +6,7 @@ import { LeaderboardRow } from "../../../src/leaderboard/types";
 import { normalizeAvatar } from "../../../src/leaderboard/avatar";
 import { fmtScore } from "../../../src/leaderboard/scoring";
 import PlayerAvatar from "./PlayerAvatar";
+import { radius } from "../../../src/theme/spacing";
 
 /**
  * The top three, as 2 · 1 · 3 with the centre raised.
@@ -131,8 +132,8 @@ const styles = StyleSheet.create({
   },
   plinth: {
     width: "100%",
-    borderTopLeftRadius: 10,
-    borderTopRightRadius: 10,
+    borderTopLeftRadius: radius.md,
+    borderTopRightRadius: radius.md,
     backgroundColor: "rgba(255,255,255,0.14)",
     alignItems: "center",
     paddingTop: 8,

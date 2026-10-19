@@ -24,7 +24,7 @@ import Animated, {
 import { Feather } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { colors } from "../src/theme/colors";
-import { spacing } from "../src/theme/spacing";
+import { spacing, radius } from "../src/theme/spacing";
 import { getToken } from "../src/utils/tokenStorage";
 import { API_BASE_URL } from "../src/config/api";
 import { qk } from "../src/cache/keys";
@@ -1659,7 +1659,7 @@ const styles = StyleSheet.create({
   toggle: {
     flexDirection: "row",
     backgroundColor: colors.border,
-    borderRadius: 12,
+    borderRadius: radius.md,
     padding: 4,
     marginBottom: spacing.lg,
     position: "relative",
@@ -1670,7 +1670,7 @@ const styles = StyleSheet.create({
     top: 4,
     bottom: 4,
     backgroundColor: "white",
-    borderRadius: 8,
+    borderRadius: radius.sm,
     boxShadow: "0px 1px 3px rgba(0, 0, 0, 0.1)",
     elevation: 2,
   },
@@ -1691,7 +1691,7 @@ const styles = StyleSheet.create({
   },
   courseCard: {
     backgroundColor: "white",
-    borderRadius: 16,
+    borderRadius: radius.lg,
     marginBottom: spacing.lg,
     overflow: "hidden",
     borderWidth: 1,
@@ -1749,7 +1749,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: spacing.md,
     marginBottom: spacing.md,
-    borderRadius: 8,
+    borderRadius: radius.sm,
     backgroundColor: "#EEEEF5",
   },
   readOnlyNoticeText: {
@@ -1819,7 +1819,7 @@ const styles = StyleSheet.create({
   gpaPill: {
     paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 12,
+    borderRadius: radius.md,
     backgroundColor: "#F0EAF0",
     alignItems: "center" as const,
     justifyContent: "center" as const,
@@ -1830,7 +1830,7 @@ const styles = StyleSheet.create({
     color: colors.primary,
   },
   dropdownToggleWrap: {
-    borderRadius: 8,
+    borderRadius: radius.sm,
     overflow: "hidden",
   },
   dropdownToggle: {
@@ -1847,7 +1847,7 @@ const styles = StyleSheet.create({
   },
   syllabusBox: {
     backgroundColor: "#F8F3F6",
-    borderRadius: 12,
+    borderRadius: radius.md,
     padding: spacing.md,
     marginBottom: spacing.md,
     borderWidth: 1,
@@ -1883,7 +1883,7 @@ const styles = StyleSheet.create({
   uploadButton: {
     paddingVertical: 8,
     paddingHorizontal: 12,
-    borderRadius: 10,
+    borderRadius: radius.md,
     backgroundColor: "#7A003C",
   },
   uploadButtonDisabled: {
@@ -1931,7 +1931,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     paddingVertical: 10,
     paddingHorizontal: 20,
-    borderRadius: 10,
+    borderRadius: radius.md,
     marginBottom: spacing.lg,
   },
   addCoursesToggleText: {
@@ -1944,7 +1944,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "white",
     padding: spacing.md,
-    borderRadius: 12,
+    borderRadius: radius.md,
     marginBottom: spacing.sm,
     boxShadow: "0px 1px 4px rgba(0, 0, 0, 0.06)",
     elevation: 1,
@@ -1960,7 +1960,7 @@ const styles = StyleSheet.create({
     flex: 1,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 10,
+    borderRadius: radius.md,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 14,
@@ -1975,7 +1975,7 @@ const styles = StyleSheet.create({
     backgroundColor: "white",
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 10,
+    borderRadius: radius.md,
     zIndex: 100,
     elevation: 10,
     maxHeight: 220,
@@ -2009,7 +2009,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderStyle: "dashed",
     borderColor: colors.border,
-    borderRadius: 10,
+    borderRadius: radius.md,
     paddingVertical: 10,
     paddingHorizontal: 16,
   },
@@ -2024,7 +2024,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     paddingVertical: 10,
     paddingHorizontal: 20,
-    borderRadius: 10,
+    borderRadius: radius.md,
   },
   saveText: {
     color: "white",
@@ -2033,7 +2033,7 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: "white",
-    borderRadius: 16,
+    borderRadius: radius.lg,
     padding: spacing.lg,
     boxShadow: "0px 2px 6px rgba(0, 0, 0, 0.06)",
     elevation: 2,
@@ -2054,7 +2054,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderStyle: "dashed",
     borderColor: colors.border,
-    borderRadius: 14,
+    borderRadius: radius.lg,
     padding: spacing.lg,
     alignItems: "center",
   },
@@ -2084,7 +2084,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.lg,
-    borderRadius: 10,
+    borderRadius: radius.md,
   },
   browseText: {
     color: "white",
@@ -2109,7 +2109,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#E8F5E9",
     paddingVertical: 6,
     paddingHorizontal: 10,
-    borderRadius: 6,
+    borderRadius: radius.sm,
     marginTop: spacing.sm,
   },
   savedText: {

@@ -32,6 +32,7 @@ import BrandField from "./components/leaderboard/BrandField";
 import Podium from "./components/leaderboard/Podium";
 import RankRow from "./components/leaderboard/RankRow";
 import PlayerAvatar from "./components/leaderboard/PlayerAvatar";
+import { radius } from "../src/theme/spacing";
 
 /**
  * The board.
@@ -667,8 +668,8 @@ const styles = StyleSheet.create({
     paddingVertical: 40,
   },
   sheet: {
-    borderTopLeftRadius: 22,
-    borderTopRightRadius: 22,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
     marginTop: -18,
     paddingTop: 14,
     minHeight: 300,
@@ -681,7 +682,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     paddingHorizontal: 12,
     paddingVertical: 9,
-    borderRadius: 10,
+    borderRadius: radius.md,
   },
   scopeNoticeText: {
     flex: 1,
@@ -725,7 +726,7 @@ const styles = StyleSheet.create({
   gateCard: {
     width: "100%",
     maxWidth: 380,
-    borderRadius: 18,
+    borderRadius: radius.lg,
     padding: 20,
     gap: 10,
     alignItems: "flex-start",
@@ -744,7 +745,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
     paddingHorizontal: 16,
     paddingVertical: 10,
-    borderRadius: 10,
+    borderRadius: radius.md,
   },
   gateButtonText: {
     color: "#3B0A1D",
@@ -777,8 +778,8 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     maxHeight: "86%",
-    borderTopLeftRadius: 22,
-    borderTopRightRadius: 22,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
     width: "100%",
     maxWidth: 560,
     alignSelf: "center",
@@ -832,7 +833,7 @@ const styles = StyleSheet.create({
   },
   input: {
     borderWidth: 1.5,
-    borderRadius: 12,
+    borderRadius: radius.md,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 16,
@@ -862,7 +863,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingVertical: 11,
     paddingHorizontal: 18,
-    borderRadius: 10,
+    borderRadius: radius.md,
   },
   primaryButtonText: {
     color: "#FFFFFF",

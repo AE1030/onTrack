@@ -6,7 +6,7 @@ import * as WebBrowser from "expo-web-browser";
 
 import { authedGet, authedMutate, queryRetry } from "../../src/cache/authedGet";
 import { qk } from "../../src/cache/keys";
-import { spacing } from "../../src/theme/spacing";
+import { spacing, radius } from "../../src/theme/spacing";
 import { useTheme } from "../../src/theme/ThemeContext";
 
 type CalendarProvider = "GOOGLE" | "MICROSOFT";
@@ -121,7 +121,7 @@ const styles = StyleSheet.create({
   button: {
     paddingVertical: 8,
     paddingHorizontal: 14,
-    borderRadius: 8,
+    borderRadius: radius.sm,
     flexShrink: 0,
   },
   buttonText: {

@@ -23,6 +23,7 @@ import {
   isAuthError,
   isServerRejection,
 } from "../src/cache/authedGet";
+import { radius } from "../src/theme/spacing";
 
 //
 // TYPES
@@ -1638,7 +1639,7 @@ const styles = StyleSheet.create({
   schemeBox: {
     marginBottom: 24,
     padding: 16,
-    borderRadius: 12,
+    borderRadius: radius.md,
     backgroundColor: "white",
   },
   // Recessed rather than faded. This is a reading surface, so the text has to stay
@@ -1654,7 +1655,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 12,
     marginBottom: 12,
-    borderRadius: 8,
+    borderRadius: radius.sm,
     backgroundColor: "#EEEEF5",
   },
   readOnlyBannerText: {
@@ -1697,7 +1698,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#ddd",
     padding: 6,
-    borderRadius: 6,
+    borderRadius: radius.sm,
   },
   cell: {
     flex: 1,
@@ -1711,21 +1712,21 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#ddd",
     padding: 6,
-    borderRadius: 6,
+    borderRadius: radius.sm,
     textAlign: "center",
   },
   dateInput: {
     borderWidth: 1,
     borderColor: "#ddd",
     padding: 6,
-    borderRadius: 6,
+    borderRadius: radius.sm,
     textAlign: "center",
   },
   timeInput: {
     borderWidth: 1,
     borderColor: "#ddd",
     padding: 6,
-    borderRadius: 6,
+    borderRadius: radius.sm,
     textAlign: "center",
   },
   warningText: {
@@ -1738,14 +1739,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#ddd",
     padding: 6,
-    borderRadius: 6,
+    borderRadius: radius.sm,
   },
   gradeInput: {
     flex: 1,
     borderWidth: 1,
     borderColor: "#ddd",
     padding: 6,
-    borderRadius: 6,
+    borderRadius: radius.sm,
     textAlign: "center",
   },
   schemeGrade: {
@@ -1762,7 +1763,7 @@ const styles = StyleSheet.create({
   saveButton: {
     paddingHorizontal: 14,
     paddingVertical: 8,
-    borderRadius: 8,
+    borderRadius: radius.sm,
     backgroundColor: "#0f5bd7",
   },
   saveButtonDisabled: {
@@ -1788,7 +1789,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 8,
+    borderRadius: radius.sm,
     backgroundColor: "#0f5bd7",
   },
   addSchemeButtonDisabled: {
@@ -1804,7 +1805,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 8,
+    borderRadius: radius.sm,
     backgroundColor: "#1f6feb",
   },
   addButtonText: {
@@ -1814,7 +1815,7 @@ const styles = StyleSheet.create({
   },
   deleteButton: {
     padding: 6,
-    borderRadius: 6,
+    borderRadius: radius.sm,
     alignItems: "center",
   },
 });

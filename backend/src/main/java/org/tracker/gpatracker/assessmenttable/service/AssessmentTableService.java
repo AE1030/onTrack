@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Value;
 import org.tracker.gpatracker.terms.TermService;
 import org.tracker.gpatracker.accounts.service.StudentService;
+import org.tracker.gpatracker.accounts.service.gpautils.CodeFinder;
 import org.tracker.gpatracker.assessmenttable.dto.SaveAssessmentTableDTO;
 import org.tracker.gpatracker.assessmenttable.model.AssessmentScheme;
 import org.tracker.gpatracker.assessmenttable.model.AssessmentTableDocument;
@@ -25,9 +26,11 @@ import org.slf4j.LoggerFactory;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 @Service
 public class AssessmentTableService {
@@ -80,10 +83,13 @@ public class AssessmentTableService {
         }
 
         // Same read, second purpose: the stored document is the only record of when each grade
-        // first appeared, and the incoming DTO carries no trustworthy version of that.
-        GradeStamper.stamp(document.getSchemes(),
-                existing == null ? null : existing.getSchemes(),
-                Instant.now());
+        // first appeared, and the incoming DTO carries no trustworthy version of that. A multi-term
+        // course saved for the first time this term stamps against its first half instead, so
+        // marks entered on time last term keep the timestamps that put them inside their windows.
+        List<AssessmentScheme> stampedAgainst = existing != null
+                ? existing.getSchemes()
+                : firstHalf(studentId, dto.getCourseCode()).map(AssessmentTableDocument::getSchemes).orElse(null);
+        GradeStamper.stamp(document.getSchemes(), stampedAgainst, Instant.now());
 
         AssessmentTableDocument saved = insertOrMerge(document, studentId, dto.getCourseCode(), term);
         eventPublisher.publishEvent(new AssessmentTableUpdatedEvent(this, studentId));
@@ -230,6 +236,21 @@ public class AssessmentTableService {
     public void createFromSyllabus(String courseCode) {
         Long studentId = studentService.getStudentID();
 
+        // The second half of a multi-term course continues the first half's table rather than
+        // starting over from the syllabus: it already holds last term's marks.
+        if (CodeFinder.isMultiTerm(courseCode)
+                && repository.findByOwnerIdAndCourseCodeAndTerm(studentId, courseCode, currentTerm).isEmpty()) {
+            Optional<AssessmentTableDocument> firstHalf = firstHalf(studentId, courseCode);
+            if (firstHalf.isPresent()) {
+                SaveAssessmentTableDTO dto = new SaveAssessmentTableDTO();
+                dto.setCourseCode(courseCode);
+                dto.setTerm(currentTerm);
+                dto.setSchemes(copySchemes(firstHalf.get().getSchemes()));
+                saveToRepo(dto);
+                return;
+            }
+        }
+
         AbstractSyllabusDocument doc;
         try {
             doc = syllabusAssessmentService.getSyllabusDocument(courseCode, currentTerm);
@@ -248,6 +269,70 @@ public class AssessmentTableService {
 
         SaveAssessmentTableDTO dto = toSaveDTO(courseCode, items);
         saveToRepo(dto);
+    }
+
+    /**
+     * The first half of a multi-term course: this student's table for the same course from the
+     * season or two before the current term, newest first. Empty for an ordinary course.
+     *
+     * <p>A multi-term course (catalog code ending {@code A/B} or {@code A/B S}) is one course over
+     * two terms, but tables are kept per term. Without this link the second term starts from a
+     * blank table, and the first term's marks could only be re-entered months after their due
+     * dates, outside the leaderboard's 14-day entry window. The course would then score in
+     * neither season.
+     *
+     * <p>Older tables for the same code are a previous attempt, not this one's first half, which
+     * is what {@link TermService#isRecentPastTerm} rules out.
+     */
+    private Optional<AssessmentTableDocument> firstHalf(Long studentId, String courseCode) {
+        if (!CodeFinder.isMultiTerm(courseCode)) {
+            return Optional.empty();
+        }
+        return repository.findByOwnerId(studentId).stream()
+                .filter(table -> table != null
+                        && courseCode.equals(table.getCourseCode())
+                        && termService.isRecentPastTerm(table.getTerm()))
+                .min(Comparator.comparingInt(table -> termService.seasonsBeforeCurrent(table.getTerm())));
+    }
+
+    /**
+     * Fresh copies of the student-entered fields only. The server-set timestamps are left off on
+     * purpose: {@code saveToRepo} recomputes them by stamping against the first half, the same path
+     * every other save takes.
+     */
+    private static List<AssessmentScheme> copySchemes(List<AssessmentScheme> schemes) {
+        List<AssessmentScheme> copies = new ArrayList<>();
+        if (schemes == null) {
+            return copies;
+        }
+        for (AssessmentScheme scheme : schemes) {
+            if (scheme == null) {
+                continue;
+            }
+            AssessmentScheme copy = new AssessmentScheme();
+            copy.setSchemeName(scheme.getSchemeName());
+            List<SchemeAssessment> rows = new ArrayList<>();
+            if (scheme.getAssessments() != null) {
+                for (SchemeAssessment row : scheme.getAssessments()) {
+                    if (row == null) {
+                        continue;
+                    }
+                    SchemeAssessment r = new SchemeAssessment();
+                    r.setName(row.getName());
+                    r.setDescription(row.getDescription());
+                    r.setLocation(row.getLocation());
+                    r.setDueDate(row.getDueDate());
+                    r.setStartTime(row.getStartTime());
+                    r.setEndTime(row.getEndTime());
+                    r.setWeight(row.getWeight());
+                    r.setGrade(row.getGrade());
+                    rows.add(r);
+                }
+            }
+            copy.setAssessments(rows);
+            copies.add(copy);
+        }
+        return copies;
     }
 
     private SaveAssessmentTableDTO toSaveDTO(String courseCode, Map<String, List<AssessmentTableDTO>> items) {
@@ -292,6 +377,18 @@ public class AssessmentTableService {
 
         if (!result.isEmpty()) {
             return result;
+        }
+
+        // A multi-term course with nothing saved this term shows its first half, marks included,
+        // so the student continues that table instead of re-entering it. The first save writes it
+        // as this term's table, stamped against the first half (see saveToRepo).
+        if (currentTerm.equals(term)) {
+            Optional<Map<String, List<AssessmentTableDTO>>> carried = firstHalf(studentId, courseCode)
+                    .map(this::toAssessmentTableMap)
+                    .filter(map -> !map.isEmpty());
+            if (carried.isPresent()) {
+                return carried.get();
+            }
         }
 
         AbstractSyllabusDocument syllabusDocument;

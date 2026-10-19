@@ -9,6 +9,7 @@ import { fetchBoard, fetchStatus } from "../../src/leaderboard/api";
 import { fmtScore } from "../../src/leaderboard/scoring";
 import BrandField from "./leaderboard/BrandField";
 import { ModePill, RankSparkline, TrendChip } from "./leaderboard/Indicators";
+import { radius } from "../../src/theme/spacing";
 
 /**
  * The leaderboard's one card on the dashboard.
@@ -146,14 +147,14 @@ export default function LeaderboardCard({
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 16,
+    borderRadius: radius.lg,
     minHeight: 150,
     borderWidth: 0,
     boxShadow: "0px 2px 8px rgba(0,0,0,0.12)",
     elevation: 3,
   },
   skeleton: {
-    borderRadius: 16,
+    borderRadius: radius.lg,
   },
   errorText: {
     padding: 16,
@@ -189,7 +190,7 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
     paddingHorizontal: 14,
     paddingVertical: 8,
-    borderRadius: 10,
+    borderRadius: radius.md,
   },
   joinButtonText: {
     color: "#3B0A1D",

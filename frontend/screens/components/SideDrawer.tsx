@@ -23,6 +23,7 @@ import { fetchStatus } from "../../src/leaderboard/api";
 import { AvatarConfig, avatarFor, normalizeAvatar } from "../../src/leaderboard/avatar";
 import { useBackfillLocalAvatar } from "../../src/leaderboard/useBackfillLocalAvatar";
 import PlayerAvatar from "./leaderboard/PlayerAvatar";
+import { radius } from "../../src/theme/spacing";
 
 const DRAWER_WIDTH = 260;
 const SCREEN_WIDTH = Dimensions.get("window").width;
@@ -240,7 +241,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 24,
     marginHorizontal: 12,
-    borderRadius: 10,
+    borderRadius: radius.md,
     marginBottom: 2,
   },
   navItemActive: {

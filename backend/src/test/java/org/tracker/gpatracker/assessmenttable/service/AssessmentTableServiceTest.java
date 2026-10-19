@@ -22,6 +22,7 @@ import org.tracker.gpatracker.syllabus.service.SyllabusAssessmentService;
 import org.tracker.gpatracker.terms.TermService;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.lang.reflect.Field;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -30,6 +31,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
@@ -326,5 +328,143 @@ class AssessmentTableServiceTest {
         assertThatThrownBy(() -> service.saveToRepo(dto))
                 .isInstanceOf(DuplicateKeyException.class);
         verify(repository, times(1)).save(any(AssessmentTableDocument.class));
+    }
+
+    // ------------------------------------------------------------- multi-term carry-forward
+
+    private static final String FULL_YEAR = "ARTSSCI 1D06 A/B";
+    private static final Instant ESSAY_GRADED = Instant.parse("2025-10-20T15:00:00Z");
+
+    /** Last term's half of a full-year course: one graded fall row, one ungraded winter row. */
+    private static AssessmentTableDocument fallHalf(String courseCode, String term) {
+        SchemeAssessment essay = new SchemeAssessment();
+        essay.setName("Fall Essay");
+        essay.setDueDate("2025-10-17");
+        essay.setWeight(new BigDecimal("40"));
+        essay.setGrade(new BigDecimal("85"));
+        essay.setFirstGradedAt(ESSAY_GRADED);
+        essay.setLastGradedAt(ESSAY_GRADED);
+
+        SchemeAssessment exam = new SchemeAssessment();
+        exam.setName("Final Exam");
+        exam.setDueDate("2026-04-15");
+        exam.setWeight(new BigDecimal("60"));
+
+        AssessmentScheme scheme = new AssessmentScheme();
+        scheme.setSchemeName("Marking Scheme 1");
+        scheme.setAssessments(List.of(essay, exam));
+
+        AssessmentTableDocument doc = new AssessmentTableDocument();
+        doc.setCourseCode(courseCode);
+        doc.setTerm(term);
+        doc.setSchemes(List.of(scheme));
+        return doc;
+    }
+
+    /** The same rows as the client would send them back: grades filled in, no server stamps. */
+    private static SaveAssessmentTableDTO winterSave(String courseCode) {
+        SchemeAssessment essay = new SchemeAssessment();
+        essay.setName("Fall Essay");
+        essay.setDueDate("2025-10-17");
+        essay.setWeight(new BigDecimal("40"));
+        essay.setGrade(new BigDecimal("85"));
+
+        SchemeAssessment exam = new SchemeAssessment();
+        exam.setName("Final Exam");
+        exam.setDueDate("2026-04-15");
+        exam.setWeight(new BigDecimal("60"));
+        exam.setGrade(new BigDecimal("90"));
+
+        AssessmentScheme scheme = new AssessmentScheme();
+        scheme.setSchemeName("Marking Scheme 1");
+        scheme.setAssessments(List.of(essay, exam));
+
+        SaveAssessmentTableDTO dto = new SaveAssessmentTableDTO();
+        dto.setCourseCode(courseCode);
+        dto.setTerm("Winter 2026");
+        dto.setSchemes(List.of(scheme));
+        return dto;
+    }
+
+    private SchemeAssessment savedRow(String name) {
+        ArgumentCaptor<AssessmentTableDocument> captor = ArgumentCaptor.forClass(AssessmentTableDocument.class);
+        verify(repository).save(captor.capture());
+        return captor.getValue().getSchemes().get(0).getAssessments().stream()
+                .filter(row -> name.equals(row.getName()))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    @Test
+    void saveToRepo_multiTermFirstSave_keepsTheFirstHalfsGradeTimestamps() {
+        when(studentService.getStudentID()).thenReturn(1L);
+        when(repository.findByOwnerIdAndCourseCodeAndTerm(1L, FULL_YEAR, "Winter 2026")).thenReturn(Optional.empty());
+        when(repository.findByOwnerId(1L)).thenReturn(List.of(fallHalf(FULL_YEAR, "Fall 2025")));
+        when(termService.isRecentPastTerm("Fall 2025")).thenReturn(true);
+        when(repository.save(any(AssessmentTableDocument.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.saveToRepo(winterSave(FULL_YEAR));
+
+        // Entered on time last term, so it keeps that stamp and still sits inside its window.
+        assertThat(savedRow("Fall Essay").getFirstGradedAt()).isEqualTo(ESSAY_GRADED);
+        // Graded for the first time now, so it starts its own clock.
+        assertThat(savedRow("Final Exam").getFirstGradedAt()).isAfter(ESSAY_GRADED);
+    }
+
+    @Test
+    void saveToRepo_multiTermWithOnlyAnOldAttempt_startsFresh() {
+        when(studentService.getStudentID()).thenReturn(1L);
+        when(repository.findByOwnerIdAndCourseCodeAndTerm(1L, FULL_YEAR, "Winter 2026")).thenReturn(Optional.empty());
+        when(repository.findByOwnerId(1L)).thenReturn(List.of(fallHalf(FULL_YEAR, "Fall 2023")));
+        when(termService.isRecentPastTerm("Fall 2023")).thenReturn(false);
+        when(repository.save(any(AssessmentTableDocument.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.saveToRepo(winterSave(FULL_YEAR));
+
+        assertThat(savedRow("Fall Essay").getFirstGradedAt()).isAfter(ESSAY_GRADED);
+    }
+
+    @Test
+    void saveToRepo_ordinaryCourse_neverLooksForAFirstHalf() {
+        when(studentService.getStudentID()).thenReturn(1L);
+        when(repository.findByOwnerIdAndCourseCodeAndTerm(1L, "COMPSCI 2C03", "Winter 2026")).thenReturn(Optional.empty());
+        when(repository.save(any(AssessmentTableDocument.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.saveToRepo(winterSave("COMPSCI 2C03"));
+
+        verify(repository, never()).findByOwnerId(any());
+        assertThat(savedRow("Fall Essay").getFirstGradedAt()).isAfter(ESSAY_GRADED);
+    }
+
+    @Test
+    void getByStudentIdAndCourseCodeAndTerm_multiTermWithNothingThisTerm_showsTheFirstHalf() {
+        when(studentService.getStudentID()).thenReturn(1L);
+        when(repository.findByOwnerIdAndCourseCodeAndTerm(1L, FULL_YEAR, "Winter 2026")).thenReturn(Optional.empty());
+        when(repository.findByOwnerId(1L)).thenReturn(List.of(fallHalf(FULL_YEAR, "Fall 2025")));
+        when(termService.isRecentPastTerm("Fall 2025")).thenReturn(true);
+
+        Map<String, List<AssessmentTableDTO>> table =
+                service.getByStudentIdAndCourseCodeAndTerm(FULL_YEAR, "Winter 2026");
+
+        assertThat(table.get("Marking Scheme 1"))
+                .extracting(AssessmentTableDTO::getAssessmentName, AssessmentTableDTO::getGrade)
+                .containsExactly(tuple("Fall Essay", new BigDecimal("85")), tuple("Final Exam", null));
+        verifyNoInteractions(syllabusAssessmentService);
+    }
+
+    @Test
+    void createFromSyllabus_multiTermWithAFirstHalf_continuesItInsteadOfTheSyllabus() {
+        when(studentService.getStudentID()).thenReturn(1L);
+        when(repository.findByOwnerIdAndCourseCodeAndTerm(1L, FULL_YEAR, "Winter 2026")).thenReturn(Optional.empty());
+        when(repository.findByOwnerId(1L)).thenReturn(List.of(fallHalf(FULL_YEAR, "Fall 2025")));
+        when(termService.isRecentPastTerm("Fall 2025")).thenReturn(true);
+        when(repository.save(any(AssessmentTableDocument.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.createFromSyllabus(FULL_YEAR);
+
+        SchemeAssessment essay = savedRow("Fall Essay");
+        assertThat(essay.getGrade()).isEqualByComparingTo("85");
+        assertThat(essay.getFirstGradedAt()).isEqualTo(ESSAY_GRADED);
+        verifyNoInteractions(syllabusAssessmentService);
     }
 }

@@ -50,6 +50,7 @@ import BrandField from "./components/leaderboard/BrandField";
 import TargetSlider from "./components/leaderboard/TargetSlider";
 import AvatarBuilder from "./components/leaderboard/AvatarBuilder";
 import PlayerAvatar from "./components/leaderboard/PlayerAvatar";
+import { radius } from "../src/theme/spacing";
 
 /**
  * Joining the board: seven cards, one decision each.
@@ -1054,7 +1055,7 @@ const styles = StyleSheet.create({
     maxWidth: 560,
     height: "100%",
     maxHeight: 760,
-    borderRadius: 20,
+    borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
     // Clips the maroon header and the footer to the card's rounded corners.
     overflow: "hidden",
@@ -1107,7 +1108,7 @@ const styles = StyleSheet.create({
   },
   notice: {
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: radius.md,
     padding: 14,
     gap: 5,
   },
@@ -1124,7 +1125,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
     borderWidth: 1.5,
-    borderRadius: 12,
+    borderRadius: radius.md,
     padding: 14,
   },
   bigChoiceText: {
@@ -1160,7 +1161,7 @@ const styles = StyleSheet.create({
   dropzone: {
     borderWidth: 1,
     borderStyle: "dashed",
-    borderRadius: 14,
+    borderRadius: radius.lg,
     padding: 22,
     alignItems: "center",
     gap: 8,
@@ -1190,7 +1191,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 12,
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: radius.md,
     padding: 14,
     alignItems: "flex-start",
   },
@@ -1214,7 +1215,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 8,
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: radius.md,
     padding: 12,
     alignItems: "flex-start",
   },
@@ -1224,12 +1225,12 @@ const styles = StyleSheet.create({
     lineHeight: 19,
   },
   targetField: {
-    borderRadius: 16,
+    borderRadius: radius.lg,
     padding: 18,
     gap: 4,
   },
   ceilingField: {
-    borderRadius: 16,
+    borderRadius: radius.lg,
     padding: 18,
     gap: 4,
   },
@@ -1264,7 +1265,7 @@ const styles = StyleSheet.create({
   },
   input: {
     borderWidth: 1.5,
-    borderRadius: 12,
+    borderRadius: radius.md,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 16,
@@ -1304,7 +1305,7 @@ const styles = StyleSheet.create({
   },
   reviewRows: {
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: radius.md,
     overflow: "hidden",
   },
   reviewRow: {
@@ -1353,7 +1354,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingVertical: 13,
     paddingHorizontal: 24,
-    borderRadius: 12,
+    borderRadius: radius.md,
   },
   footerNextText: {
     color: "#FFFFFF",

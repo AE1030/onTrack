@@ -4,7 +4,7 @@ import type { ErrorBoundaryProps } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 
 import { palettes } from "../src/theme/colors";
-import { spacing } from "../src/theme/spacing";
+import { spacing, radius } from "../src/theme/spacing";
 import { getThemeOverrideSync } from "../src/theme/themeStorage";
 
 /**
@@ -85,7 +85,7 @@ const styles = StyleSheet.create({
     minWidth: 140,
     paddingVertical: 12,
     paddingHorizontal: spacing.lg,
-    borderRadius: 10,
+    borderRadius: radius.md,
     alignItems: "center",
   },
   buttonText: {

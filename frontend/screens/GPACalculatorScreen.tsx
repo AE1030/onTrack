@@ -18,7 +18,7 @@ import Animated, {
 import { Feather } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { colors } from "../src/theme/colors";
-import { spacing } from "../src/theme/spacing";
+import { spacing, radius } from "../src/theme/spacing";
 import { qk } from "../src/cache/keys";
 import { authedFetch, authedGet, isAuthError, queryRetry } from "../src/cache/authedGet";
 import TranscriptUploadScreen from "./TranscriptUploadScreen";
@@ -439,7 +439,7 @@ const styles = StyleSheet.create({
   toggle: {
     flexDirection: "row",
     backgroundColor: colors.border,
-    borderRadius: 12,
+    borderRadius: radius.md,
     padding: 4,
     marginBottom: spacing.lg,
     position: "relative",
@@ -450,7 +450,7 @@ const styles = StyleSheet.create({
     top: 4,
     bottom: 4,
     backgroundColor: "white",
-    borderRadius: 8,
+    borderRadius: radius.sm,
     boxShadow: "0px 1px 3px rgba(0, 0, 0, 0.1)",
     elevation: 2,
   },
@@ -494,7 +494,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "white",
     padding: spacing.md,
-    borderRadius: 12,
+    borderRadius: radius.md,
     marginBottom: spacing.sm,
     boxShadow: "0px 1px 4px rgba(0, 0, 0, 0.06)",
     elevation: 1,
@@ -503,7 +503,7 @@ const styles = StyleSheet.create({
     flex: 1,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 10,
+    borderRadius: radius.md,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 14,
@@ -515,7 +515,7 @@ const styles = StyleSheet.create({
     flex: 1,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 10,
+    borderRadius: radius.md,
     backgroundColor: colors.surface,
     marginRight: spacing.sm,
     height: 42,
@@ -528,7 +528,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderStyle: "dashed",
     borderColor: colors.border,
-    borderRadius: 10,
+    borderRadius: radius.md,
     paddingVertical: 10,
     paddingHorizontal: 16,
   },
@@ -543,7 +543,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     paddingVertical: 10,
     paddingHorizontal: 20,
-    borderRadius: 10,
+    borderRadius: radius.md,
   },
   calculateText: {
     color: "white",
@@ -553,7 +553,7 @@ const styles = StyleSheet.create({
   resultCard: {
     backgroundColor: colors.primary,
     padding: spacing.lg,
-    borderRadius: 16,
+    borderRadius: radius.lg,
     alignItems: "center",
     marginTop: spacing.md,
     boxShadow: "0px 4px 12px rgba(0, 0, 0, 0.15)",

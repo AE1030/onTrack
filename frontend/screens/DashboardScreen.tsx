@@ -20,7 +20,7 @@ import Animated, {
 import { Feather } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { colors } from "../src/theme/colors";
-import { spacing } from "../src/theme/spacing";
+import { spacing, radius } from "../src/theme/spacing";
 import { qk } from "../src/cache/keys";
 import { authedFetch, authedGet, isAuthError, queryRetry } from "../src/cache/authedGet";
 import { useTerm } from "../src/terms/TermContext";
@@ -624,7 +624,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     paddingHorizontal: 16,
     paddingVertical: 10,
-    borderRadius: 10,
+    borderRadius: radius.md,
     boxShadow: "0px 6px 12px rgba(122, 0, 60, 0.35)",
     elevation: 6,
   },
@@ -639,7 +639,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFF",
     paddingHorizontal: 14,
     paddingVertical: 10,
-    borderRadius: 10,
+    borderRadius: radius.md,
     borderWidth: 1,
     borderColor: "#E0D7DE",
   },
@@ -655,7 +655,7 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: "#FFF",
-    borderRadius: 16,
+    borderRadius: radius.lg,
     padding: spacing.lg,
     minWidth: 280,
     boxShadow: "0px 2px 6px rgba(0, 0, 0, 0.06)",
@@ -708,7 +708,7 @@ const styles = StyleSheet.create({
   toggleTrack: {
     width: 44,
     height: 24,
-    borderRadius: 12,
+    borderRadius: radius.md,
     backgroundColor: "#E8E0E5",
     justifyContent: "center",
     paddingHorizontal: 3,
@@ -724,7 +724,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
     paddingVertical: 6,
     paddingHorizontal: 16,
-    borderRadius: 8,
+    borderRadius: radius.sm,
     backgroundColor: "#F5F0F3",
   },
   setTargetText: {
@@ -808,7 +808,7 @@ const styles = StyleSheet.create({
   },
   eventDateBadge: {
     backgroundColor: "#F5F0F3",
-    borderRadius: 8,
+    borderRadius: radius.sm,
     paddingHorizontal: 10,
     paddingVertical: 6,
     minWidth: 72,
@@ -860,7 +860,7 @@ const styles = StyleSheet.create({
   },
   semesterCard: {
     backgroundColor: "white",
-    borderRadius: 14,
+    borderRadius: radius.lg,
     overflow: "hidden",
     width: 240,
     boxShadow: "0px 2px 6px rgba(0, 0, 0, 0.06)",
@@ -906,7 +906,7 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     backgroundColor: "#FFF",
-    borderRadius: 16,
+    borderRadius: radius.lg,
     padding: 24,
     width: 340,
     maxWidth: "90%",
@@ -926,7 +926,7 @@ const styles = StyleSheet.create({
   input: {
     borderWidth: 1,
     borderColor: "#E0D7DE",
-    borderRadius: 10,
+    borderRadius: radius.md,
     paddingHorizontal: 14,
     paddingVertical: 10,
     fontSize: 16,
@@ -942,7 +942,7 @@ const styles = StyleSheet.create({
   cancelButton: {
     paddingVertical: 10,
     paddingHorizontal: 20,
-    borderRadius: 10,
+    borderRadius: radius.md,
   },
   cancelText: {
     fontSize: 14,
@@ -952,7 +952,7 @@ const styles = StyleSheet.create({
   saveButton: {
     paddingVertical: 10,
     paddingHorizontal: 20,
-    borderRadius: 10,
+    borderRadius: radius.md,
     backgroundColor: "#7A003C",
   },
   saveText: {

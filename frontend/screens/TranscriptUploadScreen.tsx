@@ -8,7 +8,7 @@ import {
   type MutationState,
 } from "@tanstack/react-query";
 import { colors } from "../src/theme/colors";
-import { spacing } from "../src/theme/spacing";
+import { spacing, radius } from "../src/theme/spacing";
 import { getToken } from "../src/utils/tokenStorage";
 import { API_BASE_URL } from "../src/config/api";
 import { AuthError, isAuthError } from "../src/cache/authedGet";
@@ -213,7 +213,7 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: "white",
-    borderRadius: 16,
+    borderRadius: radius.lg,
     padding: spacing.lg,
     boxShadow: "0px 2px 6px rgba(0, 0, 0, 0.06)",
     elevation: 2,
@@ -234,7 +234,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderStyle: "dashed",
     borderColor: colors.border,
-    borderRadius: 14,
+    borderRadius: radius.lg,
     padding: spacing.lg,
     alignItems: "center",
   },
@@ -264,7 +264,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.lg,
-    borderRadius: 10,
+    borderRadius: radius.md,
   },
   browseText: {
     color: "white",
@@ -279,7 +279,7 @@ const styles = StyleSheet.create({
   resultCard: {
     backgroundColor: colors.primary,
     padding: spacing.lg,
-    borderRadius: 16,
+    borderRadius: radius.lg,
     alignItems: "center",
     marginTop: spacing.lg,
     boxShadow: "0px 4px 12px rgba(0, 0, 0, 0.15)",

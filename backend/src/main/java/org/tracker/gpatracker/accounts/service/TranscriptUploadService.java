@@ -111,13 +111,30 @@ public class TranscriptUploadService {
     }
 
     private void enrollCurrentTermCourse(String code) {
-        Optional<Course> course = repo.findBycourseCode(code);
+        Optional<Course> course = findInCatalog(code);
         if (course.isPresent()) {
             studentService.addCurrentCourses(course.get(), null);
             try {
-                assessmentTableService.createFromSyllabus(code);
+                // The catalog's code, not the transcript's: after the A/B S fallback they differ.
+                assessmentTableService.createFromSyllabus(course.get().getCourseCode());
             } catch (Exception e) { /* syllabus may not exist */ }
         }
+    }
+
+    /**
+     * The catalog course a normalized transcript code refers to.
+     *
+     * <p>If the transcript prints an {@code A/B S} course without its S, the code normalizes to
+     * plain {@code A/B}, which the catalog does not have. Trying the {@code A/B S} name second keeps
+     * that course from being dropped silently. An exact match always wins, so a code that exists in
+     * both forms resolves to the plain {@code A/B} course.
+     */
+    private Optional<Course> findInCatalog(String code) {
+        Optional<Course> exact = repo.findBycourseCode(code);
+        if (exact.isPresent() || code == null || !code.endsWith(" A/B")) {
+            return exact;
+        }
+        return repo.findBycourseCode(code + " S");
     }
 
     /**
@@ -248,13 +265,7 @@ public class TranscriptUploadService {
             }
 
             if (termFoundLocal && codeFinder.containsCourse(currentLine)) {
-                String code = codeFinder.normalizeMultiYearCourse(codeFinder.getCourse(currentLine));
-                Optional<Course> course = repo.findBycourseCode(code);
-                if (course.isEmpty()) continue;
-                studentService.addCurrentCourses(course.get(), null);
-                try {
-                    assessmentTableService.createFromSyllabus(code);
-                } catch (Exception e) { /* syllabus may not exist */ }
+                enrollCurrentTermCourse(codeFinder.normalizeMultiYearCourse(codeFinder.getCourse(currentLine)));
             }
         }
     }

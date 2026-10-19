@@ -11,7 +11,7 @@ import {
 import { useRef, useState } from "react";
 import { Feather } from "@expo/vector-icons";
 import { colors } from "../src/theme/colors";
-import { spacing } from "../src/theme/spacing";
+import { spacing, radius } from "../src/theme/spacing";
 import { API_BASE_URL } from "../src/config/api";
 import { toHttpError } from "../src/cache/authedGet";
 import { toUserMessage } from "../src/utils/errorMessage";
@@ -368,7 +368,7 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: colors.surface,
-    borderRadius: 16,
+    borderRadius: radius.lg,
     padding: spacing.lg,
     maxWidth: 400,
     width: "100%",
@@ -389,7 +389,7 @@ const styles = StyleSheet.create({
   input: {
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 12,
+    borderRadius: radius.md,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 16,
@@ -402,7 +402,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 12,
+    borderRadius: radius.md,
     marginBottom: spacing.md,
     backgroundColor: colors.surface,
   },
@@ -436,7 +436,7 @@ const styles = StyleSheet.create({
   button: {
     backgroundColor: colors.primary,
     paddingVertical: 14,
-    borderRadius: 12,
+    borderRadius: radius.md,
     alignItems: "center",
     marginTop: spacing.sm,
     minHeight: 48,
