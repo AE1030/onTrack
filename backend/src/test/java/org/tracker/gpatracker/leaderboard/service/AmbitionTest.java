@@ -67,14 +67,25 @@ class AmbitionTest {
     }
 
     @Test
-    @DisplayName("a first-year's baseline of zero earns no ambition bonus")
-    void firstYearAmbitionIsForcedToZero() {
-        // Zero is a real baseline — the transcript parses, the current term is just ungraded — but
-        // it is degenerate here: min(4.0, 12.0 - 0) is 4.0, so any ordinary target would clamp to a
-        // full bonus. They are scored on attainment toward their target, capped at 10,000.
-        assertThat(LeaderboardScoring.ambition(0.0, 8.0)).isCloseTo(0.0, within(EPSILON));
-        assertThat(LeaderboardScoring.ceiling(ScoreMode.GROWTH, 0.0, 8.0)).hasToString("10000.00");
-        assertThat(LeaderboardScoring.score(ScoreMode.GROWTH, 0.0, 8.0, 4.0, 1.0)).hasToString("5500.00");
+    @DisplayName("a first-year's baseline of zero is measured from 6.0")
+    void firstYearIsMeasuredFromMidScale() {
+        // Zero is an empty record, not a GPA. From 6.0, a target of 8.0 is a two-point reach.
+        assertThat(LeaderboardScoring.ambition(0.0, 8.0)).isCloseTo(0.5, within(EPSILON));
+        assertThat(LeaderboardScoring.ceiling(ScoreMode.GROWTH, 0.0, 8.0)).hasToString("11125.00");
+        // A C average holds the line; a D average is in the recovery band, not on the way up.
+        assertThat(LeaderboardScoring.score(ScoreMode.GROWTH, 0.0, 8.0, 6.0, 1.0)).hasToString("1000.00");
+        assertThat(LeaderboardScoring.score(ScoreMode.GROWTH, 0.0, 8.0, 4.0, 1.0)).hasToString("0.00");
+    }
+
+    @Test
+    @DisplayName("a first-year cannot reach a full score by setting a low target and passing")
+    void firstYearLowTargetIsNotAFreeScore() {
+        // The case this replaced: target 1.0 from a baseline of 0 was GROWTH, and a D- average
+        // (1.0) saturated it for 10,000, the same as a 12.0 target delivered with straight A+.
+        assertThat(LeaderboardScoring.modeFor(0.0, 1.0)).isEqualTo(ScoreMode.MAINTENANCE);
+        assertThat(LeaderboardScoring.score(ScoreMode.MAINTENANCE, 0.0, 1.0, 1.0, 1.0)).hasToString("0.00");
+        assertThat(LeaderboardScoring.modeFor(0.0, 7.0)).isEqualTo(ScoreMode.GROWTH);
+        assertThat(LeaderboardScoring.score(ScoreMode.GROWTH, 0.0, 12.0, 12.0, 1.0)).hasToString("12250.00");
     }
 
     @Test

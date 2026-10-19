@@ -33,6 +33,7 @@ import {
   MIN_GROWTH_GAP,
   SCALE_MAX,
   ceilingFor,
+  effectiveBaseline,
   fmtGpa,
   fmtScore,
   modeFor,
@@ -581,7 +582,8 @@ function TranscriptCard({
               {baseline.frozen ? "Baseline already set" : "Transcript parsed"}
             </Text>
             <Text style={[styles.resultBody, { color: c.bodyText }]}>
-              Starting line {fmtGpa(baseline.baselineGpa12)} on the 12 point scale.
+              Starting line {fmtGpa(effectiveBaseline(baseline.baselineGpa12))} on the 12 point
+              scale.
               {baseline.frozen
                 ? " This was frozen when you first joined, so it does not change."
                 : ""}
@@ -591,8 +593,9 @@ function TranscriptCard({
 
         {baseline.baselineGpa12 === 0 && (
           <Text style={[styles.lead, { color: c.bodyText }]}>
-            Nothing is graded yet, so your starting line is zero. That is a real answer for a first
-            term and not a problem: everything you earn from here counts as progress.
+            Nothing is graded yet, so there is no GPA to start from. Until there is, you start from
+            6.0, a C average. Holding a C keeps your place, and everything above it counts as
+            climbing.
           </Text>
         )}
 
@@ -734,7 +737,8 @@ function TargetCard({
             This is a Maintenance target
           </Text>
           <Text style={[styles.noticeBody, { color: c.bodyText }]}>
-            Anything under {fmtGpa(baseline.baselineGpa12 + MIN_GROWTH_GAP)} is holding rather than
+            Anything under {fmtGpa(effectiveBaseline(baseline.baselineGpa12) + MIN_GROWTH_GAP)} is
+            holding rather than
             climbing, so your score tops out at 7,000 instead of 12,250. That is a fair trade for a
             heavy term, and you can continue with it.
           </Text>
@@ -860,7 +864,7 @@ function ReviewCard({
     rows.unshift({
       key: "transcript",
       label: "Starting line",
-      value: fmtGpa(baseline.baselineGpa12),
+      value: fmtGpa(effectiveBaseline(baseline.baselineGpa12)),
     });
   }
 
@@ -1011,14 +1015,15 @@ function Footer({
  * learn a number it already told us.
  */
 function describeBaseline(baselineGpa12: number, frozen: boolean): TranscriptBaseline {
-  const headroom = SCALE_MAX - baselineGpa12;
+  const start = effectiveBaseline(baselineGpa12);
+  const headroom = SCALE_MAX - start;
   const growthAvailable = headroom >= MIN_GROWTH_GAP;
   return {
     baselineGpa12,
     headroom: Math.round(headroom * 100) / 100,
     growthAvailable,
     minGrowthTarget: growthAvailable
-      ? Math.round((baselineGpa12 + MIN_GROWTH_GAP) * 100) / 100
+      ? Math.round((start + MIN_GROWTH_GAP) * 100) / 100
       : null,
     frozen,
   };
@@ -1026,8 +1031,9 @@ function describeBaseline(baselineGpa12: number, frozen: boolean): TranscriptBas
 
 /** Opens the slider one full point up, which is the lowest target that still plays Growth. */
 function defaultTarget(baseline: TranscriptBaseline): number {
-  if (!baseline.growthAvailable) return baseline.baselineGpa12;
-  return Math.min(SCALE_MAX, Math.round((baseline.baselineGpa12 + MIN_GROWTH_GAP) * 10) / 10);
+  const start = effectiveBaseline(baseline.baselineGpa12);
+  if (!baseline.growthAvailable) return start;
+  return Math.min(SCALE_MAX, Math.round((start + MIN_GROWTH_GAP) * 10) / 10);
 }
 
 const styles = StyleSheet.create({

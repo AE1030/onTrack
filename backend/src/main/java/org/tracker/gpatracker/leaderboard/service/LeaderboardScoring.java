@@ -15,7 +15,8 @@ import java.math.RoundingMode;
  * <p>The shape, in one place:
  *
  * <pre>
- *   ambition  = clamp((target − baseline) / min(4.0, 12.0 − baseline), 0, 1)
+ *   baseline  = the frozen baseline, or 6.0 when it is 0 (no graded record yet)
+ *   ambition  =clamp((target − baseline) / min(4.0, 12.0 − baseline), 0, 1)
  *   progress  = at or above baseline → 0.1 + 0.9 × clamp((projected − baseline) / (target − baseline), 0, 1)
  *               below baseline       → 0.1 × clamp((projected − baseline + 2.0) / 2.0, 0, 1)
  *   recovered = min(progress, 0.1)
@@ -69,7 +70,34 @@ public final class LeaderboardScoring {
     /** MAINTENANCE holds pay less than striving does. Not a penalty; a lower ceiling. */
     public static final double MAINTENANCE_CEILING = 0.7 * FULL_SCORE;
 
+    /** Where a student with no graded record is measured from: a C average, mid-scale. */
+    public static final double NEUTRAL_BASELINE = 6.0;
+
     private LeaderboardScoring() {
+    }
+
+    // ------------------------------------------------------------------- the starting line
+
+    /**
+     * The baseline the formula measures from, which differs from the frozen one in one case.
+     *
+     * <p>A first-year's transcript parses to a real baseline of 0, because their current term is in
+     * progress and nothing is graded yet. That 0 is an empty record, not a GPA, and measuring from it
+     * broke the score: every grade counted as pure climb, so any target was reached by passing. A
+     * student who set a target of 1.0 and averaged D- scored a full 10,000, the same as one who set
+     * 12.0 and averaged A+. Forcing ambition to 0 (the earlier treatment) only removed the bonus,
+     * and made a low target the best choice.
+     *
+     * <p>Measuring from mid-scale instead puts a first-year on the same footing as everyone else: a
+     * C average holds the line, climbing above it is progress, a higher target earns the ambition
+     * bonus, and falling below it lands in the recovery band. The frozen baseline stays 0, because
+     * that is what the transcript says; only the arithmetic reads it as 6.0.
+     *
+     * <p>Every public function here applies it, so callers pass the frozen baseline unchanged.
+     * Applying it twice is harmless.
+     */
+    public static double effectiveBaseline(double baseline) {
+        return baseline <= 0.0 ? NEUTRAL_BASELINE : baseline;
     }
 
     // ------------------------------------------------------------------ mode selection
@@ -84,6 +112,7 @@ public final class LeaderboardScoring {
      * and makes the epsilon guard unreachable rather than merely unlikely.
      */
     public static ScoreMode modeFor(double baseline, double target) {
+        baseline = effectiveBaseline(baseline);
         if (headroom(baseline) < MIN_GROWTH_GAP) {
             // Above 11.0 there is no room to be ambitious, so holding is the whole game. Blocking
             // these students instead — which an earlier draft's "gap ≥ 1.0 for everyone" rule did
@@ -108,15 +137,11 @@ public final class LeaderboardScoring {
      * 1.0, exactly like a student at 4.0 targeting 8.0. Being already good never caps how ambitious
      * you are allowed to look.
      *
-     * <p>A baseline of exactly zero is forced to 0. A first-year's transcript parses to a real
-     * baseline of 0 — their current term is in progress and nothing is graded yet — but zero is
-     * degenerate here: {@code min(4.0, 12.0 − 0)} is 4.0, so any target at or above 4.0 would clamp
-     * to a full 1.0 and hand them the maximum bonus for an ordinary goal.
+     * <p>A baseline of zero is measured from {@link #NEUTRAL_BASELINE}, so a first-year targeting
+     * 10.0 claims a full 1.0, the same as anyone else reaching four points.
      */
     public static double ambition(double baseline, double target) {
-        if (baseline <= 0.0) {
-            return 0.0;
-        }
+        baseline = effectiveBaseline(baseline);
         double reach = Math.min(MAX_REACH, headroom(baseline));
         if (reach <= 0.0) {
             return 0.0;
@@ -142,6 +167,7 @@ public final class LeaderboardScoring {
      * <p>Only defined for GROWTH. The other two modes measure {@link #held} instead.
      */
     public static double progress(double baseline, double target, double projected) {
+        baseline = effectiveBaseline(baseline);
         if (projected < baseline) {
             return RECOVERY_BAND * clamp((projected - baseline + RECOVERY_SPAN) / RECOVERY_SPAN, 0.0, 1.0);
         }
@@ -163,6 +189,7 @@ public final class LeaderboardScoring {
      * Holding your level is a full result in the modes that are about holding.
      */
     public static double held(double baseline, double projected) {
+        baseline = effectiveBaseline(baseline);
         return clamp((projected - baseline + RECOVERY_SPAN) / RECOVERY_SPAN, 0.0, 1.0);
     }
 
@@ -212,7 +239,7 @@ public final class LeaderboardScoring {
     public static BigDecimal ceiling(ScoreMode mode, double baseline, double target) {
         // A projected GPA at or above the target saturates every branch, so the target itself is
         // the best case for GROWTH and the baseline is the best case for the holding modes.
-        double best = mode == ScoreMode.GROWTH ? target : baseline;
+        double best = mode == ScoreMode.GROWTH ? target : effectiveBaseline(baseline);
         return round(rawScore(mode, baseline, target, best));
     }
 

@@ -435,7 +435,9 @@ public class LeaderboardOnboardingService {
     // ------------------------------------------------------------------------- transcript
 
     private TranscriptBaselineResponse describe(BigDecimal baseline, boolean frozen) {
-        double base = baseline.doubleValue();
+        // Measured from where scoring measures, so a first-year's lowest growth target is 7.0, not
+        // 1.0. The response still reports the frozen baseline itself.
+        double base = LeaderboardScoring.effectiveBaseline(baseline.doubleValue());
         double headroom = LeaderboardScoring.headroom(base);
         boolean growthAvailable = headroom >= LeaderboardScoring.MIN_GROWTH_GAP;
 
