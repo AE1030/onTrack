@@ -1,72 +1,76 @@
-"""Scrape the McMaster academic calendar's course list into the Neon `course` table.
+"""Load the McMaster undergraduate calendar's course list into the Neon `course` table.
+
+Source: the calendar's official PDF edition, which the Registrar publishes for download. The
+calendar's HTML pages sit behind an AWS WAF bot challenge; the PDF does not, and it is the
+whole year's calendar in one file, so this downloads one document instead of crawling pages.
 
 One stage, one Cloud Run Job. Exit codes are the alert, same as syllabus-pipeline:
 
-    0   ran, courses written
-    1   the scrape failed or looked wrong, nothing was written
+    0   ran, courses written (or, with --verify, every check passed)
+    1   the download, parse or verification failed, nothing was written
     2   misconfigured, nothing ran
+
+Every run parses, then runs verify(): a set of checks on the parsed result that must all pass
+before anything is written. `--verify` runs the same download, parse and checks, writes the
+result to a CSV for review, and never touches the database.
 
 The write is an upsert by course_code inside one transaction and never deletes. The course
 table is referenced by course_enrollement, so a course that drops out of the calendar must stay.
+
+Next academic year: set COURSE_PDF_URL to the new PDF (linked from the calendar's "PDF Version
+and Archive" page) and COURSE_EXPECTED_CATALOG to the new year, then rerun with --verify.
 """
 
 from __future__ import annotations
 
-import asyncio
+import argparse
+import csv
+import io
 import logging
 import os
-import random
 import re
-import ssl
 import sys
-import time
 import urllib.parse as up
-from dataclasses import dataclass
-from typing import List, Optional
+from collections import Counter
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Iterable, List, Optional
 
-import aiohttp
 import psycopg2
 import requests
-from bs4 import BeautifulSoup
+from pypdf import PdfReader
 
 EXIT_OK = 0
 EXIT_FAILED = 1
 EXIT_MISCONFIGURED = 2
 
 # ===================== CONFIG =====================
-BASE = "https://academiccalendars.romcmaster.ca"
-CATOID = os.getenv("COURSE_CATOID", "65")
-NAVOID = os.getenv("COURSE_NAVOID", "14802")
+PDF_URL = os.getenv(
+    "COURSE_PDF_URL",
+    "https://academiccalendars.romcmaster.ca/mime/media/view/65/14891/ug-book-2026+pdf.pdf",
+)
+# A local copy instead of the download, for runs on a laptop and for tests.
+PDF_PATH = os.getenv("COURSE_PDF_PATH", "").strip()
 EXPECTED_CATALOG = os.getenv("COURSE_EXPECTED_CATALOG", "2026-2027")
 
-# The filters are the ones the calendar's own course search sends: courses only, active only.
-LIST_URL = (
-    BASE
-    + "/content.php?catoid={catoid}&navoid={navoid}"
-    + "&filter%5Bitem_type%5D=3&filter%5Bonly_active%5D=1&filter%5B3%5D=1"
-    + "&filter%5Bcpage%5D={page}"
-)
-PREVIEW_URL = BASE + "/preview_course_nopop.php?catoid={catoid}&coid={coid}"
+# The 2026-2027 PDF lists about 3,300 courses. Far fewer means the parse lost a section.
+MIN_COURSES = int(os.getenv("COURSE_MIN_COURSES", "2500"))
+MIN_SUBJECTS = int(os.getenv("COURSE_MIN_SUBJECTS", "80"))
+# Long-running courses that must be in any year's calendar. A miss means the parse is wrong,
+# not that the course was cancelled; override if one ever really goes.
+SPOT_CHECK_CODES = [
+    c.strip()
+    for c in os.getenv(
+        "COURSE_SPOT_CHECKS",
+        "ECON 1B03,MATH 1ZA3,CHEM 1A03,PSYCH 1X03,COMPSCI 1MD3,HISTORY 4HH3,COMPSCI 4ZP6 A/B",
+    ).split(",")
+    if c.strip()
+]
+# Share of courses allowed to look odd (title ending mid-phrase, the same code twice with two
+# different titles) before the run is refused. Each one is logged either way.
+MAX_SOFT_ANOMALY_RATE = 0.005
 
-START_PAGE = 1
-# Pages are walked until one adds nothing new. This only stops a runaway loop.
-MAX_PAGES = int(os.getenv("COURSE_MAX_PAGES", "200"))
-
-SLEEP_MIN, SLEEP_MAX = 0.1, 0.3
-CONCURRENCY = int(os.getenv("COURSE_CONCURRENCY", "8"))
-SSL_VERIFY = os.getenv("COURSE_SSL_VERIFY", "true").strip().lower() != "false"
-
-# Abort without writing when more than this share of course pages fail, or when fewer courses
-# than this come back at all. Either means the site changed or is refusing us, and a half
-# catalog is worse than the one already in the table.
-MAX_FAILURE_RATE = 0.02
-MIN_COURSES = int(os.getenv("COURSE_MIN_COURSES", "1000"))
-
-USER_AGENT = os.getenv(
-    "COURSE_USER_AGENT",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/124.0 Safari/537.36",
-)
+USER_AGENT = os.getenv("COURSE_USER_AGENT", "onTrack-course-loader/1.0")
 
 TABLE_NAME = "course"
 # ===================================================
@@ -79,7 +83,7 @@ class ConfigError(RuntimeError):
 
 
 class BlockedError(RuntimeError):
-    """The site answered with a bot challenge or a 403 instead of the page."""
+    """The site answered with a bot challenge or a 403 instead of the PDF."""
 
 
 class ScrapeError(RuntimeError):
@@ -91,6 +95,16 @@ class Course:
     course_code: str
     course_name: str
     course_credits: Optional[int]
+
+
+@dataclass
+class ParseResult:
+    courses: List[Course]
+    catalog_text: str
+    # Lines in the listings that start like a course heading but did not parse as one.
+    unparsed_headings: List[str] = field(default_factory=list)
+    # Codes listed twice with two different titles: (code, kept title, other title).
+    conflicts: List[tuple] = field(default_factory=list)
 
 
 # -------------------- config --------------------
@@ -137,91 +151,6 @@ def resolve_dsn() -> str:
     return " ".join(parts)
 
 
-# -------------------- parsing --------------------
-
-COID_HREF_RE = re.compile(r"preview_course_nopop\.php\?[^\"'>]*\bcoid=(\d+)", re.I)
-
-
-def find_coids_in_list_html(html: str) -> List[str]:
-    soup = BeautifulSoup(html, "html.parser")
-    coids = []
-    for a in soup.find_all("a", href=True):
-        m = COID_HREF_RE.search(a["href"])
-        if m:
-            coids.append(m.group(1))
-    return coids
-
-
-def first_nonempty(*vals: Optional[str]) -> str:
-    for v in vals:
-        if v and v.strip():
-            return v.strip()
-    return ""
-
-
-def split_code_name(raw_title: str):
-    t = " ".join(raw_title.split())
-    if " - " in t:
-        code, name = t.split(" - ", 1)
-    else:
-        parts = t.split()
-        code = parts[0] if parts else ""
-        name = " ".join(parts[1:]) if len(parts) > 1 else ""
-    return code.strip(), name.strip()
-
-
-def extract_credits(code: str, text_block: str) -> Optional[int]:
-    m = re.search(r"\b(\d+)\s*(?:unit|units|credit|credits)\b", text_block, re.I)
-    if m:
-        try:
-            return int(m.group(1))
-        except ValueError:
-            pass
-    nums = re.findall(r"\d+", code)
-    if nums:
-        try:
-            return int(nums[-1])
-        except ValueError:
-            return None
-    return None
-
-
-def parse_preview_html(html: str) -> Course:
-    soup = BeautifulSoup(html, "html.parser")
-    candidate_texts = []
-    for sel in [
-        "#course_preview_title",
-        ".courseblocktitle",
-        ".ui-catalog-title",
-        "h1.course-title",
-        "h2.course-title",
-        "h1",
-        "h2",
-        "h3",
-    ]:
-        for el in soup.select(sel):
-            txt = el.get_text(" ", strip=True)
-            if txt:
-                candidate_texts.append(txt)
-
-    title_text = first_nonempty(*candidate_texts)
-    if not title_text:
-        preview_container = soup.find(id="course_preview_container") or soup
-        strong = preview_container.find("strong")
-        title_text = strong.get_text(" ", strip=True) if strong else ""
-
-    code, name = split_code_name(title_text)
-    container = (
-        soup.find(id="course_preview_container")
-        or soup.find("div", class_="coursepadding")
-        or soup
-    )
-    full_text = container.get_text("\n", strip=True)
-    credits = extract_credits(code, full_text)
-
-    return Course(course_code=code, course_name=name, course_credits=credits)
-
-
 # -------------------- fetching --------------------
 
 
@@ -230,132 +159,190 @@ def _is_challenge(status: int, headers) -> bool:
     return status in (202, 403) or "challenge" in (headers.get("x-amzn-waf-action") or "").lower()
 
 
-def get_text_requests(session: requests.Session, url: str) -> str:
-    r = session.get(url, timeout=20, verify=SSL_VERIFY)
-    if _is_challenge(r.status_code, r.headers):
-        raise BlockedError(f"{r.status_code} bot challenge from {BASE}")
-    r.raise_for_status()
-    return r.text
-
-
-def collect_coids() -> List[str]:
-    """Every course id across the list pages. Any page that fails aborts the scrape."""
-    session = requests.Session()
-    session.headers.update({"User-Agent": USER_AGENT})
-
-    seen, all_coids = set(), []
-    for page in range(START_PAGE, MAX_PAGES + 1):
-        url = LIST_URL.format(catoid=CATOID, navoid=NAVOID, page=page)
-        try:
-            html = get_text_requests(session, url)
-        except BlockedError:
-            raise
-        except Exception as exc:
-            # A silently skipped page is a silently missing slice of the alphabet.
-            raise ScrapeError(f"list page {page} failed: {exc}") from exc
-
-        if page == START_PAGE:
-            title = BeautifulSoup(html, "html.parser").title
-            title_text = title.get_text(" ", strip=True) if title else ""
-            log.info("catalog page title: %r", title_text)
-            if EXPECTED_CATALOG not in html:
-                log.warning(
-                    "%s does not appear on the first list page; catoid=%s may be the wrong year",
-                    EXPECTED_CATALOG,
-                    CATOID,
-                )
-
-        coids = find_coids_in_list_html(html)
-        new = [c for c in coids if c not in seen]
-        seen.update(new)
-        all_coids.extend(new)
-        log.info("list page %d: %d coids, %d new (total %d)", page, len(coids), len(new), len(all_coids))
-
-        # Past the last page the site returns nothing, or repeats the last page. Either way
-        # nothing new turns up, which is the signal to stop.
-        if not new:
-            log.info("page %d added nothing new, so page %d was the last", page, page - 1)
-            break
-        time.sleep(random.uniform(SLEEP_MIN, SLEEP_MAX))
+def fetch_pdf() -> bytes:
+    if PDF_PATH:
+        log.info("reading the calendar PDF from %s", PDF_PATH)
+        data = Path(PDF_PATH).read_bytes()
     else:
-        raise ScrapeError(f"still finding new courses at page {MAX_PAGES}, raise COURSE_MAX_PAGES")
-
-    return all_coids
-
-
-def _ssl_context() -> ssl.SSLContext:
-    ctx = ssl.create_default_context()
-    if not SSL_VERIFY:
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-    return ctx
-
-
-async def _fetch_one_coid(
-    session: aiohttp.ClientSession, coid: str, sem: asyncio.Semaphore
-) -> Optional[Course]:
-    url = PREVIEW_URL.format(catoid=CATOID, coid=coid)
-    backoffs = [0.25, 0.5, 1.0, 2.0]
-    async with sem:
-        for i, wait in enumerate(backoffs, 1):
-            try:
-                async with session.get(url) as resp:
-                    if _is_challenge(resp.status, resp.headers):
-                        raise BlockedError(f"{resp.status} bot challenge for coid={coid}")
-                    resp.raise_for_status()
-                    html = await resp.text()
-                    c = parse_preview_html(html)
-                    if not c.course_code or not c.course_name:
-                        soup = BeautifulSoup(html, "html.parser")
-                        t = soup.title.get_text(" ", strip=True) if soup.title else ""
-                        cc, nn = split_code_name(t)
-                        c = Course(
-                            course_code=c.course_code or cc,
-                            course_name=c.course_name or nn,
-                            course_credits=c.course_credits,
-                        )
-                    if not c.course_code or not c.course_name:
-                        raise ScrapeError("page had no course code or name")
-                    return c
-            except BlockedError:
-                raise
-            except Exception as exc:
-                if i == len(backoffs):
-                    log.warning("coid=%s failed after retries: %s", coid, exc)
-                    return None
-                await asyncio.sleep(wait)
-    return None
+        log.info("downloading the calendar PDF from %s", PDF_URL)
+        r = requests.get(PDF_URL, timeout=120, headers={"User-Agent": USER_AGENT})
+        if _is_challenge(r.status_code, r.headers):
+            raise BlockedError(f"{r.status_code} bot challenge from {PDF_URL}")
+        r.raise_for_status()
+        data = r.content
+    # A moved file often comes back as an HTML error page with a 200.
+    if not data.startswith(b"%PDF"):
+        raise ScrapeError(f"not a PDF ({len(data)} bytes); the calendar PDF may have moved")
+    log.info("got %.1f MB", len(data) / 1e6)
+    return data
 
 
-async def scrape_details(coids: List[str]) -> tuple[List[Course], int]:
-    conn = aiohttp.TCPConnector(limit=CONCURRENCY, ssl=_ssl_context(), ttl_dns_cache=300)
-    headers = {
-        "User-Agent": USER_AGENT,
-        "Accept": "text/html,application/xhtml+xml",
-        "Referer": LIST_URL.format(catoid=CATOID, navoid=NAVOID, page=START_PAGE),
-    }
-    sem = asyncio.Semaphore(CONCURRENCY)
-    courses: List[Course] = []
-    failed = 0
+def pdf_pages(data: bytes) -> List[str]:
+    reader = PdfReader(io.BytesIO(data))
+    return [page.extract_text() or "" for page in reader.pages]
 
-    async with aiohttp.ClientSession(
-        connector=conn, headers=headers, timeout=aiohttp.ClientTimeout(total=35)
-    ) as session:
-        tasks = [asyncio.create_task(_fetch_one_coid(session, c, sem)) for c in coids]
-        try:
-            for done, coro in enumerate(asyncio.as_completed(tasks), start=1):
-                result = await coro
-                if result:
-                    courses.append(result)
-                else:
-                    failed += 1
-                if done % 100 == 0 or done == len(tasks):
-                    log.info("%d/%d fetched (ok=%d)", done, len(tasks), len(courses))
-        except BlockedError:
-            for t in tasks:
-                t.cancel()
-            raise
-    return courses, failed
+
+# -------------------- parsing --------------------
+
+# SUBJECT 1A03 - TITLE, with the multi-term suffixes the backend stores verbatim (CodeFinder):
+# "MUSIC 1GW3 A/B - ..." and "ASTRON 5X03 A/B S - ...". A trailing * is a footnote marker.
+HEADING_RE = re.compile(
+    r"^(?P<subject>[A-Z][A-Z&]{1,9}) (?P<number>\d[A-Z0-9]{2}\d)\*?"
+    r"(?P<multi> A/B(?: S)?)?\*? - (?P<title>\S.*)$"
+)
+# Anything that starts like a heading. Lines matching this but not HEADING_RE are reported.
+HEADING_LIKE_RE = re.compile(r"^[A-Z][A-Z&]{1,9} \d[A-Z0-9*]*(?: [A-Z/*]{1,4}){0,2} - ")
+LISTINGS_HEADER_RE = re.compile(r"course\s+listings", re.I)
+
+
+def listing_lines(pages: Iterable[str]) -> List[str]:
+    """Body lines of the Course Listings section, in order, without the running headers.
+
+    Every page starts with a running header like "| history | coUrse listinGs | 683"; only the
+    pages whose header names the Course Listings section are kept.
+    """
+    lines: List[str] = []
+    for text in pages:
+        page_lines = text.splitlines()
+        if not page_lines or not LISTINGS_HEADER_RE.search(page_lines[0]):
+            continue
+        lines.extend(page_lines[1:])
+    return lines
+
+
+def _is_title_continuation(line: str) -> bool:
+    # Titles are printed in capitals and descriptions are not, so a wrapped title is followed
+    # by more capitals and the description starts the first line with a lowercase letter.
+    s = line.strip()
+    return bool(s) and not re.search(r"[a-z]", s) and not HEADING_RE.match(s)
+
+
+def credits_from_code(number: str) -> Optional[int]:
+    """McMaster codes end in the unit weight: 1A03 is 3 units, 1D06 is 6, 2IN0 is 0."""
+    return int(number[-1]) if number and number[-1].isdigit() else None
+
+
+def parse_courses(pages: List[str]) -> ParseResult:
+    lines = listing_lines(pages)
+    catalog_text = "\n".join(pages[:3])
+
+    found: List[Course] = []
+    unparsed: List[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        m = HEADING_RE.match(line)
+        if not m:
+            if HEADING_LIKE_RE.match(line):
+                unparsed.append(line)
+            i += 1
+            continue
+
+        title = m.group("title")
+        while i + 1 < len(lines) and _is_title_continuation(lines[i + 1]):
+            i += 1
+            title += " " + lines[i].strip()
+
+        number = m.group("number")
+        code = f"{m.group('subject')} {number}{m.group('multi') or ''}"
+        found.append(Course(code, " ".join(title.split()), credits_from_code(number)))
+        i += 1
+
+    courses, conflicts = dedupe(found)
+    return ParseResult(courses, catalog_text, unparsed, conflicts)
+
+
+def dedupe(courses: List[Course]) -> tuple[List[Course], List[tuple]]:
+    """One row per course_code, the first listing wins. Returns (courses, conflicts)."""
+    kept: dict[str, Course] = {}
+    conflicts = []
+    for c in courses:
+        prior = kept.get(c.course_code)
+        if prior is None:
+            kept[c.course_code] = c
+        elif prior.course_name != c.course_name:
+            conflicts.append((c.course_code, prior.course_name, c.course_name))
+    return list(kept.values()), conflicts
+
+
+# -------------------- verification --------------------
+
+CODE_RE = re.compile(r"^[A-Z][A-Z&]{1,9} \d[A-Z0-9]{2}\d(?: A/B(?: S)?)?$")
+# A title that ends on one of these was almost certainly cut off at a line wrap.
+DANGLING_END_RE = re.compile(r"(?:(?<= )(?:AND|OF|THE|IN|TO|FOR|A|AN|ON|WITH)|[,:&-])$")
+
+
+def verify(result: ParseResult) -> List[str]:
+    """Checks the parse must pass before anything is written. Returns the failures, or []."""
+    failures: List[str] = []
+    courses = result.courses
+    n = len(courses)
+
+    if EXPECTED_CATALOG not in result.catalog_text:
+        failures.append(
+            f"the PDF's title pages do not say {EXPECTED_CATALOG}; wrong year's calendar?"
+        )
+
+    if n < MIN_COURSES:
+        failures.append(f"only {n} courses, expected at least {MIN_COURSES}")
+
+    subjects = {c.course_code.split()[0] for c in courses}
+    if len(subjects) < MIN_SUBJECTS:
+        failures.append(f"only {len(subjects)} subjects, expected at least {MIN_SUBJECTS}")
+
+    codes = {c.course_code for c in courses}
+    missing = [c for c in SPOT_CHECK_CODES if c not in codes]
+    if missing:
+        failures.append(f"spot-check courses missing: {', '.join(missing)}")
+
+    bad_codes = [c.course_code for c in courses if not CODE_RE.match(c.course_code)]
+    if bad_codes:
+        failures.append(f"{len(bad_codes)} malformed codes, e.g. {bad_codes[:5]}")
+
+    bad_names = [
+        c.course_code
+        for c in courses
+        if not c.course_name or len(c.course_name) > 200 or re.search(r"[a-z]", c.course_name)
+    ]
+    if bad_names:
+        # Lowercase in a title means description text was swallowed into it.
+        failures.append(f"{len(bad_names)} empty, overlong or lowercase titles, e.g. {bad_names[:5]}")
+
+    bad_credits = [c.course_code for c in courses if c.course_credits is None]
+    if bad_credits:
+        failures.append(f"{len(bad_credits)} courses with no unit weight, e.g. {bad_credits[:5]}")
+    elif n:
+        three_unit = sum(1 for c in courses if c.course_credits == 3) / n
+        if three_unit < 0.6:
+            failures.append(f"only {three_unit:.0%} of courses are 3 units; unit weights look wrong")
+
+    if result.unparsed_headings:
+        failures.append(
+            f"{len(result.unparsed_headings)} heading-like lines did not parse, "
+            f"e.g. {result.unparsed_headings[:3]}"
+        )
+
+    dangling = [c for c in courses if DANGLING_END_RE.search(c.course_name)]
+    for c in dangling:
+        log.warning("title may be cut off: %s - %s", c.course_code, c.course_name)
+    for code, kept, other in result.conflicts:
+        log.warning("%s is listed twice: kept %r, ignored %r", code, kept, other)
+    soft = len(dangling) + len(result.conflicts)
+    if n and soft / n > MAX_SOFT_ANOMALY_RATE:
+        failures.append(
+            f"{len(dangling)} cut-off titles and {len(result.conflicts)} conflicting duplicates "
+            f"exceed {MAX_SOFT_ANOMALY_RATE:.1%} of courses"
+        )
+
+    return failures
+
+
+def write_csv(path: str, courses: List[Course]) -> None:
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(["course_code", "course_name", "course_credits"])
+        for c in sorted(courses, key=lambda c: c.course_code):
+            w.writerow([c.course_code, c.course_name, c.course_credits])
 
 
 # -------------------- postgres --------------------
@@ -406,24 +393,52 @@ def save_courses(dsn: str, courses: List[Course]) -> tuple[int, int]:
 # -------------------- main --------------------
 
 
-def dedupe(courses: List[Course]) -> List[Course]:
-    """One row per course_code. The first page seen wins."""
-    seen, out = set(), []
-    for c in courses:
-        code = c.course_code.strip()
-        if code and code not in seen:
-            seen.add(code)
-            out.append(Course(code, c.course_name.strip(), c.course_credits))
-    return out
+def load_and_verify() -> List[Course]:
+    """Download, parse and verify. Raises ScrapeError if any check fails."""
+    pages = pdf_pages(fetch_pdf())
+    result = parse_courses(pages)
+    subjects = len({c.course_code.split()[0] for c in result.courses})
+    log.info("parsed %d courses across %d subjects from %d pages", len(result.courses), subjects, len(pages))
+
+    failures = verify(result)
+    for f in failures:
+        log.error("verify: %s", f)
+    if failures:
+        raise ScrapeError(f"{len(failures)} verification check(s) failed")
+    log.info("verify: all checks passed")
+    return result.courses
 
 
-def main() -> int:
+def main(argv: Optional[List[str]] = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--verify",
+        action="store_true",
+        help="download, parse and check only; write a CSV and never touch the database",
+    )
+    parser.add_argument("--csv", default="courses.csv", help="CSV path for --verify")
+    args = parser.parse_args(argv)
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
         stream=sys.stdout,
     )
     logging.getLogger("urllib3").setLevel(logging.WARNING)
+    logging.getLogger("pypdf").setLevel(logging.ERROR)
+
+    if args.verify:
+        try:
+            courses = load_and_verify()
+        except BlockedError as exc:
+            log.error("refused by the site: %s", exc)
+            return EXIT_FAILED
+        except Exception as exc:  # noqa: BLE001
+            log.error("verification failed: %s", exc)
+            return EXIT_FAILED
+        write_csv(args.csv, courses)
+        log.info("wrote %d courses to %s; the database was not touched", len(courses), args.csv)
+        return EXIT_OK
 
     try:
         dsn = resolve_dsn()
@@ -432,7 +447,7 @@ def main() -> int:
         return EXIT_MISCONFIGURED
 
     try:
-        # Fail on a bad connection or missing table before spending minutes scraping.
+        # Fail on a bad connection or missing table before downloading and parsing.
         with psycopg2.connect(dsn) as conn, conn.cursor() as cur:
             check_table(cur)
     except ConfigError as exc:
@@ -443,24 +458,8 @@ def main() -> int:
         return EXIT_MISCONFIGURED
 
     try:
-        log.info("collecting coids from list pages (catoid=%s)", CATOID)
-        coids = collect_coids()
-        if not coids:
-            raise ScrapeError("no coids found, check catoid, navoid and pagination")
-        log.info("%d unique coids; fetching details (concurrency=%d)", len(coids), CONCURRENCY)
-
-        courses, failed = asyncio.run(scrape_details(coids))
-        deduped = dedupe(courses)
-        log.info("parsed %d, failed %d, unique course codes %d", len(courses), failed, len(deduped))
-
-        if failed / len(coids) > MAX_FAILURE_RATE:
-            raise ScrapeError(f"{failed}/{len(coids)} course pages failed, not writing")
-        if len(deduped) < MIN_COURSES:
-            raise ScrapeError(
-                f"only {len(deduped)} courses, expected at least {MIN_COURSES}. Not writing"
-            )
-
-        inserted, updated = save_courses(dsn, deduped)
+        courses = load_and_verify()
+        inserted, updated = save_courses(dsn, courses)
         log.info("done: %d inserted, %d updated in '%s'", inserted, updated, TABLE_NAME)
         return EXIT_OK
     except BlockedError as exc:
@@ -470,7 +469,7 @@ def main() -> int:
         log.error("%s", exc)
         return EXIT_MISCONFIGURED
     except Exception as exc:  # noqa: BLE001
-        log.error("scrape failed, nothing written: %s", exc)
+        log.error("load failed, nothing written: %s", exc)
         return EXIT_FAILED
 
 
