@@ -57,7 +57,7 @@ jobs:
             --image="$IMAGE:${{ github.sha }}" \
             --region="$REGION" \
             --project="$PROJECT" \
-            --task-timeout=1800s \
+            --task-timeout=7200s \
             --max-retries=0 \
             --memory=512Mi \
             --cpu=1 \
