@@ -125,7 +125,9 @@ class TestNewRules:
         )
         assert "replacement_rule_drops_everything" in rules(found, ERROR)
 
-    def test_due_date_count_must_match_occurrence_total(self):
+    def test_due_date_count_mismatch_is_only_a_warning(self):
+        # Real syllabi share dates between instances or leave one undated; the backend shows TBD
+        # past the end of the list, so this is reported but must not fail the run.
         found = check_document(
             document(
                 assessment(
@@ -134,7 +136,8 @@ class TestNewRules:
                 )
             )
         )
-        assert "due_date_count_mismatch" in rules(found, ERROR)
+        assert "due_date_count_mismatch" in rules(found, WARNING)
+        assert "due_date_count_mismatch" not in rules(found, ERROR)
 
     def test_matching_due_date_count_is_clean(self):
         assert (
@@ -155,6 +158,17 @@ class TestNewRules:
 
     def test_tbd_is_accepted(self):
         assert check_document(document(assessment(due_date="TBD"))) == []
+
+    def test_tbd_holds_an_undated_instance_place_in_a_list(self):
+        found = check_document(
+            document(
+                assessment(
+                    due_date=["TBD", "2026-10-08", "2026-10-29"],
+                    occurrence={"total": 3},
+                )
+            )
+        )
+        assert found == []
 
     def test_unknown_category_is_only_a_warning(self):
         found = check_document(document(assessment(category="vibes")))

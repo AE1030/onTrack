@@ -182,11 +182,18 @@ def main(argv: Optional[list[str]] = None) -> int:
                 results["extract"] = extract.run(store, cfg.extract, run_id, terms)
                 summary = results["extract"]
                 log.info(
-                    "extract: %d extracted, %d failed",
+                    "extract: %d extracted, %d with no grading scheme, %d failed",
                     summary["extracted"],
+                    summary.get("no_scheme", 0),
                     len(summary["failures"]),
                 )
-                if summary["failures"]:
+                # A stopped stage is not a partial success: everything after the stop is still
+                # waiting, and nothing will change until someone tops up credits, fixes a key or
+                # looks at the database. Fail loudly, since the exit code is the only alert.
+                if summary.get("aborted"):
+                    status = "failed"
+                    exit_code = EXIT_FAILED
+                elif summary["failures"] and status == "ok":
                     status = "partial"
 
             if "verify" in stages:
@@ -205,7 +212,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         except Exception as exc:  # noqa: BLE001 - recorded before it propagates out
             log.exception("run %s died", run_id)
             results["fatal"] = f"{type(exc).__name__}: {exc}"
-            store.finish_run(run_id, "failed", results)
+            try:
+                store.finish_run(run_id, "failed", results)
+            except Exception:  # noqa: BLE001 - the failure above is the one worth reporting
+                log.exception("could not record run %s as failed", run_id)
             return EXIT_FAILED
 
         store.finish_run(run_id, status, results)

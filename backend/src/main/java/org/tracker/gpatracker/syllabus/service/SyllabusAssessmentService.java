@@ -158,7 +158,7 @@ public class SyllabusAssessmentService {
                                          int n, BigDecimal perOccurrenceWeight) {
         AssessmentTableDTO dto = new AssessmentTableDTO();
         dto.setAssessmentName(occurrences > 1 ? baseName + " #" + index : baseName);
-        dto.setDueDate(index - 1 < dueDates.size() ? dueDates.get(index - 1) : item.getDueDate());
+        dto.setDueDate(dueDateFor(index, dueDates, item.getDueDate()));
         dto.setStartTime(item.getStartTime());
         dto.setEndTime(item.getEndTime());
         dto.setLocation(item.getLocation());
@@ -172,6 +172,21 @@ public class SyllabusAssessmentService {
         }
 
         return dto;
+    }
+
+    /**
+     * The date for the index-th occurrence (1-based).
+     *
+     * <p>A list of dates is matched to occurrences in order. Syllabi do not always list one per
+     * occurrence (two assignments due on the same day, one undated), so an occurrence past the end
+     * of a list gets TBD rather than the raw value, which for a list is every date joined into one
+     * string. A single date, or none, applies to every occurrence as before.
+     */
+    static String dueDateFor(int index, List<String> dueDates, String raw) {
+        if (index - 1 < dueDates.size()) {
+            return dueDates.get(index - 1);
+        }
+        return dueDates.size() > 1 ? "TBD" : raw;
     }
 
     private List<String> splitDueDates(String dueDate) {

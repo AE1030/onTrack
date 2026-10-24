@@ -85,6 +85,9 @@ class ExtractConfig:
     max_docs_per_run: Optional[int]
     request_delay_sec: float
     max_retries: int
+    # Attempts for an answer with no grading scheme, which is usually the syllabus, not a fluke:
+    # in the 2026-10-24 run two retries rescued 1 document in 36. Recorded and skipped after.
+    no_scheme_attempts: int = 2
 
 
 @dataclass(frozen=True)
@@ -132,6 +135,7 @@ def load(require_gemini: bool = False) -> Config:
             max_docs_per_run=_integer("MAX_EXTRACTIONS_PER_RUN", None),
             request_delay_sec=_number("GEMINI_REQUEST_DELAY_SEC", 0.2),
             max_retries=int(_number("GEMINI_MAX_RETRIES", 3)),
+            no_scheme_attempts=int(_number("GEMINI_NO_SCHEME_ATTEMPTS", 2)),
         )
         if extract_key
         else None

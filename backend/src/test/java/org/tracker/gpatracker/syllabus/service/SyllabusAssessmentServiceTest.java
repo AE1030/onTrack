@@ -389,4 +389,31 @@ class SyllabusAssessmentServiceTest {
         assertThat(result.get("Standard")).hasSize(1);
         assertThat(result.get("Standard").get(0).getAssessmentName()).isEqualTo("Report");
     }
+
+    // ==================== Due dates against occurrences ====================
+
+    @Test
+    void dueDateFor_listMatchedInOrder() {
+        List<String> dates = List.of("2026-10-08", "2026-10-29");
+        assertThat(SyllabusAssessmentService.dueDateFor(1, dates, "2026-10-08, 2026-10-29")).isEqualTo("2026-10-08");
+        assertThat(SyllabusAssessmentService.dueDateFor(2, dates, "2026-10-08, 2026-10-29")).isEqualTo("2026-10-29");
+    }
+
+    @Test
+    void dueDateFor_pastTheEndOfAShortList_isTbdNotTheJoinedList() {
+        // PHYSICS 1A03: 22 assignments against 11 listed dates. Occurrence 12 used to show all 11
+        // dates joined into one string.
+        List<String> dates = List.of("2026-09-17", "2026-09-24");
+        assertThat(SyllabusAssessmentService.dueDateFor(3, dates, "2026-09-17, 2026-09-24")).isEqualTo("TBD");
+    }
+
+    @Test
+    void dueDateFor_singleDateAppliesToEveryOccurrence() {
+        assertThat(SyllabusAssessmentService.dueDateFor(3, List.of("2026-12-01"), "2026-12-01")).isEqualTo("2026-12-01");
+    }
+
+    @Test
+    void dueDateFor_noDateStaysNull() {
+        assertThat(SyllabusAssessmentService.dueDateFor(2, List.of(), null)).isNull();
+    }
 }

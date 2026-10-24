@@ -23,7 +23,9 @@ import logging
 import time
 from typing import Any, Optional
 
+import psycopg2
 from google import genai
+from google.genai import errors as genai_errors
 from google.genai import types
 
 from .config import ExtractConfig
@@ -37,6 +39,31 @@ VALID_TRIGGER_TYPES = {"LOWEST_N_DROPPED"}
 
 class ExtractionError(RuntimeError):
     """The model answered, but not with a document this pipeline can store."""
+
+
+class NoGradingScheme(ExtractionError):
+    """The model read the syllabus and found no grading scheme in it.
+
+    Usually a property of the syllabus rather than a bad answer, so it gets fewer attempts than
+    other failures and is recorded, so later runs skip the document until its text changes.
+    """
+
+
+class ExtractionAborted(RuntimeError):
+    """Every remaining document would fail the same way, so the stage stops.
+
+    Raised for a Gemini refusal that is about the account rather than the document (no credits,
+    a bad key, an unknown model) and for a database that is still unreachable after reconnecting.
+    Carrying on would only buy Gemini answers that cannot be stored.
+    """
+
+
+# Gemini status codes that will be the same for every document in the run.
+FATAL_GEMINI_CODES = {401, 402, 403, 404}
+
+# What psycopg2 raises when the connection itself is gone, as opposed to one statement failing.
+# The store retries these once on a fresh connection, so seeing one here means it is still down.
+DB_UNREACHABLE = (psycopg2.OperationalError, psycopg2.InterfaceError)
 
 
 # ---------------------------------------------------------------- normalisation
@@ -167,7 +194,8 @@ def normalise(extraction: Any) -> dict[str, Any]:
     extraction, and storing it as a success is the difference between a catalog that is short a
     course and one that answers for that course with something the calculator cannot use. The
     first is visible in the run report; the second is not visible until a student sees a wrong
-    grade. Failing here also leaves the source stale, so the next run tries it again.
+    grade. A response with no scheme raises NoGradingScheme, which the stage records so the
+    document is skipped until its text changes; anything else malformed is retried next run.
     """
     if not isinstance(extraction, dict):
         raise ExtractionError(f"expected a JSON object, got {type(extraction).__name__}")
@@ -178,7 +206,7 @@ def normalise(extraction: Any) -> dict[str, Any]:
 
     schemes_raw = grading_scheme.get("schemes")
     if not isinstance(schemes_raw, dict) or not schemes_raw:
-        raise ExtractionError("'grading_scheme.schemes' is missing or empty")
+        raise NoGradingScheme("'grading_scheme.schemes' is missing or empty")
 
     schemes: dict[str, Any] = {}
     for scheme_id, definition in schemes_raw.items():
@@ -199,7 +227,7 @@ def normalise(extraction: Any) -> dict[str, Any]:
         }
 
     if not schemes:
-        raise ExtractionError("every scheme in the response was empty after normalisation")
+        raise NoGradingScheme("every scheme in the response was empty after normalisation")
 
     selection_rule = _as_text(grading_scheme.get("selection_rule"))
     # Java maps this onto an enum with a single MAX constant. Anything else fails to
@@ -244,20 +272,36 @@ class GeminiExtractor:
                 if not text:
                     raise ExtractionError("model returned an empty response")
                 return normalise(json.loads(text))
+            except NoGradingScheme as exc:
+                last_error = exc
+                if attempt >= self.config.no_scheme_attempts:
+                    raise
+            except genai_errors.APIError as exc:
+                if exc.code in FATAL_GEMINI_CODES:
+                    raise ExtractionAborted(
+                        f"Gemini refused the request ({exc.code} {exc.status}): {exc.message}"
+                    ) from exc
+                # Any other 4xx but 429 is about this document and will not change on a retry.
+                if 400 <= (exc.code or 0) < 500 and exc.code != 429:
+                    raise ExtractionError(f"Gemini rejected the document: {exc}") from exc
+                last_error = exc
             except Exception as exc:  # noqa: BLE001 - retried, then re-raised below
                 last_error = exc
-                if attempt == self.config.max_retries:
-                    break
-                wait = 2.0**attempt
-                log.warning(
-                    "extraction attempt %d/%d failed (%s), retrying in %.0fs",
-                    attempt,
-                    self.config.max_retries,
-                    exc,
-                    wait,
-                )
-                time.sleep(wait)
 
+            if attempt == self.config.max_retries:
+                break
+            wait = 2.0**attempt
+            log.warning(
+                "extraction attempt %d/%d failed (%s), retrying in %.0fs",
+                attempt,
+                self.config.max_retries,
+                last_error,
+                wait,
+            )
+            time.sleep(wait)
+
+        if isinstance(last_error, NoGradingScheme):
+            raise last_error
         raise ExtractionError(
             f"extraction failed after {self.config.max_retries} attempts: {last_error}"
         ) from last_error
@@ -267,14 +311,20 @@ class GeminiExtractor:
 
 
 def pending(store: Store, terms: Optional[list[str]] = None) -> list[dict[str, Any]]:
-    """Sources with no catalog entry, or whose text has changed since the last extraction."""
+    """Sources with no catalog entry, or whose text has changed since the last extraction.
+
+    A source already read at its current text and found to have no grading scheme is not
+    pending: asking again gets the same answer. An edit to its text makes it pending again.
+    """
     extracted = store.extracted_source_hashes()
+    no_scheme = store.no_scheme_hashes()
     stale = []
     for source in store.iter_sources(terms):
         doc_code = source["doc_code"]
         current = source.get("text_sha256", "")
-        if extracted.get(doc_code) != current:
-            stale.append(source)
+        if extracted.get(doc_code) == current or no_scheme.get(doc_code) == current:
+            continue
+        stale.append(source)
     return stale
 
 
@@ -303,11 +353,19 @@ def run(
 
     log.info("extracting %d document(s) with %s", len(work), config.model)
     if not work:
-        return {"extracted": 0, "failures": [], "budget_capped": False}
+        return {
+            "extracted": 0,
+            "no_scheme": 0,
+            "failures": [],
+            "budget_capped": False,
+            "aborted": None,
+        }
 
     extractor = GeminiExtractor(config)
     extracted = 0
+    no_scheme = 0
     failures: list[dict[str, str]] = []
+    aborted: Optional[str] = None
 
     for index, source in enumerate(work, start=1):
         doc_code = source["doc_code"]
@@ -322,19 +380,25 @@ def run(
 
         try:
             assessments = extractor.extract(source["text"])
-            store.upsert_extraction(
-                doc_code=doc_code,
-                course_code=course_code,
-                term=term,
-                assessments=assessments,
-                source_sha=source.get("text_sha256", ""),
-                model=config.model,
-                temperature=config.temperature,
-                run_id=run_id,
-            )
-            extracted += 1
-            if index % 25 == 0 or index == len(work):
-                log.info("  %d/%d extracted", index, len(work))
+        except NoGradingScheme as exc:
+            try:
+                store.record_no_scheme(
+                    doc_code=doc_code,
+                    source_sha=source.get("text_sha256", ""),
+                    reason=str(exc),
+                    model=config.model,
+                    run_id=run_id,
+                )
+            except DB_UNREACHABLE as db_exc:
+                aborted = f"Postgres unreachable after reconnecting: {db_exc}"
+                break
+            no_scheme += 1
+            log.info("no grading scheme in %s (%s %s), recorded", doc_code, course_code, term)
+            time.sleep(config.request_delay_sec)
+            continue
+        except ExtractionAborted as exc:
+            aborted = str(exc)
+            break
         except Exception as exc:  # noqa: BLE001 - recorded in the run report
             log.error("extraction failed for %s (%s %s): %s", doc_code, course_code, term, exc)
             failures.append(
@@ -345,12 +409,52 @@ def run(
                     "error": f"{type(exc).__name__}: {exc}",
                 }
             )
+            time.sleep(config.request_delay_sec)
+            continue
+
+        try:
+            store.upsert_extraction(
+                doc_code=doc_code,
+                course_code=course_code,
+                term=term,
+                assessments=assessments,
+                source_sha=source.get("text_sha256", ""),
+                model=config.model,
+                temperature=config.temperature,
+                run_id=run_id,
+            )
+        except DB_UNREACHABLE as exc:
+            # The store has already reconnected once. Every later answer would be lost the
+            # same way, so stop paying for them.
+            aborted = f"Postgres unreachable after reconnecting: {exc}"
+            break
+        except Exception as exc:  # noqa: BLE001 - one bad row, recorded in the run report
+            log.error("storing %s (%s %s) failed: %s", doc_code, course_code, term, exc)
+            failures.append(
+                {
+                    "doc_code": doc_code,
+                    "course_code": course_code,
+                    "term": term,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
+            time.sleep(config.request_delay_sec)
+            continue
+        extracted += 1
+        if index % 25 == 0 or index == len(work):
+            log.info("  %d/%d extracted", index, len(work))
 
         time.sleep(config.request_delay_sec)
+
+    if aborted:
+        remaining = len(work) - extracted - no_scheme - len(failures)
+        log.error("extract stopped with %d document(s) left: %s", remaining, aborted)
 
     return {
         "candidates": len(work),
         "extracted": extracted,
+        "no_scheme": no_scheme,
         "failures": failures,
         "budget_capped": budget_capped,
+        "aborted": aborted,
     }
