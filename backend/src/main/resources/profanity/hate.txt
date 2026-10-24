@@ -1,0 +1,60 @@
+# Blocked anywhere inside a handle, like substring.txt.
+#
+# The public list substring.txt comes from is built for filtering sexual search terms, so it is thin
+# on the things a public board most needs to stop: slurs, hate movements, self-harm taunts and
+# abuse. This file fills that gap. Every term was checked against the 20,000 most common English
+# words and against first-name and surname databases; none appears inside one.
+#
+# One term per line, lower case, letters only. Lines starting with # are ignored.
+
+# Slurs
+porchmonkey
+junglebunny
+zipperhead
+cameljockey
+golliwog
+halfbreed
+redskin
+trannie
+ladyboy
+negroid
+lesbo
+poofter
+faggit
+nigguh
+
+# Hate movements and slogans
+kkk
+siegheil
+ziegheil
+heilhitler
+kukluxklan
+whitepower
+whitepride
+whitesupremac
+racewar
+holohoax
+gasthejews
+killthejews
+killalljews
+deathtojews
+fourteenwords
+
+# Self-harm, aimed at someone else or not
+killyourself
+killyoself
+killurself
+neckyourself
+hangyourself
+slityourwrist
+drinkbleach
+killmyself
+
+# Abuse of children
+molest
+paedo
+childporn
+shotacon
+
+# Common evasions the substitutions do not reach
+biatch

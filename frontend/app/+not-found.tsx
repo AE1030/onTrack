@@ -1,4 +1,7 @@
-import { Text, View, StyleSheet } from 'react-native';
+import { View, StyleSheet } from 'react-native';
+import { Text } from '../src/ui/Text';
+import { colors } from '../src/theme/colors';
+import { typo } from '../src/theme/typography';
 
 export default function NotFoundScreen() {
   return (
@@ -14,16 +17,17 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F5F1F3',
+    backgroundColor: colors.background,
   },
   code: {
+    ...typo.display,
     fontSize: 48,
-    fontWeight: '700',
-    color: '#3B0A1D',
+    lineHeight: 52,
+    color: colors.boldText,
   },
   message: {
-    fontSize: 16,
-    color: '#888',
+    ...typo.bodyLarge,
+    color: colors.bodyText,
     marginTop: 8,
   },
 });

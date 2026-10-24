@@ -1,12 +1,11 @@
 import {
   View,
-  Text,
-  TextInput,
   Pressable,
   StyleSheet,
   ScrollView,
   useWindowDimensions,
 } from "react-native";
+import { Text, TextInput } from "../src/ui/Text";
 import { Picker } from "@react-native-picker/picker";
 import { useState, useEffect, useRef } from "react";
 import Animated, {
@@ -18,10 +17,11 @@ import Animated, {
 import { Feather } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { colors } from "../src/theme/colors";
-import { spacing } from "../src/theme/spacing";
+import { spacing, radius } from "../src/theme/spacing";
 import { qk } from "../src/cache/keys";
 import { authedFetch, authedGet, isAuthError, queryRetry } from "../src/cache/authedGet";
 import TranscriptUploadScreen from "./TranscriptUploadScreen";
+import { fonts, typo } from "../src/theme/typography";
 
 const GRADES = [
   "A+", "A", "A-",
@@ -52,12 +52,18 @@ export default function GPACalculatorScreen({ onAuthError }: Props) {
   const isWide = width >= WIDE_BREAKPOINT;
   const scrollRef = useRef<ScrollView>(null);
 
-  const [mode, setMode] = useState<"manual" | "transcript">("manual");
+  const queryClient = useQueryClient();
+  // Reopen on the transcript tab when an upload from an earlier visit is still
+  // running or holds a result, so leaving and coming back lands on it.
+  const [mode, setMode] = useState<"manual" | "transcript">(() =>
+    queryClient.getMutationCache().find({ mutationKey: qk.transcriptGpa })
+      ? "transcript"
+      : "manual"
+  );
   const [rows, setRows] = useState<CourseRow[]>([
     { id: "1", courseName: "", credits: "", grade: "A" },
   ]);
 
-  const queryClient = useQueryClient();
   const seededRows = useRef(false);
 
   const [loading, setLoading] = useState(false);
@@ -72,6 +78,11 @@ export default function GPACalculatorScreen({ onAuthError }: Props) {
   const animatedIndicatorStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: tabPosition.value }],
   }));
+
+  // The indicator starts at the manual tab. Move it once the width is known if we opened on transcript.
+  useEffect(() => {
+    if (mode === "transcript" && tabWidth) tabPosition.value = tabWidth / 2;
+  }, [tabWidth]);
 
   const switchMode = (next: "manual" | "transcript") => {
     setMode(next);
@@ -221,12 +232,9 @@ export default function GPACalculatorScreen({ onAuthError }: Props) {
   const resultCard = result ? (
     <View style={styles.resultCard}>
       <Text style={styles.resultTitle}>Predicted GPA</Text>
-      <Text style={styles.resultSubtitle}>
-        Based on the courses entered.
-      </Text>
       <Text style={styles.gpa}>{result.gpa.toFixed(2)}</Text>
       <Text style={styles.resultSub}>
-        Total Credits: {result.totalCredits}
+        {result.totalCredits} credits
       </Text>
     </View>
   ) : null;
@@ -236,7 +244,7 @@ export default function GPACalculatorScreen({ onAuthError }: Props) {
       <View style={styles.header}>
         <Text style={styles.title}>GPA Calculator</Text>
         <Text style={styles.subtitle}>
-          Predict your academic future. Calculate your Cumulative GPA.
+          Enter your courses to work out your cumulative GPA.
         </Text>
       </View>
 
@@ -300,7 +308,7 @@ export default function GPACalculatorScreen({ onAuthError }: Props) {
               onPress={calculateGPA}
               disabled={loading}
             >
-              <Feather name="bar-chart-2" size={15} color="white" style={{ marginRight: 6 }} />
+              <Feather name="bar-chart-2" size={15} color={colors.onField} style={{ marginRight: 6 }} />
               <Text style={styles.calculateText}>
                 {loading ? "Calculating..." : "Calculate GPA"}
               </Text>
@@ -317,7 +325,7 @@ export default function GPACalculatorScreen({ onAuthError }: Props) {
                 <View key={row.id} style={styles.row}>
                   <TextInput
                     placeholder={`Course ${index + 1}`}
-                    placeholderTextColor={colors.bodyText}
+                    placeholderTextColor={colors.placeholder}
                     value={row.courseName}
                     onChangeText={(v) =>
                       updateRow(row.id, "courseName", v)
@@ -332,6 +340,7 @@ export default function GPACalculatorScreen({ onAuthError }: Props) {
                         updateRow(row.id, "credits", v)
                       }
                       numberOfLines={1}
+                      style={styles.picker}
                     >
                       <Picker.Item label="Credits" value="" />
                       {CREDIT_OPTIONS.map((c) => (
@@ -347,6 +356,7 @@ export default function GPACalculatorScreen({ onAuthError }: Props) {
                         updateRow(row.id, "grade", v)
                       }
                       numberOfLines={1}
+                      style={styles.picker}
                     >
                       <Picker.Item label="Grade" value="" />
                       {GRADES.map((g) => (
@@ -368,18 +378,7 @@ export default function GPACalculatorScreen({ onAuthError }: Props) {
 
           {/* Result — positioned just right of form on wide screens */}
           {isWide && result && (
-            <View style={styles.sideColumn}>
-              <View style={styles.resultCard}>
-                <Text style={styles.resultTitle}>Predicted GPA</Text>
-                <Text style={styles.resultSubtitle}>
-                  Based on the courses entered.
-                </Text>
-                <Text style={styles.gpa}>{result.gpa.toFixed(2)}</Text>
-                <Text style={styles.resultSub}>
-                  Total Credits: {result.totalCredits}
-                </Text>
-              </View>
-            </View>
+            <View style={styles.sideColumn}>{resultCard}</View>
           )}
         </View>
       )}
@@ -408,15 +407,14 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg,
   },
   title: {
-    fontSize: 24,
-    fontWeight: "700",
+    ...typo.h1,
     color: colors.boldText,
     textAlign: "center",
     marginBottom: 6,
   },
   subtitle: {
+    ...typo.bodyLarge,
     color: colors.bodyText,
-    fontSize: 14,
     textAlign: "center",
   },
   contentWrap: {
@@ -428,7 +426,7 @@ const styles = StyleSheet.create({
   toggle: {
     flexDirection: "row",
     backgroundColor: colors.border,
-    borderRadius: 12,
+    borderRadius: radius.md,
     padding: 4,
     marginBottom: spacing.lg,
     position: "relative",
@@ -438,10 +436,8 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: 4,
     bottom: 4,
-    backgroundColor: "white",
-    borderRadius: 8,
-    boxShadow: "0px 1px 3px rgba(0, 0, 0, 0.1)",
-    elevation: 2,
+    backgroundColor: colors.surface,
+    borderRadius: radius.sm,
   },
   tabButton: {
     flex: 1,
@@ -450,13 +446,13 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   activeTabText: {
-    color: "#260D19",
-    fontWeight: "600",
-    fontSize: 14,
+    ...typo.label,
+    color: colors.boldText,
+    fontFamily: fonts.display,
   },
   inactiveTabText: {
+    ...typo.label,
     color: colors.bodyText,
-    fontSize: 14,
   },
   sideColumn: {
     position: "absolute",
@@ -473,29 +469,29 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg,
   },
   loadingText: {
+    ...typo.body,
     textAlign: "center",
     color: colors.bodyText,
-    fontSize: 14,
     marginVertical: spacing.lg,
   },
   row: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "white",
+    backgroundColor: colors.surface,
     padding: spacing.md,
-    borderRadius: 12,
+    borderRadius: radius.md,
     marginBottom: spacing.sm,
-    boxShadow: "0px 1px 4px rgba(0, 0, 0, 0.06)",
-    elevation: 1,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
   },
   input: {
+    ...typo.body,
     flex: 1,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 10,
+    borderRadius: radius.md,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    fontSize: 14,
     color: colors.boldText,
     backgroundColor: colors.surface,
     marginRight: spacing.sm,
@@ -504,12 +500,18 @@ const styles = StyleSheet.create({
     flex: 1,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 10,
+    borderRadius: radius.md,
     backgroundColor: colors.surface,
     marginRight: spacing.sm,
     height: 42,
     justifyContent: "center",
     overflow: "hidden",
+  },
+  picker: {
+    ...typo.data,
+    color: colors.boldText,
+    borderWidth: 0,
+    backgroundColor: "transparent",
   },
   add: {
     flexDirection: "row",
@@ -517,13 +519,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderStyle: "dashed",
     borderColor: colors.border,
-    borderRadius: 10,
+    borderRadius: radius.md,
     paddingVertical: 10,
     paddingHorizontal: 16,
   },
   addText: {
-    fontWeight: "500",
-    fontSize: 13,
+    ...typo.label,
     color: colors.bodyText,
   },
   calculate: {
@@ -532,44 +533,38 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     paddingVertical: 10,
     paddingHorizontal: 20,
-    borderRadius: 10,
+    borderRadius: radius.md,
   },
   calculateText: {
-    color: "white",
-    fontWeight: "500",
-    fontSize: 14,
+    ...typo.label,
+    color: colors.onField,
+    fontFamily: fonts.display,
   },
   resultCard: {
     backgroundColor: colors.primary,
     padding: spacing.lg,
-    borderRadius: 16,
+    borderRadius: radius.lg,
     alignItems: "center",
     marginTop: spacing.md,
-    boxShadow: "0px 4px 12px rgba(0, 0, 0, 0.15)",
-    elevation: 4,
   },
   resultTitle: {
-    color: "white",
-    fontWeight: "700",
-    fontSize: 16,
-    marginBottom: 4,
-    alignSelf: "flex-start",
-  },
-  resultSubtitle: {
-    color: "rgba(255,255,255,0.7)",
-    fontSize: 13,
-    marginBottom: spacing.md,
+    ...typo.h3,
+    color: colors.onField,
+    marginBottom: spacing.sm,
     alignSelf: "flex-start",
   },
   gpa: {
-    color: "white",
+    ...typo.display,
+    color: colors.onField,
     fontSize: 48,
-    fontWeight: "800",
     marginBottom: 4,
+    lineHeight: 52,
+    fontVariant: ["tabular-nums"],
   },
   resultSub: {
-    color: "rgba(255,255,255,0.75)",
-    fontSize: 13,
+    ...typo.caption,
+    color: colors.onFieldMuted,
     marginTop: 6,
+    fontVariant: ["tabular-nums"],
   },
 });

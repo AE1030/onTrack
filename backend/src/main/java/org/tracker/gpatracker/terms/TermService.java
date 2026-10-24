@@ -57,6 +57,42 @@ public class TermService {
     }
 
     /**
+     * Whether {@code term} ended within the last two seasons before the current one: Fall 2025 or
+     * Spring/Summer 2025 for a current Winter 2026, say.
+     *
+     * <p>This is the window a multi-term course's first half can sit in. Fall into Winter is the
+     * usual pairing, and two seasons also covers a half taken across a summer. Anything older is a
+     * previous attempt at the course, not this one's first half.
+     */
+    public boolean isRecentPastTerm(String term) {
+        int distance = seasonsBeforeCurrent(term);
+        return distance >= 1 && distance <= 2;
+    }
+
+    /**
+     * How many seasons before the current term {@code term} is: 1 for the one just ended, 0 for the
+     * current term, negative for a later one. {@code Integer.MAX_VALUE} when the term does not parse.
+     */
+    public int seasonsBeforeCurrent(String term) {
+        int current = seasonIndex(currentTerm);
+        int candidate = seasonIndex(term);
+        if (current == Integer.MIN_VALUE || candidate == Integer.MIN_VALUE) {
+            return Integer.MAX_VALUE;
+        }
+        return current - candidate;
+    }
+
+    /** Terms counted in seasons from year zero, or MIN_VALUE when the term does not parse. */
+    private static int seasonIndex(String term) {
+        int year = yearOf(term);
+        int season = seasonRank(term);
+        if (year == Integer.MIN_VALUE || season == Integer.MIN_VALUE) {
+            return Integer.MIN_VALUE;
+        }
+        return year * 3 + season;
+    }
+
+    /**
      * Refuses anything but the current term.
      *
      * <p>409 rather than 403 on purpose: {@code authedFetch} on the client maps 401 <em>and</em>

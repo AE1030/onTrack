@@ -97,9 +97,6 @@ export type TargetPreview = {
   ambition: number;
 };
 
-/** Which slice of the field is showing. Only `global` is served today. */
-export type BoardScope = "global" | "program" | "friends";
-
 export const MODE_LABEL: Record<ScoreMode, string> = {
   GROWTH: "Growth",
   MAINTENANCE: "Maintenance",
@@ -109,6 +106,6 @@ export const MODE_LABEL: Record<ScoreMode, string> = {
 /** One line, shown next to the mode pill wherever there is room to explain it. */
 export const MODE_BLURB: Record<ScoreMode, string> = {
   GROWTH: "Climbing toward a target at least a full point above your baseline.",
-  MAINTENANCE: "Holding steady. Scores top out at 7,000.",
+  MAINTENANCE: "Holding steady. Track Points top out at 7,000.",
   CEILING: "Already above 11.0, so holding the line is the whole game.",
 };

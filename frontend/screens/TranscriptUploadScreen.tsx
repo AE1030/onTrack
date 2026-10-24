@@ -1,11 +1,21 @@
-import { View, Text, Pressable, StyleSheet, Platform } from "react-native";
+import { View, Pressable, StyleSheet, Platform } from "react-native";
+import { Text } from "../src/ui/Text";
 import * as DocumentPicker from "expo-document-picker";
 import { Feather } from "@expo/vector-icons";
+import {
+  useMutation,
+  useMutationState,
+  useQueryClient,
+  type MutationState,
+} from "@tanstack/react-query";
 import { colors } from "../src/theme/colors";
-import { spacing } from "../src/theme/spacing";
+import { spacing, radius } from "../src/theme/spacing";
 import { getToken } from "../src/utils/tokenStorage";
 import { API_BASE_URL } from "../src/config/api";
-import { useState } from "react";
+import { AuthError, isAuthError } from "../src/cache/authedGet";
+import { qk } from "../src/cache/keys";
+import { toUserMessage } from "../src/utils/errorMessage";
+import { fonts, typo } from "../src/theme/typography";
 
 type Props = {
   onBack: () => void;
@@ -13,18 +23,91 @@ type Props = {
   onUploadSuccess?: () => void;
 };
 
+type GpaResult = {
+  gpa: number;
+  totalCredits: number;
+};
+
+type UploadVariables = {
+  file: DocumentPicker.DocumentPickerAsset;
+};
+
+const UNREADABLE_MESSAGE =
+  "We couldn't read that transcript. Make sure it's your full PDF transcript.";
+
+async function uploadTranscript({ file }: UploadVariables): Promise<GpaResult> {
+  const token = await getToken();
+  if (!token) throw new AuthError();
+
+  const formData = new FormData();
+
+  //WEB FIX
+  if (Platform.OS === "web") {
+    // On web, the actual File object exists here
+    formData.append("file", file.file as File);
+  } else {
+    // Native (iOS/Android)
+    formData.append("file", {
+      uri: file.uri,
+      name: file.name,
+      type: file.mimeType ?? "application/pdf",
+    } as any);
+  }
+
+  const res = await fetch(
+    `${API_BASE_URL.replace(/\/$/, "")}/api/transcript/calculateGPA`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+    }
+  );
+
+  if (res.status === 401 || res.status === 403) throw new AuthError();
+  if (!res.ok) throw new Error(UNREADABLE_MESSAGE);
+  return res.json();
+}
+
+/**
+ * The upload runs as a mutation in the shared query client rather than in this
+ * screen's state, so leaving the screen mid-upload neither loses the request
+ * nor its result. useMutationState reads it back on the next visit. Cleared on
+ * sign-out along with the rest of the cache.
+ */
 export default function TranscriptUploadScreen({
   onBack,
   onAuthError,
   onUploadSuccess,
 }: Props) {
-  const [uploading, setUploading] = useState(false);
-  const [fileName, setFileName] = useState<string | null>(null);
-  const [result, setResult] = useState<{
-    gpa: number;
-    totalCredits: number;
-  } | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
+  const { mutate } = useMutation({
+    mutationKey: qk.transcriptGpa,
+    mutationFn: uploadTranscript,
+    // Kept until replaced or signed out, not dropped five minutes after the screen unmounts.
+    gcTime: Infinity,
+    // Hook-level callbacks, unlike ones passed to mutate(), still fire after an unmount.
+    onSuccess: () => onUploadSuccess?.(),
+    onError: (err) => {
+      if (isAuthError(err)) onAuthError();
+    },
+  });
+
+  const states = useMutationState<MutationState<GpaResult, Error, UploadVariables>>({
+    filters: { mutationKey: qk.transcriptGpa },
+    select: (m) => m.state as MutationState<GpaResult, Error, UploadVariables>,
+  });
+  const latest = states[states.length - 1];
+
+  const uploading = latest?.status === "pending";
+  const fileName = latest?.variables?.file.name ?? null;
+  const result = latest?.status === "success" ? latest.data ?? null : null;
+  const failure = latest?.status === "error" ? latest.error : null;
+  // Auth failures are handed to onAuthError instead of shown here.
+  const error =
+    failure && !isAuthError(failure) ? toUserMessage(failure, UNREADABLE_MESSAGE) : null;
 
   const pickAndUpload = async () => {
     const token = await getToken();
@@ -33,59 +116,18 @@ export default function TranscriptUploadScreen({
       return;
     }
 
-    const result = await DocumentPicker.getDocumentAsync({
+    const picked = await DocumentPicker.getDocumentAsync({
       type: ["application/pdf", "image/*"],
       copyToCacheDirectory: true,
     });
 
-    if (result.canceled) return;
+    if (picked.canceled) return;
 
-    const file = result.assets[0];
-    setFileName(file.name);
-    setUploading(true);
+    // Only the newest upload matters. Drop older ones so they do not pile up.
+    const cache = queryClient.getMutationCache();
+    cache.findAll({ mutationKey: qk.transcriptGpa }).forEach((m) => cache.remove(m));
 
-    const formData = new FormData();
-
-    //WEB FIX
-    if (Platform.OS === "web") {
-      // On web, the actual File object exists here
-      formData.append("file", file.file as File);
-    } else {
-      // Native (iOS/Android)
-      formData.append("file", {
-        uri: file.uri,
-        name: file.name,
-        type: file.mimeType ?? "application/pdf",
-      } as any);
-    }
-
-    const res = await fetch(
-      `${API_BASE_URL.replace(/\/$/, "")}/api/transcript/calculateGPA`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-        body: formData,
-      }
-    );
-
-    setUploading(false);
-
-    if (res.status === 401 || res.status === 403) {
-      onAuthError();
-      return;
-    }
-
-    if (!res.ok) {
-      setError("We couldn't read that transcript. Make sure it's your full PDF transcript.");
-      return;
-    }
-
-    setError(null);
-    const data = await res.json();
-    setResult(data);
-    onUploadSuccess?.();
+    mutate({ file: picked.assets[0] });
   };
 
 
@@ -96,17 +138,13 @@ export default function TranscriptUploadScreen({
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Upload Transcript</Text>
         <Text style={styles.cardSub}>
-          Upload your PDF transcript to automatically extract courses and grades.
+          We read your courses and grades straight from the PDF.
         </Text>
 
         <View style={styles.uploadBox}>
           <View style={styles.iconCircle}>
             <Feather name="upload" size={24} color={colors.primary} />
           </View>
-
-          <Text style={styles.uploadTitle}>
-            Select your transcript file
-          </Text>
 
           <Text style={styles.uploadSub}>
             Supported formats: PDF, JPG, PNG
@@ -120,7 +158,7 @@ export default function TranscriptUploadScreen({
             <Feather
               name="file"
               size={16}
-              color="white"
+              color={colors.onField}
               style={{ marginRight: 6 }}
             />
             <Text style={styles.browseText}>
@@ -144,7 +182,7 @@ export default function TranscriptUploadScreen({
               <Text style={styles.resultTitle}>Predicted GPA</Text>
               <Text style={styles.gpa}>{result.gpa.toFixed(2)}</Text>
               <Text style={styles.resultSub}>
-                Total Credits: {result.totalCredits}
+                {result.totalCredits} credits
               </Text>
             </>
           ) : (
@@ -172,34 +210,32 @@ const styles = StyleSheet.create({
     alignSelf: "center",
   },
   card: {
-    backgroundColor: "white",
-    borderRadius: 16,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
     padding: spacing.lg,
-    boxShadow: "0px 2px 6px rgba(0, 0, 0, 0.06)",
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
   },
   cardTitle: {
-    fontSize: 17,
-    fontWeight: "600",
+    ...typo.h2,
     color: colors.boldText,
     marginBottom: 6,
   },
   cardSub: {
+    ...typo.body,
     color: colors.bodyText,
-    fontSize: 14,
-    lineHeight: 20,
     marginBottom: spacing.lg,
   },
   uploadBox: {
     borderWidth: 1,
     borderStyle: "dashed",
     borderColor: colors.border,
-    borderRadius: 14,
+    borderRadius: radius.lg,
     padding: spacing.lg,
     alignItems: "center",
   },
   iconCircle: {
-    backgroundColor: "#F2E6EC",
+    backgroundColor: colors.primarySoft,
     borderRadius: 999,
     padding: spacing.md,
     marginBottom: spacing.md,
@@ -207,14 +243,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   uploadTitle: {
-    fontWeight: "600",
-    fontSize: 15,
+    ...typo.h3,
     color: colors.boldText,
     marginBottom: 4,
   },
   uploadSub: {
+    ...typo.body,
     color: colors.bodyText,
-    fontSize: 13,
     textAlign: "center",
     marginBottom: spacing.md,
   },
@@ -224,46 +259,46 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.lg,
-    borderRadius: 10,
+    borderRadius: radius.md,
   },
   browseText: {
-    color: "white",
-    fontWeight: "500",
-    fontSize: 14,
+    ...typo.label,
+    color: colors.onField,
+    fontFamily: fonts.display,
   },
   fileName: {
+    ...typo.caption,
     marginTop: spacing.sm,
     color: colors.bodyText,
-    fontSize: 12,
   },
   resultCard: {
     backgroundColor: colors.primary,
     padding: spacing.lg,
-    borderRadius: 16,
+    borderRadius: radius.lg,
     alignItems: "center",
     marginTop: spacing.lg,
-    boxShadow: "0px 4px 12px rgba(0, 0, 0, 0.15)",
-    elevation: 4,
   },
   resultTitle: {
-    color: "rgba(255,255,255,0.85)",
-    fontWeight: "500",
-    fontSize: 14,
+    ...typo.label,
+    color: colors.onFieldMuted,
     marginBottom: 8,
   },
   gpa: {
-    color: "white",
-    fontSize: 42,
-    fontWeight: "700",
+    ...typo.display,
+    color: colors.onField,
+    fontSize: 48,
+    lineHeight: 52,
+    fontVariant: ["tabular-nums"],
   },
   resultSub: {
-    color: "rgba(255,255,255,0.75)",
-    fontSize: 13,
+    ...typo.caption,
+    color: colors.onFieldMuted,
     marginTop: 6,
+    fontVariant: ["tabular-nums"],
   },
   error: {
-    color: "#DC2626",
-    fontSize: 13,
+    ...typo.body,
+    color: colors.danger,
     marginTop: spacing.md,
     textAlign: "center",
   },

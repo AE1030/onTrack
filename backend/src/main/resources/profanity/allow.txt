@@ -1,0 +1,81 @@
+# Real names and ordinary words that contain a blocked term.
+#
+# A whole word (split on _ - and camelCase) that is exactly one of these is taken out of the handle
+# before the screen runs. Nazir and Nazir_99 pass; a handle that pairs Nazir with a slur is still
+# judged on the slur. Found by sweeping the lists against the 20,000 most common English words,
+# ~20,000 first names and ~88,000 surnames.
+#
+# One term per line, lower case, letters only. Lines starting with # are ignored.
+
+# Ordinary words caught by reserved.txt
+administer
+administered
+administering
+administration
+administrative
+administrator
+administrators
+badminton
+supported
+supporter
+supporters
+supporting
+supportive
+supports
+unsupported
+officially
+unofficial
+
+# Names containing "nazi"
+nazir
+nazira
+nazirah
+nazim
+nazima
+nazia
+naziha
+nazih
+nazik
+ignazio
+inazio
+ashkenazi
+eskenazi
+
+# Names containing "shit" (common Japanese surnames, Jewish and Slavic surnames)
+yamashita
+matsushita
+kinoshita
+morishita
+takeshita
+kishita
+oshita
+nishita
+nishit
+lifshitz
+livshitz
+lifschitz
+beloshitsky
+
+# Names containing other terms
+mahboob     # boob
+mehboob
+georgy      # orgy
+gyorgy
+cumming     # cum, Scottish surname
+cummings
+poon        # Cantonese surname
+bonner      # boner, stretched
+kikkert     # stretched match
+fagan
+fagin
+fagundes
+fagundez
+shitake     # shiitake, both spellings
+shiitake
+gevorgyan   # orgy, Armenian surname
+pennisi     # Italian surname
+slutzky
+abdrashitov
+abdrashitoff
+rappe
+cornudella

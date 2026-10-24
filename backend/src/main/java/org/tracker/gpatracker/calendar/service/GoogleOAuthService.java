@@ -10,7 +10,8 @@ import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 import org.tracker.gpatracker.calendar.config.GoogleOAuthProperties;
-import org.tracker.gpatracker.calendar.dto.GoogleTokens;
+import org.tracker.gpatracker.calendar.dto.OAuthTokens;
+import org.tracker.gpatracker.calendar.exception.CalendarAuthorizationRevokedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -34,7 +35,7 @@ public class GoogleOAuthService {
         this.restClient = RestClient.create();
     }
 
-    public GoogleTokens exchangeCode(String code) {
+    public OAuthTokens exchangeCode(String code) {
         String clientId = properties.getClientId();
         String clientSecret = properties.getClientSecret();
         String redirectUri = properties.getRedirectUri();
@@ -68,7 +69,7 @@ public class GoogleOAuthService {
         }
 
         Instant expiresAt = Instant.now().plusSeconds(tokenResponse.getExpiresIn());
-        return new GoogleTokens(
+        return new OAuthTokens(
                 tokenResponse.getAccessToken(),
                 tokenResponse.getRefreshToken(),
                 expiresAt,
@@ -77,7 +78,7 @@ public class GoogleOAuthService {
         );
     }
 
-    public GoogleTokens refreshAccessToken(String refreshToken) {
+    public OAuthTokens refreshAccessToken(String refreshToken) {
         String clientId = properties.getClientId();
         String clientSecret = properties.getClientSecret();
         logger.info("Refreshing Google access token with clientId={}", clientId);
@@ -96,6 +97,9 @@ public class GoogleOAuthService {
                     .retrieve()
                     .body(GoogleTokenResponse.class);
         } catch (RestClientResponseException ex) {
+            if (isInvalidGrant(ex)) {
+                throw new CalendarAuthorizationRevokedException("Google refresh token revoked or expired", ex);
+            }
             throw ex;
         }
 
@@ -105,7 +109,47 @@ public class GoogleOAuthService {
         }
 
         Instant expiresAt = Instant.now().plusSeconds(tokenResponse.getExpiresIn());
-        return new GoogleTokens(tokenResponse.getAccessToken(), refreshToken, expiresAt, null);
+        return new OAuthTokens(tokenResponse.getAccessToken(), refreshToken, expiresAt, null);
+    }
+
+    /**
+     * Revokes the grant behind a refresh token, which also invalidates its access tokens and removes
+     * onTrack from the student's "Third-party apps" list in their Google Account. Google answers 400
+     * for a token that is already invalid, which is the outcome we wanted, so that is not an error.
+     */
+    public void revoke(String refreshToken) {
+        if (refreshToken == null) {
+            return;
+        }
+        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+        form.add("token", refreshToken);
+        try {
+            restClient.post()
+                    .uri(properties.getRevokeUri())
+                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                    .body(form)
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (RestClientResponseException ex) {
+            if (ex.getStatusCode().value() != 400) {
+                throw ex;
+            }
+        }
+    }
+
+    /**
+     * Google answers a revoked or expired refresh token with 400 and {@code "error": "invalid_grant"}.
+     * Other 400s (a bad client id, say) are our misconfiguration, not the student's token.
+     */
+    boolean isInvalidGrant(RestClientResponseException ex) {
+        if (ex.getStatusCode().value() != 400) {
+            return false;
+        }
+        try {
+            return "invalid_grant".equals(objectMapper.readTree(ex.getResponseBodyAsString()).path("error").asText());
+        } catch (IOException e) {
+            return false;
+        }
     }
 
     private String fetchUserEmail(String accessToken) {

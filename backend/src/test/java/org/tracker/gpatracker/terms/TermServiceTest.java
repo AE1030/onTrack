@@ -123,4 +123,17 @@ class TermServiceTest {
         assertThat(terms).extracting(TermDTO::getTerm)
                 .containsExactly("Winter 2026", "nonsense");
     }
+
+    @Test
+    void isRecentPastTerm_coversTheTwoSeasonsBeforeTheCurrentTerm() {
+        // Current term is Winter 2026. Fall 2025 is the usual first half of a multi-term course,
+        // and Spring/Summer 2025 covers one taken across a summer.
+        assertThat(service.isRecentPastTerm("Fall 2025")).isTrue();
+        assertThat(service.isRecentPastTerm("Spring/Summer 2025")).isTrue();
+        // Three seasons back is a previous attempt, not this course's first half.
+        assertThat(service.isRecentPastTerm("Winter 2025")).isFalse();
+        assertThat(service.isRecentPastTerm("Winter 2026")).isFalse();
+        assertThat(service.isRecentPastTerm("Fall 2026")).isFalse();
+        assertThat(service.isRecentPastTerm("nonsense")).isFalse();
+    }
 }

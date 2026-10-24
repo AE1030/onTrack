@@ -1,17 +1,19 @@
 import {
   View,
-  Text,
-  TextInput,
   Pressable,
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
+import { Text, TextInput } from "../src/ui/Text";
 import { useState } from "react";
 import { colors } from "../src/theme/colors";
-import { spacing } from "../src/theme/spacing";
+import { spacing, radius } from "../src/theme/spacing";
 import { API_BASE_URL } from "../src/config/api";
+import { toHttpError } from "../src/cache/authedGet";
+import { toUserMessage } from "../src/utils/errorMessage";
 import OnTrackLogo from "./components/OnTrackLogo";
+import { fonts, typo } from "../src/theme/typography";
 
 type Props = {
   onGoToLogin: () => void;
@@ -43,14 +45,11 @@ export default function ForgotPasswordScreen({ onGoToLogin }: Props) {
         }
       );
 
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || "Something went wrong");
-      }
+      if (!res.ok) throw await toHttpError(res);
 
       setSent(true);
-    } catch (err: any) {
-      setError(err.message || "Could not connect to server.");
+    } catch (err) {
+      setError(toUserMessage(err, "Something went wrong. Try again in a moment."));
     } finally {
       setLoading(false);
     }
@@ -158,46 +157,48 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: colors.surface,
-    borderRadius: 16,
+    borderRadius: radius.lg,
     padding: spacing.lg,
     maxWidth: 400,
     width: "100%",
     alignSelf: "center",
-    boxShadow: "0px 2px 12px rgba(59, 10, 29, 0.08)",
-    elevation: 3,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
   },
   logoWrapper: {
     alignItems: "center",
     marginBottom: spacing.md,
   },
   subtitle: {
+    ...typo.bodyLarge,
     textAlign: "center",
-    fontSize: 14,
     color: colors.bodyText,
     marginBottom: spacing.lg,
   },
   input: {
+    ...typo.body,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 12,
+    borderRadius: radius.md,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 16,
     color: colors.boldText,
     marginBottom: spacing.md,
     backgroundColor: colors.surface,
+    letterSpacing: 0.32,
   },
   inputFocused: {
     borderColor: colors.primary,
     borderWidth: 1.5,
   },
   inputError: {
-    borderColor: "#D32F2F",
+    borderColor: colors.danger,
   },
   button: {
     backgroundColor: colors.primary,
     paddingVertical: 14,
-    borderRadius: 12,
+    borderRadius: radius.md,
     alignItems: "center",
     marginTop: spacing.sm,
     minHeight: 48,
@@ -210,13 +211,15 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   buttonText: {
-    color: "#FFFFFF",
-    fontWeight: "600",
+    ...typo.label,
+    color: colors.onField,
     fontSize: 16,
+    fontFamily: fonts.display,
+    letterSpacing: 0.32,
   },
   error: {
-    color: "#D32F2F",
-    fontSize: 13,
+    ...typo.body,
+    color: colors.danger,
     marginBottom: spacing.sm,
     textAlign: "center",
   },
@@ -225,29 +228,27 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   linkText: {
-    fontSize: 14,
+    ...typo.body,
     color: colors.bodyText,
   },
   linkBold: {
     color: colors.primary,
-    fontWeight: "600",
+    fontFamily: fonts.bodyMedium,
   },
   successTitle: {
-    fontSize: 20,
-    fontWeight: "700",
+    ...typo.h2,
     color: colors.boldText,
     textAlign: "center",
     marginBottom: spacing.sm,
   },
   successBody: {
-    fontSize: 14,
+    ...typo.body,
     color: colors.bodyText,
     textAlign: "center",
-    lineHeight: 20,
     marginBottom: spacing.lg,
   },
   successEmail: {
-    fontWeight: "600",
     color: colors.boldText,
+    fontFamily: fonts.bodyMedium,
   },
 });

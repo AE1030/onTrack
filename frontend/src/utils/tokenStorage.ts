@@ -4,6 +4,8 @@ import { API_BASE_URL } from "../config/api";
 
 const TOKEN_KEY = "jwt";
 const REFRESH_KEY = "refresh_token";
+/** Stamped on a real sign-in only, never on a refresh, so "once per login" has something to key on. */
+const LOGIN_KEY = "login_stamp";
 
 /** Refresh this long before the access token's exp, so a request never leaves with a dying token. */
 const EXPIRY_SKEW_MS = 60_000;
@@ -30,10 +32,31 @@ export async function setTokens(accessToken: string, refreshToken: string) {
   await write(REFRESH_KEY, refreshToken);
 }
 
+/**
+ * A fresh sign-in: stores the pair and stamps the login.
+ *
+ * setTokens alone is what a silent refresh calls, so it cannot mark a login. Anything that should
+ * happen once per sign-in (the leaderboard's standings reveal) compares against this stamp.
+ */
+export async function startSession(accessToken: string, refreshToken: string) {
+  await setTokens(accessToken, refreshToken);
+  await write(LOGIN_KEY, `${Date.now()}`);
+}
+
+/** The current sign-in's stamp. Null for a session that predates the stamp, or none at all. */
+export async function getLoginStamp(): Promise<string | null> {
+  try {
+    return await read(LOGIN_KEY);
+  } catch {
+    return null;
+  }
+}
+
 /** Clears the whole session from this device. Does not tell the server; see endSession. */
 export async function removeToken() {
   await remove(TOKEN_KEY);
   await remove(REFRESH_KEY);
+  await remove(LOGIN_KEY);
 }
 
 /**

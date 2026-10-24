@@ -1,5 +1,6 @@
 import React from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Text } from "../../../src/ui/Text";
 import { Feather } from "@expo/vector-icons";
 import { useTheme } from "../../../src/theme/ThemeContext";
 import {
@@ -192,7 +193,7 @@ const styles = StyleSheet.create({
   },
   shuffleText: {
     fontSize: 13,
-    fontWeight: "600",
+    fontWeight: "500",
   },
   axis: {
     gap: 6,
@@ -223,6 +224,6 @@ const styles = StyleSheet.create({
   },
   chipText: {
     fontSize: 13,
-    fontWeight: "600",
+    fontWeight: "500",
   },
 });

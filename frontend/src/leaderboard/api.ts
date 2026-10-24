@@ -10,7 +10,6 @@ import {
 } from "../cache/authedGet";
 import { AvatarConfig } from "./avatar";
 import {
-  BoardScope,
   HandleCheck,
   LeaderboardResponse,
   LeaderboardStatus,
@@ -113,21 +112,3 @@ export async function submitTranscript(file: {
   if (!res.ok) throw new HttpError(res.status, (await readServerError(res)) ?? undefined);
   return res.json();
 }
-
-// ------------------------------------------------------------------------ the gaps
-
-/**
- * Which scopes the server actually serves.
- *
- * One, today. Program is a column the student record already has, so narrowing the board to it is
- * a filter param on the backend and nothing more, but until that exists the tab says it is showing
- * the global field rather than quietly showing a different one. Inventing a subset client-side
- * would be a lie with rank numbers on it.
- *
- * Friends has nothing behind it at all in v2 and is drawn disabled.
- */
-export const SCOPE_SERVED: Record<BoardScope, boolean> = {
-  global: true,
-  program: false,
-  friends: false,
-};

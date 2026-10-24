@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
+import { Text } from "../../src/ui/Text";
+import { noHover } from "../../src/ui/hover";
 import { Feather } from "@expo/vector-icons";
 import Animated, {
   Easing,
@@ -164,6 +166,7 @@ function Arrow({
 
   return (
     <Pressable
+      {...noHover}
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityHint={hint}

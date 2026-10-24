@@ -2,6 +2,7 @@ package org.tracker.gpatracker.syllabus.controller;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -16,12 +17,17 @@ import org.tracker.gpatracker.syllabus.service.GeminiSyllabusExtractionService;
 import org.tracker.gpatracker.tenancy.UserContext;
 import org.tracker.gpatracker.terms.TermService;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.List;
+
 @RestController
 @RequestMapping("/api/syllabus/upload")
 public class SyllabusUploadController {
 
     private static final Logger logger = LoggerFactory.getLogger(SyllabusUploadController.class);
     private static final long MAX_UPLOAD_BYTES = 10L * 1024L * 1024L; // 10 MB
+    private static final byte[] PDF_MAGIC = "%PDF-".getBytes(StandardCharsets.US_ASCII);
 
     private final GeminiSyllabusExtractionService extractionService;
     private final TermService termService;
@@ -48,8 +54,8 @@ public class SyllabusUploadController {
             return ResponseEntity.status(413).build();
         }
 
-        logger.info("POST /api/syllabus/upload/{}/{} — file size: {} bytes", courseCode, term, file.getSize());
-        SyllabusExtractionJob job = extractionService.createJob(courseCode, term);
+        // Read and check the file before createJob charges an upload, so neither a read failure
+        // nor a non-PDF costs the student anything or reaches Gemini.
         byte[] pdfBytes;
         try {
             pdfBytes = file.getBytes();
@@ -57,9 +63,34 @@ public class SyllabusUploadController {
             logger.error("POST /api/syllabus/upload — failed to read file for course: {}", courseCode, ex);
             return ResponseEntity.internalServerError().build();
         }
+        // The client's content type is whatever the client says it is; the leading bytes are not.
+        if (!isPdf(pdfBytes)) {
+            logger.warn("POST /api/syllabus/upload — rejected non-PDF file for course: {}", courseCode);
+            return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE).build();
+        }
+
+        logger.info("POST /api/syllabus/upload/{}/{} — file size: {} bytes", courseCode, term, file.getSize());
+        SyllabusExtractionJob job = extractionService.createJob(courseCode, term);
         extractionService.processJobAsync(job.getId(), pdfBytes, courseCode, term);
         logger.info("POST /api/syllabus/upload — job created: {} for course: {}", job.getId(), courseCode);
         return ResponseEntity.accepted().body(SyllabusExtractionJobResponse.from(job));
+    }
+
+    /** Every PDF starts with the "%PDF-" header. */
+    static boolean isPdf(byte[] bytes) {
+        if (bytes == null || bytes.length < PDF_MAGIC.length) {
+            return false;
+        }
+        return Arrays.equals(bytes, 0, PDF_MAGIC.length, PDF_MAGIC, 0, PDF_MAGIC.length);
+    }
+
+    /** The caller's latest job per course in the term, from the last few minutes. See getRecentJobs. */
+    @GetMapping("/recent")
+    public ResponseEntity<List<SyllabusExtractionJobResponse>> getRecentJobs(@RequestParam String term) {
+        List<SyllabusExtractionJobResponse> jobs = extractionService.getRecentJobs(term).stream()
+                .map(SyllabusExtractionJobResponse::from)
+                .toList();
+        return ResponseEntity.ok(jobs);
     }
 
     @GetMapping("/{jobId}")

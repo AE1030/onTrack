@@ -1,11 +1,13 @@
 import React from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, View } from "react-native";
+import { Text } from "../../../src/ui/Text";
 import { useTheme } from "../../../src/theme/ThemeContext";
 import { LeaderboardRow } from "../../../src/leaderboard/types";
 import { normalizeAvatar } from "../../../src/leaderboard/avatar";
 import { fmtScore } from "../../../src/leaderboard/scoring";
 import PlayerAvatar from "./PlayerAvatar";
 import { ModePill, MovementArrow } from "./Indicators";
+import { radius } from "../../../src/theme/spacing";
 
 /**
  * One ranked row, from fourth place down.
@@ -71,7 +73,7 @@ export default function RankRow({
         <ModePill mode={row.mode} compact />
       </View>
 
-      <Text style={[styles.score, { color: mine ? c.boldText : c.boldText }]}>
+      <Text style={[styles.score, { color: c.boldText }]}>
         {fmtScore(row.score)}
       </Text>
     </View>
@@ -89,24 +91,24 @@ const styles = StyleSheet.create({
   },
   rowMine: {
     borderWidth: 1.5,
-    borderRadius: 12,
+    borderRadius: radius.md,
     marginVertical: 2,
   },
   rowPinned: {
     borderWidth: 1.5,
-    borderRadius: 14,
+    borderRadius: radius.lg,
     borderBottomWidth: 1.5,
     marginHorizontal: 12,
   },
   rankCell: {
-    width: 34,
+    width: 40,
     flexDirection: "row",
     alignItems: "center",
     gap: 3,
   },
   rank: {
-    fontSize: 14,
-    fontWeight: "700",
+    fontFamily: "SpaceGrotesk_700Bold",
+    fontSize: 16,
     fontVariant: ["tabular-nums"],
     minWidth: 17,
     textAlign: "right",
@@ -117,15 +119,17 @@ const styles = StyleSheet.create({
   },
   handle: {
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: "500",
   },
   // Right-aligned and tabular so a column of scores lines up, and wide enough for the "12,250" a
   // delivered GROWTH target can reach.
+  // Plex, not display type: on the board the rank is the shout and the score is the detail.
   score: {
-    fontSize: 15,
-    fontWeight: "800",
+    fontFamily: "IBMPlexSans_500Medium",
+    fontSize: 16,
+    letterSpacing: 0.32,
     fontVariant: ["tabular-nums"],
-    minWidth: 60,
+    minWidth: 64,
     textAlign: "right",
   },
 });

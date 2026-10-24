@@ -29,6 +29,17 @@ export const clamp = (v: number, min: number, max: number) =>
 
 export const headroom = (baseline: number) => SCALE_MAX - baseline;
 
+/** Where a student with no graded record is measured from: a C average, mid-scale. */
+export const NEUTRAL_BASELINE = 6.0;
+
+/**
+ * The baseline the formula measures from. A first-year's transcript parses to 0 because nothing is
+ * graded yet; that is an empty record rather than a GPA, so scoring reads it as 6.0. See
+ * LeaderboardScoring.effectiveBaseline for the full reasoning.
+ */
+export const effectiveBaseline = (baseline: number) =>
+  baseline <= 0 ? NEUTRAL_BASELINE : baseline;
+
 /**
  * Which mode a baseline and target select.
  *
@@ -36,19 +47,14 @@ export const headroom = (baseline: number) => SCALE_MAX - baseline;
  * rather than barred. Below the one-point gap is MAINTENANCE, which is a choice and not a rejection.
  */
 export function modeFor(baseline: number, target: number): ScoreMode {
+  baseline = effectiveBaseline(baseline);
   if (headroom(baseline) < MIN_GROWTH_GAP) return "CEILING";
   return target - baseline >= MIN_GROWTH_GAP ? "GROWTH" : "MAINTENANCE";
 }
 
-/**
- * How much of their available reach the target claims, 0 to 1.
- *
- * A baseline of exactly zero is forced to 0: a first-year's transcript parses to a real 0 because
- * nothing is graded yet, and without this every one of them would claim a full ambition bonus for
- * an ordinary goal.
- */
+/** How much of their available reach the target claims, 0 to 1. */
 export function ambition(baseline: number, target: number): number {
-  if (baseline <= 0) return 0;
+  baseline = effectiveBaseline(baseline);
   const reach = Math.min(MAX_REACH, headroom(baseline));
   if (reach <= 0) return 0;
   return clamp((target - baseline) / reach, 0, 1);
@@ -95,5 +101,16 @@ export const fmtGpa = (v: number | null | undefined) =>
  * MAINTENANCE already covers holding. The ceiling is the top of the scale.
  */
 export function targetRange(baseline: number): { min: number; max: number } {
-  return { min: round2(clamp(baseline, 0, SCALE_MAX)), max: SCALE_MAX };
+  return { min: round2(clamp(effectiveBaseline(baseline), 0, SCALE_MAX)), max: SCALE_MAX };
 }
+
+/** What the board's points are called. The short form sits next to numbers where room is tight. */
+export const POINTS_NAME = "Track Points";
+export const POINTS_SHORT = "TP";
+
+/**
+ * Whole Track Points needed to strictly pass a score. The server orders on two decimals, so a tie on
+ * screen still needs one more point to pass.
+ */
+export const pointsToPass = (mine: number, theirs: number) =>
+  Math.max(1, Math.floor(theirs - mine) + 1);

@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from "react";
 import {
   View,
-  Text,
   Pressable,
   StyleSheet,
   Dimensions,
   Platform,
+  Linking,
 } from "react-native";
+import { Text } from "../../src/ui/Text";
+import { noHover } from "../../src/ui/hover";
 import { Feather } from "@expo/vector-icons";
 import OnTrackLogo from "./OnTrackLogo";
 import Animated, {
@@ -23,6 +25,10 @@ import { fetchStatus } from "../../src/leaderboard/api";
 import { AvatarConfig, avatarFor, normalizeAvatar } from "../../src/leaderboard/avatar";
 import { useBackfillLocalAvatar } from "../../src/leaderboard/useBackfillLocalAvatar";
 import PlayerAvatar from "./leaderboard/PlayerAvatar";
+import { radius } from "../../src/theme/spacing";
+import { fonts, typo } from "../../src/theme/typography";
+
+const BUG_REPORT_URL = "https://forms.gle/ZsMy6unVXjBSR5sX7";
 
 const DRAWER_WIDTH = 260;
 const SCREEN_WIDTH = Dimensions.get("window").width;
@@ -97,7 +103,7 @@ export default function SideDrawer({
       pointerEvents={visible ? "auto" : "none"}
     >
       {/* Backdrop */}
-      <Pressable style={StyleSheet.absoluteFill} onPress={onClose}>
+      <Pressable {...noHover} style={StyleSheet.absoluteFill} onPress={onClose}>
         <Animated.View style={[styles.backdrop, backdropStyle]} />
       </Pressable>
 
@@ -115,6 +121,7 @@ export default function SideDrawer({
             const isHovered = hoveredKey === item.key && !isActive;
             return (
               <Pressable
+                {...noHover}
                 key={item.key}
                 style={[
                   styles.navItem,
@@ -131,7 +138,7 @@ export default function SideDrawer({
                 <Feather
                   name={item.icon}
                   size={18}
-                  color={isActive ? "#FFFFFF" : colors.boldText}
+                  color={isActive ? colors.onField : colors.boldText}
                   style={styles.navIcon}
                 />
                 <Text
@@ -162,6 +169,10 @@ export default function SideDrawer({
               {username}
             </Text>
           </View>
+          <Pressable style={styles.logoutButton} onPress={() => Linking.openURL(BUG_REPORT_URL)}>
+            <Feather name="alert-circle" size={16} color={colors.bodyText} style={{ marginRight: 8 }} />
+            <Text style={styles.logoutText}>Report a bug</Text>
+          </Pressable>
           <Pressable style={styles.logoutButton} onPress={onLogout}>
             <Feather name="log-out" size={16} color={colors.bodyText} style={{ marginRight: 8 }} />
             <Text style={styles.logoutText}>Logout</Text>
@@ -209,7 +220,7 @@ const styles = StyleSheet.create({
   },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "#000",
+    backgroundColor: "#000", // opacity is animated to 0.4 above
   },
   drawer: {
     position: "absolute",
@@ -217,7 +228,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     width: DRAWER_WIDTH,
-    backgroundColor: "#FBF7F9",
+    backgroundColor: colors.surfaceAlt,
     paddingTop: Platform.OS === "ios" ? 60 : 40,
     paddingHorizontal: 0,
     justifyContent: "space-between",
@@ -228,7 +239,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingBottom: 24,
     borderBottomWidth: 1,
-    borderBottomColor: "#EDE7EB",
+    borderBottomColor: colors.borderSubtle,
   },
   navSection: {
     flex: 1,
@@ -240,30 +251,30 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 24,
     marginHorizontal: 12,
-    borderRadius: 10,
+    borderRadius: radius.md,
     marginBottom: 2,
   },
   navItemActive: {
     backgroundColor: colors.primary,
   },
   navItemHovered: {
-    backgroundColor: "rgba(242, 185, 74, 0.15)",
+    backgroundColor: colors.primarySoft,
   },
   navIcon: {
     marginRight: 12,
   },
   navText: {
+    ...typo.label,
     fontSize: 15,
-    fontWeight: "500",
     color: colors.boldText,
   },
   navTextActive: {
-    color: "#FFFFFF",
-    fontWeight: "600",
+    fontFamily: fonts.display,
+    color: colors.onField,
   },
   bottomSection: {
     borderTopWidth: 1,
-    borderTopColor: "#EDE7EB",
+    borderTopColor: colors.borderSubtle,
     paddingVertical: 16,
     paddingHorizontal: 24,
   },
@@ -276,7 +287,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: "#7A003C",
+    backgroundColor: colors.primary,
     alignItems: "center",
     justifyContent: "center",
     marginRight: 10,
@@ -285,14 +296,13 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   avatarText: {
-    color: "#FFF",
-    fontWeight: "700",
-    fontSize: 16,
+    ...typo.h3,
+    color: colors.onField,
   },
   username: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#3B0A1D",
+    ...typo.body,
+    fontFamily: fonts.bodyMedium,
+    color: colors.boldText,
     flex: 1,
   },
   logoutButton: {
@@ -301,7 +311,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   logoutText: {
-    fontSize: 14,
+    ...typo.body,
     color: colors.bodyText,
   },
 });

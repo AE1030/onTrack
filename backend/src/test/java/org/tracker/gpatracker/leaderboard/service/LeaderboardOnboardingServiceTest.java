@@ -196,7 +196,7 @@ class LeaderboardOnboardingServiceTest {
         }
 
         @Test
-        @DisplayName("a first-year joins on a baseline of zero, with no ambition bonus")
+        @DisplayName("a first-year joins on a baseline of zero, measured from 6.0")
         void firstYearJoins() {
             transcriptOnFile(BigDecimal.ZERO);
 
@@ -205,7 +205,16 @@ class LeaderboardOnboardingServiceTest {
             SeasonBaseline frozen = frozenBaseline();
             assertThat(frozen.getBaselineGpa12()).isEqualByComparingTo(BigDecimal.ZERO);
             assertThat(frozen.getScoreMode()).isEqualTo(ScoreMode.GROWTH);
-            assertThat(LeaderboardScoring.ambition(0.0, 8.0)).isZero();
+        }
+
+        @Test
+        @DisplayName("a first-year's target under 7.0 is a Maintenance target")
+        void firstYearLowTargetIsMaintenance() {
+            transcriptOnFile(BigDecimal.ZERO);
+
+            service.join(new JoinLeaderboardRequest(new BigDecimal("1.00"), "firstyear", true));
+
+            assertThat(frozenBaseline().getScoreMode()).isEqualTo(ScoreMode.MAINTENANCE);
         }
 
         @Test

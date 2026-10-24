@@ -25,7 +25,7 @@ import java.time.Instant;
         }
 )
 @Filter(name = OwnerFilter.NAME)
-public class GoogleCalendarAccount extends UserOwnedEntity {
+public class CalendarAccount extends UserOwnedEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -49,6 +49,14 @@ public class GoogleCalendarAccount extends UserOwnedEntity {
 
     @Column(name = "expires_at", nullable = false)
     private Instant expiresAt;
+
+    /**
+     * The provider revoked this account's refresh token. Syncs skip it until the student
+     * reconnects, which replaces the row. Kept rather than deleted so the app can say which
+     * account stopped working.
+     */
+    @Column(name = "needs_reconnect", nullable = false)
+    private boolean needsReconnect;
 
     public Long getId() {
         return id;
@@ -92,5 +100,13 @@ public class GoogleCalendarAccount extends UserOwnedEntity {
 
     public void setExpiresAt(Instant expiresAt) {
         this.expiresAt = expiresAt;
+    }
+
+    public boolean isNeedsReconnect() {
+        return needsReconnect;
+    }
+
+    public void setNeedsReconnect(boolean needsReconnect) {
+        this.needsReconnect = needsReconnect;
     }
 }

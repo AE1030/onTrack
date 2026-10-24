@@ -8,9 +8,12 @@ google:
       - email
       - https://www.googleapis.com/auth/calendar.events
 calendar:
+  # Zone of the app's assessment times, sent to Google with every timed event.
+  timezone: ${CALENDAR_TIMEZONE:America/Toronto}
   link-token:
     secret: "${CALENDAR_LINK_TOKEN_SECRET}"
     ttl-seconds: 300
     issuer: onTrack
   oauth:
     success-redirect: ${CALENDAR_OAUTH_SUCCESS_REDIRECT:/api/calendar/google/success}
+    failure-redirect: ${CALENDAR_OAUTH_FAILURE_REDIRECT:/api/calendar/google/failure}

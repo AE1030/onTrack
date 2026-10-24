@@ -1,4 +1,4 @@
-package org.tracker.gpatracker.calendar.service;
+package org.tracker.gpatracker.calendar.strategy;
 
 public class GoogleCalendarEventResponse {
     private String id;

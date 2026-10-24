@@ -7,6 +7,8 @@ export const qk = {
   upcomingEvents: ["upcoming-events"] as const,
   pastCourses: ["past-courses"] as const,
   calendarEvents: ["calendar-events"] as const,
+  /** Connected external calendars and whether any needs reconnecting. Polled by the app shell. */
+  calendarAccounts: ["calendar-accounts"] as const,
 
   /** Which terms this student has. Changes only when a course is added or deleted. */
   terms: ["terms"] as const,
@@ -29,4 +31,10 @@ export const qk = {
   // change when the ranking job has run (three times a day).
   leaderboard: ["leaderboard"] as const,
   leaderboardStatus: ["leaderboard-status"] as const,
+
+  /**
+   * A mutation key, not a query key: the GPA calculator's transcript upload. Its result is read
+   * back with useMutationState so it survives the screen unmounting.
+   */
+  transcriptGpa: ["transcript-gpa"] as const,
 };

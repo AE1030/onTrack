@@ -15,6 +15,7 @@ public class GoogleOAuthProperties {
     private String authorizationUri = "https://accounts.google.com/o/oauth2/v2/auth";
     private String tokenUri = "https://oauth2.googleapis.com/token";
     private String userInfoUri = "https://openidconnect.googleapis.com/v1/userinfo";
+    private String revokeUri = "https://oauth2.googleapis.com/revoke";
 
     public String getClientId() {
         return clientId;
@@ -70,5 +71,13 @@ public class GoogleOAuthProperties {
 
     public void setUserInfoUri(String userInfoUri) {
         this.userInfoUri = userInfoUri;
+    }
+
+    public String getRevokeUri() {
+        return revokeUri;
+    }
+
+    public void setRevokeUri(String revokeUri) {
+        this.revokeUri = revokeUri;
     }
 }

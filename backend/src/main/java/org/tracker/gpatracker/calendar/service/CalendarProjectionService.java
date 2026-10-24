@@ -2,6 +2,7 @@ package org.tracker.gpatracker.calendar.service;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import org.tracker.gpatracker.assessmenttable.model.AssessmentScheme;
@@ -9,6 +10,7 @@ import org.tracker.gpatracker.assessmenttable.model.AssessmentTableDocument;
 import org.tracker.gpatracker.assessmenttable.model.SchemeAssessment;
 import org.tracker.gpatracker.assessmenttable.repository.AssessmentTableDocumentRepository;
 import org.tracker.gpatracker.calendar.event.AssessmentTableUpdatedEvent;
+import org.tracker.gpatracker.calendar.event.CalendarProjectionUpdatedEvent;
 import org.tracker.gpatracker.calendar.model.AbstractCalendarEvent;
 import org.tracker.gpatracker.calendar.model.CalendarEvents;
 import org.tracker.gpatracker.calendar.model.CalendarEvents.InternalCalendarEvent;
@@ -22,7 +24,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 @Service
 public class CalendarProjectionService {
@@ -32,24 +36,29 @@ public class CalendarProjectionService {
 
     private final AssessmentTableDocumentRepository assessmentTableRepository;
     private final CalendarEventsRepository calendarEventsRepository;
-    private final GoogleCalendarSyncService googleCalendarSyncService;
+    private final ApplicationEventPublisher eventPublisher;
     private final StudentService studentService;
     private final TermService termService;
 
     public CalendarProjectionService(
             AssessmentTableDocumentRepository assessmentTableRepository,
             CalendarEventsRepository calendarEventsRepository,
-            GoogleCalendarSyncService googleCalendarSyncService,
+            ApplicationEventPublisher eventPublisher,
             StudentService studentService,
             TermService termService
     ) {
         this.assessmentTableRepository = assessmentTableRepository;
         this.calendarEventsRepository = calendarEventsRepository;
-        this.googleCalendarSyncService = googleCalendarSyncService;
+        this.eventPublisher = eventPublisher;
         this.studentService = studentService;
         this.termService = termService;
     }
 
+    /**
+     * Rebuilds the projection synchronously, so the screen that saved the assessment table reads
+     * fresh events straight after, then hands the external calendar sync to
+     * {@link CalendarSyncListener} in the background.
+     */
     @EventListener
     public void updateCalendarProjection(AssessmentTableUpdatedEvent event) {
         Long studentId = event.getStudentId();
@@ -57,15 +66,20 @@ public class CalendarProjectionService {
         recompute(studentId);
 
         try {
-            googleCalendarSyncService.sync(studentId);
-        } catch (Exception e) {
-            logger.warn("Google Calendar sync skipped for student {}: {}", studentId, e.getMessage());
+            eventPublisher.publishEvent(new CalendarProjectionUpdatedEvent(studentId));
+        } catch (RuntimeException e) {
+            // The async executor rejects work once its queue is full, and that rejection is thrown
+            // here, on the request thread. The assessment table is already saved, so failing the
+            // request would tell the student their save failed when it did not. The next save
+            // syncs everything this one missed.
+            logger.warn("External calendar sync not scheduled for student {}: {}", studentId, e.getMessage());
         }
     }
 
     public List<InternalCalendarEvent> getUpcomingEvents(Long studentId) {
         Optional<CalendarEvents> calendarEvents = calendarEventsRepository.findByOwnerId(studentId);
-        if (calendarEvents.isEmpty()) {
+        // recompute always writes a list, but an older row can hold a null events column.
+        if (calendarEvents.isEmpty() || calendarEvents.get().getEvents() == null) {
             return List.of();
         }
 
@@ -83,6 +97,10 @@ public class CalendarProjectionService {
                 .orElseThrow(() -> new RuntimeException("No calendar events found for student " + studentId));
 
         List<InternalCalendarEvent> events = calendarEvents.getEvents();
+        if (events == null) {
+            // Nothing to mark: an older row with a null events column.
+            return;
+        }
         for (InternalCalendarEvent event : events) {
             if (eventKey.equals(event.getEventKey())) {
                 event.setCompleted(true);
@@ -114,6 +132,18 @@ public class CalendarProjectionService {
         List<AssessmentTableDocument> tables = assessmentTableRepository.findByOwnerId(studentId);
         String currentTerm = termService.getCurrentTerm();
 
+        // "Mark done" lives only on the projection, and the rebuild below starts every event with
+        // completed = false. Carry the flag across by eventKey so a table save does not undo it.
+        // Moving the due date changes the key, so that event comes back as not done.
+        CalendarEvents calendarEvents = calendarEventsRepository.findByOwnerId(studentId)
+                .orElseGet(CalendarEvents::new);
+        Set<String> completedKeys = calendarEvents.getEvents() == null
+                ? Set.of()
+                : calendarEvents.getEvents().stream()
+                        .filter(InternalCalendarEvent::isCompleted)
+                        .map(InternalCalendarEvent::getEventKey)
+                        .collect(Collectors.toSet());
+
         // Build the entire event list from the current state of all assessment tables.
         // This is a full replacement — any assessment that no longer exists in the
         // tables will simply not appear, effectively removing it from the projection.
@@ -129,12 +159,15 @@ public class CalendarProjectionService {
             }
             collectEventsFromTable(table, deduped);
         }
+        for (InternalCalendarEvent event : deduped.values()) {
+            if (completedKeys.contains(event.getEventKey())) {
+                event.setCompleted(true);
+            }
+        }
 
 
         // Replace the entire events list — not a merge, a full replacement.
         // This guarantees deleted/edited assessments don't linger.
-        CalendarEvents calendarEvents = calendarEventsRepository.findByOwnerId(studentId)
-                .orElseGet(CalendarEvents::new);
         calendarEvents.setOwnerId(studentId);
         calendarEvents.setEvents(new ArrayList<>(deduped.values()));
         calendarEvents.setLastUpdatedAt(Instant.now());

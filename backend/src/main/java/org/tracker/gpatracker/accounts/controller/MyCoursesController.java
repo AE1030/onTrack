@@ -12,6 +12,7 @@ import org.tracker.gpatracker.accounts.dto.ToggleGpaDTO;
 import org.tracker.gpatracker.accounts.service.ManualUploadService;
 import org.tracker.gpatracker.accounts.service.StudentService;
 import org.tracker.gpatracker.assessmenttable.service.AssessmentTableService;
+import org.tracker.gpatracker.syllabus.service.StaleSyllabusJobSweeper;
 import org.tracker.gpatracker.syllabus.service.SyllabusUploadQuotaService;
 import org.tracker.gpatracker.terms.TermDTO;
 import org.tracker.gpatracker.terms.TermService;
@@ -29,17 +30,20 @@ public class MyCoursesController {
     private final StudentService studentService;
     private final AssessmentTableService assessmentTableService;
     private final TermService termService;
+    private final StaleSyllabusJobSweeper staleJobSweeper;
 
     public MyCoursesController(ManualUploadService manualUploadService,
                                SyllabusUploadQuotaService syllabusUploadQuotaService,
                                StudentService studentService,
                                AssessmentTableService assessmentTableService,
-                               TermService termService) {
+                               TermService termService,
+                               StaleSyllabusJobSweeper staleJobSweeper) {
         this.manualUploadService = manualUploadService;
         this.syllabusUploadQuotaService = syllabusUploadQuotaService;
         this.studentService = studentService;
         this.assessmentTableService = assessmentTableService;
         this.termService = termService;
+        this.staleJobSweeper = staleJobSweeper;
     }
 
     @GetMapping("/past-courses")
@@ -106,6 +110,8 @@ public class MyCoursesController {
 
     @GetMapping("/remaining-uploads")
     public ResponseEntity<Integer> getRemainingUploads() {
+        // Refund anything stuck first, so the count never shows an upload that should have come back.
+        staleJobSweeper.sweep(studentService.getStudentID());
         int remaining = syllabusUploadQuotaService.getRemainingUploadsForCurrentStudent();
         return ResponseEntity.ok(remaining);
     }

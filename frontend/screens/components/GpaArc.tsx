@@ -1,6 +1,9 @@
 import React, { useEffect } from "react";
-import { View, Text, StyleSheet } from "react-native";
+import { View, StyleSheet } from "react-native";
+import { Text } from "../../src/ui/Text";
 import Svg, { Path } from "react-native-svg";
+import { colors } from "../../src/theme/colors";
+import { typo } from "../../src/theme/typography";
 import Animated, {
   useSharedValue,
   useAnimatedProps,
@@ -82,7 +85,7 @@ export default function GpaArc({ gpa, targetGpa, maxScale }: Props) {
         {/* Background track */}
         <Path
           d={arcD}
-          stroke="#E8E0E5"
+          stroke={colors.surfaceSunken}
           strokeWidth={STROKE_WIDTH}
           fill="none"
           strokeLinecap="round"
@@ -91,7 +94,7 @@ export default function GpaArc({ gpa, targetGpa, maxScale }: Props) {
         {targetGpa != null && (
           <AnimatedPath
             d={arcD}
-            stroke="#F2B94A"
+            stroke={colors.accent}
             strokeWidth={STROKE_WIDTH}
             fill="none"
             strokeLinecap="round"
@@ -102,7 +105,7 @@ export default function GpaArc({ gpa, targetGpa, maxScale }: Props) {
         {/* GPA arc (maroon) — on top */}
         <AnimatedPath
           d={arcD}
-          stroke="#7A003C"
+          stroke={colors.primary}
           strokeWidth={STROKE_WIDTH}
           fill="none"
           strokeLinecap="round"
@@ -131,13 +134,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   gpaValue: {
-    fontSize: 36,
-    fontWeight: "700",
-    color: "#7A003C",
+    ...typo.display,
+    fontVariant: ["tabular-nums"],
+    color: colors.primary,
   },
   targetLabel: {
-    fontSize: 13,
-    color: "#888",
+    ...typo.caption,
+    fontVariant: ["tabular-nums"],
+    color: colors.bodyText,
     marginTop: 2,
   },
 });
