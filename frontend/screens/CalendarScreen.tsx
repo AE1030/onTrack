@@ -2,14 +2,15 @@
 import { useEffect, useState } from "react";
 import {
   View,
-  Text,
   StyleSheet,
   Pressable,
   ScrollView,
   Modal,
-  TextInput,
   ActivityIndicator,
+  useWindowDimensions,
 } from "react-native";
+import { Text, TextInput } from "../src/ui/Text";
+import { noHover } from "../src/ui/hover";
 import { Calendar, DateData } from "react-native-calendars";
 import * as WebBrowser from "expo-web-browser";
 import { Feather } from "@expo/vector-icons";
@@ -27,6 +28,29 @@ import {
   isAuthError,
   queryRetry,
 } from "../src/cache/authedGet";
+import { fonts, typo } from "../src/theme/typography";
+import { useTerm } from "../src/terms/TermContext";
+import EventDetailSheet, { formatTime } from "./components/EventDetailSheet";
+
+// Below this the grid's columns are too narrow to hold a readable label, so cells show coloured
+// marks and the month's events are listed under the grid instead.
+const LIST_BREAKPOINT = 768;
+// Chips per grid cell before the rest fold into "+N more", so one busy day can't stretch its week.
+const MAX_CHIPS = 2;
+
+const pad2 = (n: number) => String(n).padStart(2, "0");
+/** Today as YYYY-MM-DD in local time. toISOString() is UTC, which marks tomorrow late at night. */
+const localToday = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+};
+
+/** McMaster's term for a due date: Jan to Apr is Winter, May to Aug Spring/Summer, else Fall. */
+const termFor = (dueDate: string) => {
+  const [y, m] = dueDate.split("-").map(Number);
+  const season = m <= 4 ? "Winter" : m <= 8 ? "Spring/Summer" : "Fall";
+  return `${season} ${y}`;
+};
 
 type InternalCalendarEvent = {
   courseCode: string;
@@ -35,6 +59,8 @@ type InternalCalendarEvent = {
   startTime: string | null;
   endTime: string | null;
   allDay: boolean;
+  /** Sent by the server; set once the student ticks the event off on the dashboard. */
+  completed?: boolean;
   eventKey: string;
   description: string | null;
   location: string | null;
@@ -74,6 +100,11 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
   const [disconnecting, setDisconnecting] = useState(false);
   const [disconnectStatus, setDisconnectStatus] = useState<ExportStatus | null>(null);
   const queryClient = useQueryClient();
+  const [selectedEvent, setSelectedEvent] = useState<InternalCalendarEvent | null>(null);
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const { width } = useWindowDimensions();
+  const listMode = width < LIST_BREAKPOINT;
+  const { terms } = useTerm();
   const [currentDate, setCurrentDate] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
@@ -245,10 +276,49 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
     markedDates[date] = { marked: true, dotColor: colors.primary };
   }
 
-  const formatEventLabel = (event: InternalCalendarEvent) => {
-    const prefix = event.startTime ? `${event.startTime} ` : "";
-    return `${prefix}${event.courseCode} ${event.assessmentName}`;
-  };
+  // One colour per course, stable for the session: assigned in alphabetical order of course code.
+  const courseOrder = Array.from(new Set(events.map((e) => e.courseCode))).sort();
+  const accentFor = (courseCode: string) =>
+    colors.courseAccents[Math.max(0, courseOrder.indexOf(courseCode)) % colors.courseAccents.length];
+
+  // Only look up weight and grade in a term the student actually has.
+  const knownTerms = new Set(terms.map((t) => t.term));
+  const selectedTerm = selectedEvent ? termFor(selectedEvent.dueDate) : null;
+
+  // The event as a full-width card: the phone list under the grid and the "+N more" day sheet.
+  const renderEventCard = (event: InternalCalendarEvent, onPress: () => void) => (
+    <Pressable
+      style={[styles.agendaCard, event.completed && styles.eventDone]}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${event.courseCode} ${event.assessmentName}. Show details`}
+    >
+      <View style={[styles.agendaDot, { backgroundColor: accentFor(event.courseCode) }]} />
+      <View style={styles.agendaBody}>
+        <Text
+          style={[styles.agendaName, event.completed && styles.chipTextDone]}
+          numberOfLines={1}
+        >
+          {event.assessmentName}
+        </Text>
+        <Text style={styles.agendaCourse} numberOfLines={1}>
+          {event.courseCode}
+          {event.allDay || !event.startTime ? "" : `, ${formatTime(event.startTime)}`}
+        </Text>
+      </View>
+      <Feather name="chevron-right" size={18} color={colors.muted} />
+    </Pressable>
+  );
+
+  const today = localToday();
+  const visibleMonth = currentDate.slice(0, 7);
+  const monthEvents = events
+    .filter((e) => e.dueDate.startsWith(visibleMonth))
+    .sort((a, b) =>
+      a.dueDate === b.dueDate
+        ? (a.startTime ?? "").localeCompare(b.startTime ?? "")
+        : a.dueDate.localeCompare(b.dueDate)
+    );
 
   const navigateMonth = (direction: number) => {
     const [year, month] = currentDate.split("-").map(Number);
@@ -281,9 +351,6 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.title}>Calendar</Text>
-        <Text style={styles.subtitle}>
-          Keep track of all your upcoming deadlines.
-        </Text>
         <View style={styles.headerActions}>
           <Pressable
             style={styles.exportButton}
@@ -324,13 +391,23 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
         {/* Custom month navigation */}
         <View style={styles.monthNav}>
           <Text style={styles.monthLabel}>{currentMonthLabel()}</Text>
-          <Pressable onPress={() => navigateMonth(-1)} style={styles.navArrow}>
+          <Pressable
+            onPress={() => navigateMonth(-1)}
+            style={styles.navArrow}
+            accessibilityRole="button"
+            accessibilityLabel="Previous month"
+          >
             <Feather name="chevron-left" size={20} color={colors.boldText} />
           </Pressable>
           <Pressable onPress={goToToday} style={styles.todayButton}>
             <Text style={styles.todayButtonText}>Today</Text>
           </Pressable>
-          <Pressable onPress={() => navigateMonth(1)} style={styles.navArrow}>
+          <Pressable
+            onPress={() => navigateMonth(1)}
+            style={styles.navArrow}
+            accessibilityRole="button"
+            accessibilityLabel="Next month"
+          >
             <Feather name="chevron-right" size={20} color={colors.boldText} />
           </Pressable>
         </View>
@@ -346,10 +423,10 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
             if (!date) return null;
             const dateStr = date.dateString;
             const dayEvents = eventsByDate[dateStr] ?? [];
-            const isToday = dateStr === new Date().toISOString().split("T")[0];
+            const isToday = dateStr === today;
 
             return (
-              <View style={styles.dayCell}>
+              <View style={[styles.dayCell, listMode && styles.dayCellCompact]}>
                 <Text
                   style={[
                     styles.dayNumber,
@@ -358,24 +435,148 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
                 >
                   {date.day}
                 </Text>
-                {dayEvents.map((event, i) => (
-                  <View key={i} style={styles.eventPill}>
-                    <Text style={styles.eventPillText} numberOfLines={1}>
-                      {formatEventLabel(event)}
-                    </Text>
-                  </View>
-                ))}
+                {listMode ? (
+                  // Too narrow for words: one mark per event, coloured by course. The list under
+                  // the grid is where these are read and opened.
+                  dayEvents.length > 0 && (
+                    <View style={styles.markRow}>
+                      {dayEvents.map((event) => (
+                        <View
+                          key={event.eventKey}
+                          style={[
+                            styles.mark,
+                            { backgroundColor: accentFor(event.courseCode) },
+                            event.completed && styles.eventDone,
+                          ]}
+                        />
+                      ))}
+                    </View>
+                  )
+                ) : (
+                  <>
+                  {dayEvents.slice(0, MAX_CHIPS).map((event) => (
+                    <Pressable
+                      key={event.eventKey}
+                      style={[styles.eventChip, event.completed && styles.eventDone]}
+                      onPress={() => setSelectedEvent(event)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${event.courseCode} ${event.assessmentName}. Show details`}
+                    >
+                      <View style={[styles.chipDot, { backgroundColor: accentFor(event.courseCode) }]} />
+                      <Text
+                        style={[styles.chipText, event.completed && styles.chipTextDone]}
+                        numberOfLines={1}
+                      >
+                        <Text style={styles.chipCourse}>{event.courseCode}</Text>
+                        {"  "}
+                        {event.assessmentName}
+                      </Text>
+                    </Pressable>
+                  ))}
+                  {dayEvents.length > MAX_CHIPS && (
+                    <Pressable
+                      style={styles.moreChip}
+                      onPress={() => setSelectedDay(dateStr)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Show all ${dayEvents.length} events on this day`}
+                    >
+                      <Text style={styles.moreChipText}>
+                        +{dayEvents.length - MAX_CHIPS} more
+                      </Text>
+                    </Pressable>
+                  )}
+                  </>
+                )}
               </View>
             );
           }}
           theme={{
             calendarBackground: "transparent",
-            textSectionTitleColor: colors.text,
-            textDayHeaderFontWeight: "600" as const,
-            textDayHeaderFontSize: 13,
+            textSectionTitleColor: colors.bodyText,
+            textDayHeaderFontFamily: fonts.bodyMedium,
+            textDayHeaderFontSize: 12,
           }}
         />
       </View>
+
+      {listMode && (
+        <View style={styles.agenda}>
+          <Text style={styles.agendaTitle}>Due in {currentMonthLabel()}</Text>
+          {monthEvents.length === 0 ? (
+            <Text style={styles.agendaEmpty}>Nothing due this month.</Text>
+          ) : (
+            monthEvents.map((event, i) => {
+              const showDate = i === 0 || monthEvents[i - 1].dueDate !== event.dueDate;
+              const [y, m, d] = event.dueDate.split("-").map(Number);
+              const dateLabel = new Date(y, m - 1, d).toLocaleDateString("en-US", {
+                weekday: "short",
+                month: "short",
+                day: "numeric",
+              });
+              return (
+                <View key={event.eventKey}>
+                  {showDate && (
+                    <Text style={[styles.agendaDate, event.dueDate === today && styles.agendaDateToday]}>
+                      {event.dueDate === today ? `Today, ${dateLabel}` : dateLabel}
+                    </Text>
+                  )}
+                  {renderEventCard(event, () => setSelectedEvent(event))}
+                </View>
+              );
+            })
+          )}
+        </View>
+      )}
+
+      {/* Every event on a busy day, opened from "+N more" in the grid. */}
+      <Modal
+        visible={selectedDay !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSelectedDay(null)}
+      >
+        <Pressable {...noHover} style={styles.modalOverlay} onPress={() => setSelectedDay(null)}>
+          <Pressable {...noHover} style={[styles.modalContent, styles.daySheet]} onPress={() => {}}>
+            <View style={styles.daySheetHeader}>
+              <Text style={styles.modalTitle}>
+                {selectedDay &&
+                  (() => {
+                    const [y, m, d] = selectedDay.split("-").map(Number);
+                    return new Date(y, m - 1, d).toLocaleDateString("en-US", {
+                      weekday: "long",
+                      month: "long",
+                      day: "numeric",
+                    });
+                  })()}
+              </Text>
+              <Pressable
+                onPress={() => setSelectedDay(null)}
+                style={styles.daySheetClose}
+                accessibilityRole="button"
+                accessibilityLabel="Close"
+              >
+                <Feather name="x" size={20} color={colors.bodyText} />
+              </Pressable>
+            </View>
+            {selectedDay &&
+              (eventsByDate[selectedDay] ?? []).map((event) => (
+                <View key={event.eventKey}>
+                  {renderEventCard(event, () => {
+                    setSelectedDay(null);
+                    setSelectedEvent(event);
+                  })}
+                </View>
+              ))}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <EventDetailSheet
+        event={selectedEvent}
+        accent={selectedEvent ? accentFor(selectedEvent.courseCode) : colors.primary}
+        term={selectedTerm && knownTerms.has(selectedTerm) ? selectedTerm : null}
+        onClose={() => setSelectedEvent(null)}
+      />
 
       {/* Export Modal */}
       <Modal
@@ -385,10 +586,11 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
         onRequestClose={closeExportModal}
       >
         <Pressable
+          {...noHover}
           style={styles.modalOverlay}
           onPress={closeExportModal}
         >
-          <Pressable style={styles.modalContent} onPress={() => {}}>
+          <Pressable {...noHover} style={styles.modalContent} onPress={() => {}}>
             <Text style={styles.modalTitle}>Export to Google Calendar</Text>
             <Text style={styles.modalSubtitle}>
               Enter the Google email to sync your events to.
@@ -396,7 +598,7 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
             <TextInput
               style={styles.emailInput}
               placeholder="example@gmail.com"
-              placeholderTextColor="#aaa"
+              placeholderTextColor={colors.placeholder}
               keyboardType="email-address"
               autoCapitalize="none"
               value={email}
@@ -434,7 +636,7 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
                 disabled={exporting}
               >
                 {exporting ? (
-                  <ActivityIndicator size="small" color="white" />
+                  <ActivityIndicator size="small" color={colors.onField} />
                 ) : (
                   <Text style={styles.exportSubmitText}>Export</Text>
                 )}
@@ -451,8 +653,8 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
         animationType="fade"
         onRequestClose={closeDisconnectModal}
       >
-        <Pressable style={styles.modalOverlay} onPress={closeDisconnectModal}>
-          <Pressable style={styles.modalContent} onPress={() => {}}>
+        <Pressable {...noHover} style={styles.modalOverlay} onPress={closeDisconnectModal}>
+          <Pressable {...noHover} style={styles.modalContent} onPress={() => {}}>
             {disconnectTarget && (
               <>
                 <Text style={styles.modalTitle}>
@@ -512,7 +714,7 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
                         disabled={disconnecting}
                       >
                         {disconnecting ? (
-                          <ActivityIndicator size="small" color="white" />
+                          <ActivityIndicator size="small" color={colors.onField} />
                         ) : (
                           <Text style={styles.exportSubmitText}>Disconnect</Text>
                         )}
@@ -534,10 +736,11 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
         onRequestClose={() => setOutlookModalVisible(false)}
       >
         <Pressable
+          {...noHover}
           style={styles.modalOverlay}
           onPress={() => setOutlookModalVisible(false)}
         >
-          <Pressable style={styles.modalContent} onPress={() => {}}>
+          <Pressable {...noHover} style={styles.modalContent} onPress={() => {}}>
             <Text style={styles.modalTitle}>Coming Soon</Text>
             <Text style={styles.modalSubtitle}>
               Outlook calendar sync is not yet available. Stay tuned!
@@ -570,17 +773,13 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   header: {
+    // Clears the shell's hamburger, which floats over the top-left corner.
+    paddingTop: spacing.lg,
     marginBottom: spacing.lg,
   },
   title: {
-    fontSize: 28,
-    fontWeight: "700",
+    ...typo.h1,
     color: colors.boldText,
-  },
-  subtitle: {
-    marginTop: 4,
-    color: colors.bodyText,
-    fontSize: 14,
   },
   headerActions: {
     flexDirection: "row",
@@ -598,9 +797,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   exportButtonText: {
+    ...typo.label,
     color: colors.primary,
-    fontWeight: "600",
-    fontSize: 14,
   },
   connectedRow: {
     flexDirection: "row",
@@ -609,18 +807,17 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
   },
   connectedText: {
+    ...typo.body,
     flexShrink: 1,
     color: colors.bodyText,
-    fontSize: 14,
   },
   disconnectLink: {
     paddingVertical: 4,
     paddingHorizontal: 6,
   },
   disconnectLinkText: {
+    ...typo.label,
     color: colors.danger,
-    fontWeight: "600",
-    fontSize: 14,
   },
   checkboxRow: {
     flexDirection: "row",
@@ -629,10 +826,9 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   checkboxLabel: {
+    ...typo.body,
     flex: 1,
-    fontSize: 14,
     color: colors.boldText,
-    lineHeight: 20,
   },
   disconnectButton: {
     backgroundColor: colors.danger,
@@ -641,12 +837,12 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   card: {
-    backgroundColor: "white",
+    backgroundColor: colors.surface,
     borderRadius: radius.lg,
     padding: spacing.md,
     marginBottom: spacing.md,
-    boxShadow: "0px 2px 6px rgba(0, 0, 0, 0.06)",
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
   },
   monthNav: {
     flexDirection: "row",
@@ -656,8 +852,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   monthLabel: {
-    fontSize: 20,
-    fontWeight: "700",
+    ...typo.h2,
     color: colors.boldText,
     marginRight: 4,
   },
@@ -676,68 +871,194 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   todayButtonText: {
+    ...typo.label,
     color: colors.boldText,
-    fontWeight: "600",
-    fontSize: 14,
   },
   dayCell: {
     width: "100%",
-    minHeight: 80,
+    minHeight: 102,
     borderWidth: 0.5,
     borderColor: colors.border,
     padding: 4,
   },
   dayNumber: {
-    fontSize: 12,
+    ...typo.caption,
     color: colors.boldText,
     marginBottom: 2,
+    fontVariant: ["tabular-nums"],
   },
   todayNumber: {
-    fontWeight: "700",
     color: colors.primary,
+    fontFamily: fonts.display,
   },
-  eventPill: {
-    backgroundColor: "#F2E6EC",
-    borderLeftWidth: 3,
-    borderLeftColor: colors.primary,
-    borderRadius: 4,
-    paddingHorizontal: 4,
+  moreChip: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 5,
     paddingVertical: 2,
-    marginTop: 2,
+    marginTop: 3,
+    borderRadius: radius.sm,
   },
-  eventPillText: {
-    fontSize: 10,
+  moreChipText: {
+    ...typo.caption,
+    fontSize: 11,
+    lineHeight: 14,
+    fontFamily: fonts.bodyMedium,
     color: colors.primary,
-    fontWeight: "600",
+  },
+  daySheet: {
+    maxWidth: 440,
+  },
+  daySheetHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  daySheetClose: {
+    width: 32,
+    height: 32,
+    borderRadius: radius.md,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: -4,
+    marginRight: -6,
+  },
+  dayCellCompact: {
+    minHeight: 52,
+    padding: 3,
+  },
+  // A grid event: one line, never wraps. The dot carries the course colour so a week with four
+  // courses can be scanned without reading every label.
+  eventChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+    borderRadius: radius.sm,
+    paddingHorizontal: 5,
+    paddingVertical: 3,
+    marginTop: 3,
+    overflow: "hidden",
+  },
+  chipDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    flexShrink: 0,
+  },
+  chipText: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 11,
+    lineHeight: 14,
+    letterSpacing: 0.22,
+    color: colors.bodyText,
+    fontFamily: fonts.body,
+  },
+  chipCourse: {
+    fontFamily: fonts.bodyMedium,
+    color: colors.boldText,
+  },
+  chipTextDone: {
+    textDecorationLine: "line-through",
+  },
+  eventDone: {
+    opacity: 0.5,
+  },
+  markRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 3,
+    marginTop: 4,
+  },
+  mark: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  agenda: {
+    marginBottom: spacing.lg,
+  },
+  agendaTitle: {
+    ...typo.h2,
+    color: colors.boldText,
+    marginTop: spacing.sm,
+  },
+  agendaEmpty: {
+    ...typo.body,
+    color: colors.bodyText,
+    marginTop: spacing.sm,
+  },
+  agendaDate: {
+    ...typo.caption,
+    fontFamily: fonts.bodyMedium,
+    color: colors.bodyText,
+    marginTop: spacing.md,
+    marginBottom: 6,
+  },
+  agendaDateToday: {
+    color: colors.primary,
+  },
+  agendaCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+    borderRadius: radius.md,
+    paddingVertical: 12,
+    paddingHorizontal: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  agendaDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  agendaBody: {
+    flex: 1,
+    minWidth: 0,
+  },
+  agendaName: {
+    ...typo.body,
+    fontFamily: fonts.bodyMedium,
+    color: colors.boldText,
+  },
+  agendaCourse: {
+    ...typo.caption,
+    color: colors.bodyText,
+    marginTop: 2,
   },
   // Modal styles
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.4)",
+    backgroundColor: colors.scrim,
     justifyContent: "center",
     alignItems: "center",
   },
   modalContent: {
-    backgroundColor: "white",
+    backgroundColor: colors.surface,
     borderRadius: radius.lg,
     padding: spacing.lg,
     width: "85%",
     maxWidth: 400,
-    boxShadow: "0px 8px 24px rgba(0, 0, 0, 0.15)",
-    elevation: 8,
   },
   modalTitle: {
-    fontSize: 20,
-    fontWeight: "700",
+    ...typo.h2,
     color: colors.boldText,
     marginBottom: 4,
   },
   modalSubtitle: {
-    fontSize: 14,
+    ...typo.body,
     color: colors.bodyText,
     marginBottom: spacing.md,
   },
   emailInput: {
+    ...typo.body,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.md,
@@ -745,9 +1066,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: spacing.md,
     color: colors.boldText,
+    letterSpacing: 0.32,
   },
   exportStatus: {
-    fontSize: 14,
+    ...typo.body,
     color: colors.bodyText,
     marginBottom: spacing.md,
   },
@@ -768,8 +1090,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   cancelText: {
+    ...typo.label,
     color: colors.bodyText,
-    fontWeight: "600",
   },
   exportSubmitButton: {
     backgroundColor: colors.primary,
@@ -778,8 +1100,9 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   exportSubmitText: {
-    color: "white",
-    fontWeight: "600",
+    ...typo.label,
+    color: colors.onField,
+    fontFamily: fonts.display,
   },
   disabledButton: {
     opacity: 0.6,

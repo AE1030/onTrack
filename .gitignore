@@ -2,6 +2,8 @@
 target/
 .env
 CLAUDE.md
+DESIGN.md
+PRODUCT.md
 *:Zone.Identifier
 
 # Local planning docs (not part of the build)

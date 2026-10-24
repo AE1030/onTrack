@@ -88,6 +88,53 @@ class HandlePolicyTest {
         assertThat(HandlePolicy.isScreened(handle)).isTrue();
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"asssshole", "Booooobs"})
+    @DisplayName("stretching a doubled letter does not hide a word either")
+    void stretchedDoubleLettersDoNotHide(String handle) {
+        assertThat(HandlePolicy.isScreened(handle)).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"s1ut", "a55", "t1t_for_tat", "phuck", "fvck", "azzhole", "biatch"})
+    @DisplayName("1 reads as i or l, digits as letters, and sound-alike spellings are undone")
+    void widerSubstitutionsAreCaught(String handle) {
+        assertThat(HandlePolicy.isScreened(handle)).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"SiegHeil", "kkk", "white_power", "Sam1488", "14_88", "kys",
+                            "KillYourself", "molester", "ch1nk"})
+    @DisplayName("hate, self-harm taunts and slurs are caught")
+    void hateAndHarassmentAreCaught(String handle) {
+        assertThat(HandlePolicy.isScreened(handle)).isTrue();
+    }
+
+    /** Real names and ordinary words that contain a listed term, from a sweep of name databases. */
+    @ParameterizedTest
+    @ValueSource(strings = {"Nazir", "Nazir_99", "Yamashita", "Joaquim", "Vecchio", "Poon",
+                            "Cummings", "Fagan", "Mahboob", "Ashkenazi", "Schinkel", "Zhitomirsky",
+                            "Zucker", "administrator", "Badminton_Ben", "TheSupporter",
+                            "specialist", "bobsled", "Class2014886", "Fukuda", "McMasterFan"})
+    @DisplayName("names and words that contain a listed term are allowed")
+    void allowedNamesAndWordsPass(String handle) {
+        assertThat(HandlePolicy.isScreened(handle)).isFalse();
+    }
+
+    @Test
+    @DisplayName("an allowed name does not launder whatever it is paired with")
+    void allowedWordDoesNotShieldTheRest() {
+        assertThat(HandlePolicy.isScreened("Nazir_fuck")).isTrue();
+        assertThat(HandlePolicy.isScreened("supporter_kys")).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"ontrak", "Real_Staff", "TheRegistrar", "onTrackSupport"})
+    @DisplayName("impersonating the product or its staff is caught")
+    void impersonationIsCaught(String handle) {
+        assertThat(HandlePolicy.isScreened(handle)).isTrue();
+    }
+
     /**
      * Documenting a known limit rather than pretending it is absent: terms on the substring list
      * still match inside a longer word. They were chosen because no common English word contains

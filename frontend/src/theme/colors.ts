@@ -49,6 +49,12 @@ export type Palette = {
   onField: string;
   onFieldMuted: string;
   onFieldFaint: string;
+  // Rank movement on the field. Semantic success/danger are picked for white and near-black grounds
+  // and fall to ~1.6:1 on maroon, so the field gets its own pair. Up is a solid mint chip with dark
+  // ink so a climb lands; down stays a quiet coral on the translucent chip, never an alarm.
+  onFieldUp: string;
+  onFieldUpInk: string;
+  onFieldDown: string;
 
   // Semantic
   danger: string;
@@ -85,9 +91,11 @@ const light: Palette = {
   surfaceAlt: "#FBF7F9",
   surfaceSunken: "#EFE8EC",
 
+  // Neutrals lean toward the maroon hue rather than flat grey, and every one used as text clears
+  // 4.5:1 on background and surface. The old #888 body and #AAA placeholder sat near 3:1.
   boldText: "#3B0A1D",
-  bodyText: "#888888",
-  faintText: "#A9A0A5",
+  bodyText: "#5E4E56",
+  faintText: "#76666F",
 
   border: "#E0D7DE",
   borderSubtle: "#EDE7EB",
@@ -97,14 +105,17 @@ const light: Palette = {
   onField: "#FFFFFF",
   onFieldMuted: "rgba(255,255,255,0.78)",
   onFieldFaint: "rgba(255,255,255,0.55)",
+  onFieldUp: "#7CE8A6", // 7.4:1 against the field
+  onFieldUpInk: "#04391C", // 8.7:1 on onFieldUp
+  onFieldDown: "#FFB8AD", // 4.8:1 on the translucent chip
 
   danger: "#D32F2F",
   dangerDeep: "#A81E14",
   dangerSoft: "#FDECEA",
   success: "#2E7D32",
   successSoft: "#E8F5E9",
-  muted: "#BBBBBB",
-  placeholder: "#AAAAAA",
+  muted: "#968890", // icons and inactive marks: 3:1 against surface, not body text
+  placeholder: "#76666F",
   disabled: "#DDDDDD",
 
   scrim: "rgba(0,0,0,0.40)",
@@ -139,7 +150,7 @@ const dark: Palette = {
 
   boldText: "#F6EAF0",
   bodyText: "#A99AA2",
-  faintText: "#7C6C75",
+  faintText: "#96858F",
 
   border: "#3A2733",
   borderSubtle: "#2E1E28",
@@ -151,14 +162,17 @@ const dark: Palette = {
   onField: "#FFFFFF",
   onFieldMuted: "rgba(255,255,255,0.76)",
   onFieldFaint: "rgba(255,255,255,0.52)",
+  onFieldUp: "#7CE8A6", // 7.4:1 against the field
+  onFieldUpInk: "#04391C", // 8.7:1 on onFieldUp
+  onFieldDown: "#FFB8AD", // 4.8:1 on the translucent chip
 
   danger: "#FF6B6B",
   dangerDeep: "#FF8A80",
   dangerSoft: "#3A1A1A",
   success: "#6BBF6F",
   successSoft: "#16301A",
-  muted: "#6E5C66",
-  placeholder: "#7E6C76",
+  muted: "#8A7882",
+  placeholder: "#96858F",
   disabled: "#3A2733",
 
   // Not a darker black. A black scrim over a near-black ground reads as nothing at all, so this

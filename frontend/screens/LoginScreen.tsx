@@ -1,20 +1,20 @@
 import {
   View,
-  Text,
-  TextInput,
   Pressable,
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
+import { Text, TextInput } from "../src/ui/Text";
 import { useRef, useState } from "react";
 import { Feather } from "@expo/vector-icons";
 import { colors } from "../src/theme/colors";
 import { spacing, radius } from "../src/theme/spacing";
-import { setTokens } from "../src/utils/tokenStorage";
+import { startSession } from "../src/utils/tokenStorage";
 import { API_BASE_URL } from "../src/config/api";
 import { readServerError } from "../src/cache/authedGet";
 import OnTrackLogo from "./components/OnTrackLogo";
+import { fonts, typo } from "../src/theme/typography";
 
 const VERIFY_RESEND_URL = `${API_BASE_URL.replace(/\/$/, "")}/verify/resend`;
 
@@ -74,7 +74,7 @@ export default function LoginScreen({ onLoginSuccess, onGoToRegister, onGoToForg
         throw new Error("Malformed login response");
       }
 
-      await setTokens(accessToken, refreshToken);
+      await startSession(accessToken, refreshToken);
       onLoginSuccess();
     } catch (err) {
       setError("Invalid email or password");
@@ -278,20 +278,21 @@ const styles = StyleSheet.create({
     maxWidth: 400,
     width: "100%",
     alignSelf: "center",
-    boxShadow: "0px 2px 12px rgba(59, 10, 29, 0.08)",
-    elevation: 3,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
   },
   logoWrapper: {
     alignItems: "center",
     marginBottom: spacing.md,
   },
   subtitle: {
+    ...typo.bodyLarge,
     textAlign: "center",
-    fontSize: 14,
     color: colors.bodyText,
     marginBottom: spacing.lg,
   },
   input: {
+    ...typo.body,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.md,
@@ -301,6 +302,7 @@ const styles = StyleSheet.create({
     color: colors.boldText,
     marginBottom: spacing.md,
     backgroundColor: colors.surface,
+    letterSpacing: 0.32,
   },
   passwordRow: {
     flexDirection: "row",
@@ -312,11 +314,13 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   passwordInput: {
+    ...typo.body,
     flex: 1,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 16,
     color: colors.boldText,
+    letterSpacing: 0.32,
   },
   eyeButton: {
     paddingHorizontal: 14,
@@ -329,7 +333,7 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
   },
   inputError: {
-    borderColor: "#D32F2F",
+    borderColor: colors.danger,
   },
   button: {
     backgroundColor: colors.primary,
@@ -347,13 +351,15 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   buttonText: {
-    color: "#FFFFFF",
-    fontWeight: "600",
+    ...typo.label,
+    color: colors.onField,
     fontSize: 16,
+    fontFamily: fonts.display,
+    letterSpacing: 0.32,
   },
   error: {
-    color: "#D32F2F",
-    fontSize: 13,
+    ...typo.body,
+    color: colors.danger,
     marginBottom: spacing.sm,
     textAlign: "center",
   },
@@ -363,35 +369,33 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   verifyTitle: {
-    fontSize: 20,
-    fontWeight: "700",
+    ...typo.h2,
     color: colors.boldText,
     textAlign: "center",
     marginBottom: spacing.sm,
   },
   verifyBody: {
-    fontSize: 14,
+    ...typo.body,
     color: colors.bodyText,
     textAlign: "center",
-    lineHeight: 20,
     marginBottom: spacing.lg,
   },
   verifyEmail: {
-    fontWeight: "600",
     color: colors.boldText,
+    fontFamily: fonts.bodyMedium,
   },
   resendMessage: {
-    fontSize: 13,
+    ...typo.body,
     color: colors.bodyText,
     textAlign: "center",
     marginTop: spacing.sm,
   },
   linkText: {
-    fontSize: 14,
+    ...typo.body,
     color: colors.bodyText,
   },
   linkBold: {
     color: colors.primary,
-    fontWeight: "600",
+    fontFamily: fonts.bodyMedium,
   },
 });

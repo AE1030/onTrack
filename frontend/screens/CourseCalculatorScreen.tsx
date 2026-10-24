@@ -1,14 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
-  Text,
-  TextInput,
   ScrollView,
   StyleSheet,
   ActivityIndicator,
   Pressable,
   Platform,
 } from "react-native";
+import { Text, TextInput } from "../src/ui/Text";
 import { Feather } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -24,6 +23,7 @@ import {
   isServerRejection,
 } from "../src/cache/authedGet";
 import { radius } from "../src/theme/spacing";
+import { fonts, typo } from "../src/theme/typography";
 
 //
 // TYPES
@@ -1621,7 +1621,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 16,
-    backgroundColor: "#f4f4f4",
+    backgroundColor: colors.background,
   },
   inlineContainer: {
     flex: 0,
@@ -1640,12 +1640,14 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     padding: 16,
     borderRadius: radius.md,
-    backgroundColor: "white",
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
   },
   // Recessed rather than faded. This is a reading surface, so the text has to stay
   // comfortably legible: a low opacity would make the feature useless.
   readOnlyScheme: {
-    backgroundColor: "#F4F4F7",
+    backgroundColor: colors.surfaceSunken,
     opacity: 0.92,
   },
   readOnlyBanner: {
@@ -1656,33 +1658,38 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     marginBottom: 12,
     borderRadius: radius.sm,
-    backgroundColor: "#EEEEF5",
+    backgroundColor: colors.surfaceSunken,
   },
   readOnlyBannerText: {
+    ...typo.body,
     flex: 1,
-    fontSize: 13,
     color: colors.bodyText,
   },
   title: {
-    fontSize: 18,
-    fontWeight: "bold",
+    ...typo.h2,
     marginBottom: 12,
+    color: colors.boldText,
   },
   headerRow: {
     flexDirection: "row",
-    marginBottom: 8,
+    marginBottom: 4,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
   col: {
+    ...typo.caption,
     flex: 1,
-    fontWeight: "bold",
-    fontSize: 12,
-    color: "#666",
+    color: colors.bodyText,
+    fontFamily: fonts.bodyMedium,
   },
   row: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 12,
-    paddingVertical: 6,
+    marginBottom: 0,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderSubtle,
   },
   col2: {
     flex: 2,
@@ -1695,64 +1702,77 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   nameInput: {
+    ...typo.body,
     borderWidth: 1,
-    borderColor: "#ddd",
+    borderColor: colors.border,
     padding: 6,
     borderRadius: radius.sm,
+    color: colors.boldText,
   },
   cell: {
     flex: 1,
-    fontSize: 14,
   },
   editableText: {
-    color: "#222",
+    ...typo.data,
+    color: colors.boldText,
   },
   weightInput: {
+    ...typo.data,
     flex: 1,
     borderWidth: 1,
-    borderColor: "#ddd",
+    borderColor: colors.border,
     padding: 6,
     borderRadius: radius.sm,
     textAlign: "center",
+    color: colors.boldText,
   },
   dateInput: {
+    ...typo.data,
     borderWidth: 1,
-    borderColor: "#ddd",
+    borderColor: colors.border,
     padding: 6,
     borderRadius: radius.sm,
     textAlign: "center",
+    color: colors.boldText,
   },
   timeInput: {
+    ...typo.data,
     borderWidth: 1,
-    borderColor: "#ddd",
+    borderColor: colors.border,
     padding: 6,
     borderRadius: radius.sm,
     textAlign: "center",
+    color: colors.boldText,
   },
   warningText: {
-    color: "#c0392b",
-    fontSize: 12,
+    ...typo.caption,
+    color: colors.danger,
     marginTop: 4,
     textAlign: "center",
   },
   locationInput: {
+    ...typo.body,
     borderWidth: 1,
-    borderColor: "#ddd",
+    borderColor: colors.border,
     padding: 6,
     borderRadius: radius.sm,
+    color: colors.boldText,
   },
   gradeInput: {
+    ...typo.data,
     flex: 1,
     borderWidth: 1,
-    borderColor: "#ddd",
+    borderColor: colors.border,
     padding: 6,
     borderRadius: radius.sm,
     textAlign: "center",
+    color: colors.boldText,
   },
   schemeGrade: {
+    ...typo.h3,
     marginTop: 12,
-    fontWeight: "bold",
-    color: "#7B003B",
+    color: colors.primary,
+    fontVariant: ["tabular-nums"],
   },
   saveRow: {
     flexDirection: "row",
@@ -1762,21 +1782,22 @@ const styles = StyleSheet.create({
   },
   saveButton: {
     paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: radius.sm,
-    backgroundColor: "#0f5bd7",
+    paddingVertical: 10,
+    borderRadius: radius.md,
+    backgroundColor: colors.primary,
   },
   saveButtonDisabled: {
     opacity: 0.5,
   },
   saveButtonText: {
-    color: "#fff",
-    fontWeight: "bold",
-    fontSize: 12,
+    ...typo.label,
+    color: colors.onField,
+    fontSize: 13,
+    fontFamily: fonts.display,
   },
   saveStatus: {
-    fontSize: 12,
-    color: "#666",
+    ...typo.caption,
+    color: colors.bodyText,
   },
   schemeHeader: {
     flexDirection: "row",
@@ -1789,29 +1810,33 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: radius.sm,
-    backgroundColor: "#0f5bd7",
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.primary,
   },
   addSchemeButtonDisabled: {
     opacity: 0.5,
   },
   addSchemeButtonText: {
-    color: "#fff",
-    fontWeight: "bold",
-    fontSize: 12,
+    ...typo.label,
+    color: colors.primary,
+    fontSize: 13,
   },
   addButton: {
     alignSelf: "flex-start",
     marginBottom: 12,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: radius.sm,
-    backgroundColor: "#1f6feb",
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.primary,
   },
   addButtonText: {
-    color: "#fff",
-    fontWeight: "bold",
-    fontSize: 12,
+    ...typo.label,
+    color: colors.primary,
+    fontSize: 13,
   },
   deleteButton: {
     padding: 6,

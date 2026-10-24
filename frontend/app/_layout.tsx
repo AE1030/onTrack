@@ -6,6 +6,11 @@ import {
   ThemeProvider as NavigationThemeProvider,
 } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
+import { SpaceGrotesk_500Medium } from '@expo-google-fonts/space-grotesk/500Medium';
+import { SpaceGrotesk_700Bold } from '@expo-google-fonts/space-grotesk/700Bold';
+import { IBMPlexSans_300Light } from '@expo-google-fonts/ibm-plex-sans/300Light';
+import { IBMPlexSans_400Regular } from '@expo-google-fonts/ibm-plex-sans/400Regular';
+import { IBMPlexSans_500Medium } from '@expo-google-fonts/ibm-plex-sans/500Medium';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useMemo } from 'react';
@@ -16,6 +21,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClient } from '../src/cache/queryClient';
 import { TermProvider } from '../src/terms/TermContext';
 import { ThemeProvider, useTheme, useThemeControl } from '../src/theme/ThemeContext';
+import { HoverStyles } from '../src/ui/HoverStyles';
 
 // Catches any error thrown under the root layout. Replaces Expo Router's stock boundary, which
 // prints the raw error message on screen.
@@ -30,7 +36,12 @@ SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   const [loaded, error] = useFonts({
-    SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
+    // Per-weight imports so only the five faces in src/theme/typography.ts reach the bundle.
+    SpaceGrotesk_500Medium,
+    SpaceGrotesk_700Bold,
+    IBMPlexSans_300Light,
+    IBMPlexSans_400Regular,
+    IBMPlexSans_500Medium,
     ...FontAwesome.font,
     ...Feather.font,
   });
@@ -85,6 +96,7 @@ function RootLayoutNav() {
       {/* Inside QueryClientProvider: TermProvider reads the term list through the cache. */}
       <TermProvider>
         <NavigationThemeProvider value={navigationTheme}>
+          <HoverStyles />
           <Stack screenOptions={{ headerShown: false }}>
             <Stack.Screen name="index" />
             <Stack.Screen name="dashboard" />

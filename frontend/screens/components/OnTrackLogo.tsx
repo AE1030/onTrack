@@ -1,5 +1,8 @@
 import React from "react";
-import { View, Text, StyleSheet } from "react-native";
+import { View, StyleSheet } from "react-native";
+import { Text } from "../../src/ui/Text";
+import { colors } from "../../src/theme/colors";
+import { fonts } from "../../src/theme/typography";
 
 type Props = {
   size?: number;
@@ -34,14 +37,14 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
   },
   on: {
-    fontWeight: "700",
-    color: "#F2B94A",
+    fontFamily: fonts.display,
+    color: colors.accent,
   },
   track: {
-    fontWeight: "700",
-    color: "#3B0A1D",
+    fontFamily: fonts.display,
+    color: colors.boldText,
   },
   dot: {
-    backgroundColor: "#7A003C",
+    backgroundColor: colors.primary,
   },
 });

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -6,24 +6,21 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
-  TextInput,
   View,
 } from "react-native";
+import { Text, TextInput } from "../src/ui/Text";
+import { noHover } from "../src/ui/hover";
 import { Feather } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import Animated, { FadeInDown } from "react-native-reanimated";
 
 import { useTheme } from "../src/theme/ThemeContext";
 import { qk } from "../src/cache/keys";
 import { isAuthError, isServerRejection, queryRetry } from "../src/cache/authedGet";
-import {
-  SCOPE_SERVED,
-  changeHandle,
-  fetchBoard,
-  fetchStatus,
-  withdraw,
-} from "../src/leaderboard/api";
-import { BoardScope, LeaderboardRow } from "../src/leaderboard/types";
+import { changeHandle, fetchBoard, fetchStatus, withdraw } from "../src/leaderboard/api";
+import { LeaderboardRow } from "../src/leaderboard/types";
+import { POINTS_NAME } from "../src/leaderboard/scoring";
+import { revealPending, spendReveal } from "../src/leaderboard/celebration";
 import { HANDLE_MAX, localHandleRejection } from "../src/leaderboard/handle";
 import { useHandleAvailability } from "../src/leaderboard/useHandleAvailability";
 import { AvatarConfig, normalizeAvatar } from "../src/leaderboard/avatar";
@@ -32,7 +29,9 @@ import BrandField from "./components/leaderboard/BrandField";
 import Podium from "./components/leaderboard/Podium";
 import RankRow from "./components/leaderboard/RankRow";
 import PlayerAvatar from "./components/leaderboard/PlayerAvatar";
+import StandingsReveal from "./components/leaderboard/StandingsReveal";
 import { radius } from "../src/theme/spacing";
+import { fonts, typo } from "../src/theme/typography";
 
 /**
  * The board.
@@ -44,13 +43,13 @@ import { radius } from "../src/theme/spacing";
  * Your own row is pinned to the bottom in gold and never scrolls away. It is the single most
  * useful thing on the screen, and it is the reason gold is reserved: using it anywhere else costs
  * the find-yourself-instantly property the pinned row exists for.
+ *
+ * One board: the global field. Program and friends scopes were cut rather than shipped as tabs that
+ * only ever said "not live yet".
  */
 
-const TABS: { key: BoardScope; label: string; tag?: string }[] = [
-  { key: "global", label: "Global" },
-  { key: "program", label: "My Program" },
-  { key: "friends", label: "Friends", tag: "v3" },
-];
+// Rows past this many enter together; staggering a hundred would make the bottom of the board wait.
+const STAGGERED_ROWS = 12;
 
 type Props = {
   onBack: () => void;
@@ -62,8 +61,9 @@ export default function LeaderboardScreen({ onBack, onJoin, onAuthError }: Props
   const c = useTheme();
   const queryClient = useQueryClient();
 
-  const [scope, setScope] = useState<BoardScope>("global");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [revealing, setRevealing] = useState(false);
+  const revealChecked = useRef(false);
 
   const statusQuery = useQuery({
     queryKey: qk.leaderboardStatus,
@@ -102,6 +102,18 @@ export default function LeaderboardScreen({ onBack, onJoin, onAuthError }: Props
 
   const loading = statusQuery.isLoading || boardQuery.isLoading;
 
+  // The standings reveal: once per sign-in, and only once there is a standing to reveal. A student
+  // who has not been ranked yet keeps it for the first visit after they are.
+  useEffect(() => {
+    if (revealChecked.current || loading || !onBoard || !me) return;
+    revealChecked.current = true;
+    revealPending().then((pending) => {
+      if (!pending) return;
+      setRevealing(true);
+      spendReveal();
+    });
+  }, [loading, onBoard, me]);
+
   return (
     <View style={[styles.screen, { backgroundColor: c.background }]}>
       <ScrollView
@@ -131,41 +143,9 @@ export default function LeaderboardScreen({ onBack, onJoin, onAuthError }: Props
               {board?.season ?? statusQuery.data?.season ?? ""}
             </Text>
             <Text style={[styles.seasonMeta, { color: c.onFieldFaint }]}>
-              {board ? `${board.entrants} ranked` : ""}
+              {board ? `${board.entrants} ranked globally` : ""}
               {board?.computedAt ? `  ·  updated ${relativeTime(board.computedAt)}` : ""}
             </Text>
-          </View>
-
-          <View style={styles.tabs}>
-            {TABS.map((tab) => {
-              const active = scope === tab.key;
-              const disabled = tab.key === "friends";
-              return (
-                <Pressable
-                  key={tab.key}
-                  onPress={() => !disabled && setScope(tab.key)}
-                  disabled={disabled}
-                  style={[
-                    styles.tab,
-                    active && { backgroundColor: "rgba(255,255,255,0.20)" },
-                    disabled && styles.tabDisabled,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.tabText,
-                      { color: active ? c.onField : c.onFieldFaint },
-                    ]}
-                  >
-                    {tab.label}
-                  </Text>
-                  {/* Drawn rather than omitted, so the strip does not reflow when it lands. */}
-                  {tab.tag && (
-                    <Text style={[styles.tabTag, { color: c.onFieldFaint }]}>{tab.tag}</Text>
-                  )}
-                </Pressable>
-              );
-            })}
           </View>
 
           <View style={styles.podiumWrap}>
@@ -178,17 +158,6 @@ export default function LeaderboardScreen({ onBack, onJoin, onAuthError }: Props
         </BrandField>
 
         <View style={[styles.sheet, { backgroundColor: c.background }]}>
-          {!SCOPE_SERVED[scope] && (
-            // The server serves one scope today. Saying so beats showing the global field under a
-            // label that claims it has been filtered.
-            <View style={[styles.scopeNotice, { backgroundColor: c.surfaceSunken }]}>
-              <Feather name="info" size={14} color={c.bodyText} />
-              <Text style={[styles.scopeNoticeText, { color: c.bodyText }]}>
-                Program filtering is not live yet. These are the same global standings.
-              </Text>
-            </View>
-          )}
-
           {loading ? (
             <ActivityIndicator color={c.primary} style={styles.listLoading} />
           ) : boardQuery.isError ? (
@@ -201,16 +170,23 @@ export default function LeaderboardScreen({ onBack, onJoin, onAuthError }: Props
             <EmptyState
               icon="award"
               title="Nobody is ranked yet"
-              body="The first standings for this season land at the next update. Scores update three times a day."
+              body="The first standings for this season land at the next update. Track Points update three times a day."
             />
           ) : onBoard ? (
             <View style={styles.list}>
-              {listRows.map((row) => (
-                <RankRow
+              {listRows.length > 0 && (
+                <View style={styles.listHead}>
+                  <Text style={[styles.listHeadText, { color: c.faintText }]}>Rank</Text>
+                  <Text style={[styles.listHeadText, { color: c.faintText }]}>{POINTS_NAME}</Text>
+                </View>
+              )}
+              {listRows.map((row, i) => (
+                <Animated.View
                   key={row.rank + row.handle}
-                  row={row}
-                  delta={row.you ? delta : null}
-                />
+                  entering={FadeInDown.delay(380 + Math.min(i, STAGGERED_ROWS) * 40).duration(320)}
+                >
+                  <RankRow row={row} delta={row.you ? delta : null} />
+                </Animated.View>
               ))}
             </View>
           ) : (
@@ -227,6 +203,16 @@ export default function LeaderboardScreen({ onBack, onJoin, onAuthError }: Props
           )}
           <RankRow row={me} delta={delta} pinned />
         </View>
+      )}
+
+      {revealing && me && board && (
+        <StandingsReveal
+          me={me}
+          rows={rows}
+          entrants={board.entrants}
+          delta={delta}
+          onDone={() => setRevealing(false)}
+        />
       )}
 
       <SettingsSheet
@@ -416,7 +402,7 @@ function SettingsSheet({
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={[styles.modalScrim, { backgroundColor: c.scrim }]} onPress={onClose} />
+      <Pressable {...noHover} style={[styles.modalScrim, { backgroundColor: c.scrim }]} onPress={onClose} />
 
       <View style={[styles.modalSheet, { backgroundColor: c.surface }]}>
         <View style={styles.modalHead}>
@@ -491,7 +477,7 @@ function SettingsSheet({
                       ]}
                     >
                       {saving ? (
-                        <ActivityIndicator color="#FFFFFF" size="small" />
+                        <ActivityIndicator color={c.onField} size="small" />
                       ) : (
                         <Text style={styles.primaryButtonText}>Save handle</Text>
                       )}
@@ -550,7 +536,7 @@ function SettingsSheet({
                     style={[styles.primaryButton, { backgroundColor: c.danger }, leaving && { opacity: 0.5 }]}
                   >
                     {leaving ? (
-                      <ActivityIndicator color="#FFFFFF" size="small" />
+                      <ActivityIndicator color={c.onField} size="small" />
                     ) : (
                       <Text style={styles.primaryButtonText}>Leave the board</Text>
                     )}
@@ -617,8 +603,7 @@ const styles = StyleSheet.create({
     opacity: 0,
   },
   headerTitle: {
-    fontSize: 17,
-    fontWeight: "700",
+    ...typo.h2,
   },
   seasonRow: {
     alignItems: "center",
@@ -627,39 +612,11 @@ const styles = StyleSheet.create({
   season: {
     fontSize: 13,
     fontWeight: "700",
-    letterSpacing: 0.4,
+    letterSpacing: 0.52,
     textTransform: "uppercase",
   },
   seasonMeta: {
     fontSize: 12,
-  },
-  tabs: {
-    flexDirection: "row",
-    alignSelf: "center",
-    gap: 4,
-    padding: 4,
-    borderRadius: 999,
-    backgroundColor: "rgba(0,0,0,0.18)",
-  },
-  tab: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 999,
-  },
-  tabDisabled: {
-    opacity: 0.55,
-  },
-  tabText: {
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  tabTag: {
-    fontSize: 10,
-    fontWeight: "700",
-    textTransform: "uppercase",
   },
   podiumWrap: {
     marginTop: 6,
@@ -674,23 +631,20 @@ const styles = StyleSheet.create({
     paddingTop: 14,
     minHeight: 300,
   },
-  scopeNotice: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginHorizontal: 14,
-    marginBottom: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    borderRadius: radius.md,
-  },
-  scopeNoticeText: {
-    flex: 1,
-    fontSize: 12,
-    lineHeight: 17,
-  },
   list: {
     paddingBottom: 8,
+  },
+  listHead: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingHorizontal: 14,
+    paddingBottom: 6,
+  },
+  listHeadText: {
+    ...typo.caption,
+    fontFamily: fonts.bodyMedium,
+    textTransform: "uppercase",
+    letterSpacing: 0.72,
   },
   listLoading: {
     paddingVertical: 40,
@@ -702,12 +656,10 @@ const styles = StyleSheet.create({
     paddingVertical: 48,
   },
   emptyTitle: {
-    fontSize: 16,
-    fontWeight: "700",
+    ...typo.h3,
   },
   emptyBody: {
-    fontSize: 13,
-    lineHeight: 19,
+    ...typo.body,
     textAlign: "center",
   },
   gate: {
@@ -734,12 +686,10 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   gateTitle: {
-    fontSize: 18,
-    fontWeight: "800",
+    ...typo.h2,
   },
   gateBody: {
-    fontSize: 13,
-    lineHeight: 19,
+    ...typo.body,
   },
   gateButton: {
     marginTop: 4,
@@ -748,9 +698,9 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   gateButtonText: {
+    ...typo.label,
     color: "#3B0A1D",
-    fontSize: 14,
-    fontWeight: "700",
+    fontFamily: fonts.display,
   },
   pin: {
     position: "absolute",
@@ -762,9 +712,9 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   pinLabel: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "700",
-    letterSpacing: 0.5,
+    letterSpacing: 0.6,
     textTransform: "uppercase",
     marginLeft: 26,
     marginBottom: 4,
@@ -793,8 +743,7 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
   },
   modalTitle: {
-    fontSize: 17,
-    fontWeight: "800",
+    ...typo.h2,
   },
   modalBody: {
     paddingHorizontal: 20,
@@ -811,12 +760,10 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   identityHandle: {
-    fontSize: 18,
-    fontWeight: "800",
+    ...typo.h2,
   },
   identityNote: {
-    fontSize: 12,
-    lineHeight: 17,
+    ...typo.caption,
   },
   section: {
     gap: 8,
@@ -824,27 +771,30 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 13,
     fontWeight: "700",
-    letterSpacing: 0.4,
+    letterSpacing: 0.52,
     textTransform: "uppercase",
   },
   sectionBody: {
-    fontSize: 13,
-    lineHeight: 19,
+    ...typo.body,
   },
   input: {
+    ...typo.body,
     borderWidth: 1.5,
     borderRadius: radius.md,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 16,
-    fontWeight: "600",
+    fontFamily: fonts.bodyMedium,
+    letterSpacing: 0.32,
   },
   inputReadOnly: {
     justifyContent: "center",
   },
   inputReadOnlyText: {
+    ...typo.body,
     fontSize: 16,
-    fontWeight: "600",
+    fontFamily: fonts.bodyMedium,
+    letterSpacing: 0.32,
   },
   actionRow: {
     flexDirection: "row",
@@ -854,8 +804,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   textButton: {
-    fontSize: 14,
-    fontWeight: "600",
+    ...typo.label,
   },
   primaryButton: {
     minWidth: 130,
@@ -866,9 +815,9 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   primaryButtonText: {
+    ...typo.label,
     color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "700",
+    fontFamily: fonts.display,
   },
   divider: {
     height: StyleSheet.hairlineWidth,

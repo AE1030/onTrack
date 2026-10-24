@@ -1,15 +1,16 @@
 import React, { useEffect, useState, useCallback } from "react";
 import {
   View,
-  Text,
   StyleSheet,
   Pressable,
   ScrollView,
-  TextInput,
   Modal,
   ActivityIndicator,
-  Linking,
+  LayoutChangeEvent,
+  useWindowDimensions,
 } from "react-native";
+import { Text, TextInput } from "../src/ui/Text";
+import { noHover } from "../src/ui/hover";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -21,6 +22,7 @@ import { Feather } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { colors } from "../src/theme/colors";
 import { spacing, radius } from "../src/theme/spacing";
+import { fonts, typo } from "../src/theme/typography";
 import { qk } from "../src/cache/keys";
 import { authedFetch, authedGet, isAuthError, queryRetry } from "../src/cache/authedGet";
 import { useTerm } from "../src/terms/TermContext";
@@ -60,14 +62,7 @@ type CurrentCourse = {
   includeInGpa: boolean;
 };
 
-const ACCENT_COLORS = [
-  colors.primary,    // maroon
-  colors.accent,     // gold
-  "#2C3E50",         // dark navy
-  "#1A7A5A",         // deep teal
-  "#8B4513",         // saddle brown
-  "#4A148C",         // deep purple
-];
+const ACCENT_COLORS = colors.courseAccents;
 
 type EventRowProps = {
   event: UpcomingEvent;
@@ -120,8 +115,8 @@ function EventRow({ event, formatDueDate, onComplete }: EventRowProps) {
 
   const checkCircleStyle = useAnimatedStyle(() => ({
     backgroundColor:
-      checkFill.value > 0.5 ? "#7A003C" : "transparent",
-    borderColor: checkFill.value > 0.5 ? "#7A003C" : "#E0D7DE",
+      checkFill.value > 0.5 ? colors.primary : "transparent",
+    borderColor: checkFill.value > 0.5 ? colors.primary : colors.border,
     transform: [{ scale: 1 + checkFill.value * 0.1 }],
   }));
 
@@ -191,6 +186,34 @@ type Props = {
   onAuthError: () => void;
 };
 
+// Two layouts. Below WIDE everything stacks in one column, in priority order. From WIDE up, the
+// GPA and leaderboard cards form a fixed rail and the due dates fill the column beside it, so the
+// two columns always end level instead of leaving a hole under the shorter card.
+const WIDE = 768;
+const DESKTOP = 1024;
+
+// Narrowest a course card can get before its code and grade start to collide.
+const COURSE_MIN_WIDTH = 220;
+const COURSE_GAP = spacing.md;
+
+/**
+ * Splits `count` cards into rows that always span the full width.
+ *
+ * Column count is the most that fit at COURSE_MIN_WIDTH, then rebalanced so rows come out even
+ * (6 courses that fit 5 across become 3 and 3, not 5 and 1). A short final row stretches to the
+ * edge too, so a student with two courses gets two wide cards rather than two narrow ones and an
+ * empty strip on the right.
+ */
+function courseRows(count: number, width: number): number[] {
+  if (count === 0 || width <= 0) return [];
+  const fit = Math.max(1, Math.floor((width + COURSE_GAP) / (COURSE_MIN_WIDTH + COURSE_GAP)));
+  const rows = Math.ceil(count / Math.min(fit, count));
+  const perRow = Math.ceil(count / rows);
+  const out: number[] = [];
+  for (let left = count; left > 0; left -= perRow) out.push(Math.min(perRow, left));
+  return out;
+}
+
 export default function DashboardScreen({
   onGoToCalendar,
   onGoToMyCourses,
@@ -205,6 +228,11 @@ export default function DashboardScreen({
   const [targetInput4, setTargetInput4] = useState("");
   const [targetInput12, setTargetInput12] = useState("");
   const [savingTarget, setSavingTarget] = useState(false);
+  const [courseGridWidth, setCourseGridWidth] = useState(0);
+
+  const { width: windowWidth } = useWindowDimensions();
+  const wide = windowWidth >= WIDE;
+  const desktop = windowWidth >= DESKTOP;
 
   // Animation for scale toggle
   const toggleProgress = useSharedValue(0);
@@ -361,172 +389,188 @@ export default function DashboardScreen({
     );
   }
 
-  return (
-    <ScrollView contentContainerStyle={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={{ marginBottom: 12 }}>
-          <OnTrackLogo size={28} />
-        </View>
-        <Text style={styles.title}>
-          Welcome back, {data?.username ?? "Student"}!
-        </Text>
-        <Text style={styles.subtitle}>
-          Here's what's happening with your studies today.
-        </Text>
-        <View style={styles.headerActions}>
-          <Pressable style={styles.addAssignmentButton} onPress={onGoToMyCourses}>
-            <Feather name="arrow-up-right" size={16} color="white" style={{ marginRight: 6 }} />
-            <Text style={styles.addAssignmentText}>Add Assignment</Text>
-          </Pressable>
-          <Pressable style={styles.syncButton} onPress={onGoToCalendar}>
-            <Feather name="calendar" size={16} color={colors.boldText} style={{ marginRight: 6 }} />
-            <Text style={styles.syncText}>Sync</Text>
-          </Pressable>
-          <Pressable
-            style={styles.syncButton}
-            onPress={() => Linking.openURL("https://forms.gle/ZsMy6unVXjBSR5sX7")}
+  const rows = courseRows(currentCourses.length, courseGridWidth);
+  const onCourseGridLayout = (e: LayoutChangeEvent) => {
+    const w = Math.floor(e.nativeEvent.layout.width);
+    if (w !== courseGridWidth) setCourseGridWidth(w);
+  };
+
+  const gpaCard = (
+    <View style={[styles.card, !wide && styles.cardCompact]}>
+      <View style={styles.gpaHeader}>
+        <Text style={styles.cardTitle}>GPA Overview</Text>
+
+        {/* Scale toggle */}
+        <Pressable
+          style={styles.toggleContainer}
+          onPress={toggleScale}
+          accessibilityRole="switch"
+          accessibilityLabel="Show GPA on the 12.0 scale"
+          accessibilityState={{ checked: use12Scale }}
+        >
+          <Text
+            style={[styles.toggleLabel, !use12Scale && styles.toggleLabelActive]}
           >
-            <Feather name="alert-circle" size={16} color={colors.boldText} style={{ marginRight: 6 }} />
-            <Text style={styles.syncText}>Report a Bug</Text>
-          </Pressable>
-        </View>
+            4.0
+          </Text>
+          <View style={styles.toggleTrack}>
+            <Animated.View style={[styles.toggleKnob, toggleKnobStyle]} />
+          </View>
+          <Text
+            style={[styles.toggleLabel, use12Scale && styles.toggleLabelActive]}
+          >
+            12.0
+          </Text>
+        </Pressable>
       </View>
 
-      {/* Main content row */}
-      <View style={styles.cardsRow}>
-        {/* GPA Overview Card */}
-        <View style={[styles.card, styles.gpaCard]}>
-          <View style={styles.gpaHeader}>
-            <View>
-              <Text style={styles.cardTitle}>GPA Overview</Text>
-              <Text style={styles.cardSubtitle}>
-                Current vs Target ({maxScale}.0 Scale)
-              </Text>
-            </View>
-
-            {/* Scale toggle */}
-            <Pressable style={styles.toggleContainer} onPress={toggleScale}>
-              <Text
-                style={[styles.toggleLabel, !use12Scale && styles.toggleLabelActive]}
-              >
-                4.0
-              </Text>
-              <View style={styles.toggleTrack}>
-                <Animated.View style={[styles.toggleKnob, toggleKnobStyle]} />
-              </View>
-              <Text
-                style={[styles.toggleLabel, use12Scale && styles.toggleLabelActive]}
-              >
-                12.0
-              </Text>
-            </Pressable>
-          </View>
-
-          <GpaArc
-            gpa={currentGpa}
-            targetGpa={targetGpa}
-            maxScale={maxScale}
-          />
-
-          {data?.targetLocked ? (
-            <View style={styles.targetLockedNote}>
-              <Feather name="lock" size={12} color="#6B5B63" />
-              <Text style={styles.targetLockedText}>
-                Set when you joined the leaderboard. Locked for the season.
-              </Text>
-            </View>
-          ) : (
-            <Pressable style={styles.setTargetButton} onPress={openTargetModal}>
-              <Text style={styles.setTargetText}>
-                {targetGpa != null ? "Edit Target GPA" : "Set Target GPA"}
-              </Text>
-            </Pressable>
-          )}
-        </View>
-
-        {/* Leaderboard Card. Beside the GPA card on purpose: the two things a student is ranked
-            on belong next to each other. cardsRow already wraps, so on a narrow phone this drops
-            under the GPA card at full width rather than squeezing three cards onto one line. */}
-        <View style={styles.leaderboardCard}>
-          <LeaderboardCard
-            onJoin={onJoinLeaderboard}
-            onOpen={onGoToLeaderboard}
-            onAuthError={onAuthError}
-          />
-        </View>
-
-        {/* Upcoming Due Dates Card */}
-        <View style={[styles.card, styles.dueDatesCard]}>
-          <View style={styles.dueDatesHeader}>
-            <Text style={styles.cardTitle}>Upcoming Due Dates</Text>
-            <Pressable onPress={onGoToCalendar}>
-              <Text style={styles.viewAllText}>View All</Text>
-            </Pressable>
-          </View>
-
-          {upcomingEvents.length === 0 ? (
-            <View style={styles.emptyState}>
-              <View style={styles.checkCircle}>
-                <Text style={styles.checkMark}>&#10003;</Text>
-              </View>
-              <Text style={styles.emptyText}>You're all caught up!</Text>
-            </View>
-          ) : (
-            <View style={styles.eventsList}>
-              {upcomingEvents.map((event) => (
-                <EventRow
-                  key={event.eventKey}
-                  event={event}
-                  formatDueDate={formatDueDate}
-                  onComplete={markEventComplete}
-                />
-              ))}
-            </View>
-          )}
-        </View>
+      <View style={styles.arcWrap}>
+        <GpaArc
+          gpa={currentGpa}
+          targetGpa={targetGpa}
+          maxScale={maxScale}
+        />
       </View>
 
-      {/* Current Semester Courses */}
-      {currentCourses.length > 0 && (
-        <View style={styles.semesterSection}>
-          <Text style={styles.semesterTitle}>Current Semester Courses</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.semesterScroll}
-          >
-            {currentCourses.map((course, index) => {
-              const accent = ACCENT_COLORS[index % ACCENT_COLORS.length];
-              const gradeDisplay = course.grade != null
-                ? `${course.grade.toFixed(2)}%`
-                : "--";
-              return (
-                <View
-                  key={`${course.courseCode}-${course.term}-${index}`}
-                  style={styles.semesterCard}
-                >
-                  <View style={[styles.semesterAccent, { backgroundColor: accent }]} />
-                  <View style={styles.semesterCardContent}>
-                    <View style={styles.semesterCardHeader}>
-                      <Text style={styles.semesterCourseCode}>{course.courseCode}</Text>
-                      <Text style={[styles.semesterGrade, { color: accent }]}>
-                        {gradeDisplay}
-                      </Text>
-                    </View>
-                    <Text style={styles.semesterCourseName} numberOfLines={1}>
-                      {course.courseName}
-                    </Text>
-                    <Text style={styles.semesterMeta}>
-                      {course.credits} Credits
-                    </Text>
-                  </View>
-                </View>
-              );
-            })}
-          </ScrollView>
+      {data?.targetLocked ? (
+        <View style={styles.targetLockedNote}>
+          <Feather name="lock" size={12} color={colors.bodyText} />
+          <Text style={styles.targetLockedText}>
+            Set when you joined the leaderboard. Locked for the season.
+          </Text>
         </View>
+      ) : (
+        <Pressable style={styles.setTargetButton} onPress={openTargetModal}>
+          <Text style={styles.setTargetText}>
+            {targetGpa != null ? "Edit Target GPA" : "Set Target GPA"}
+          </Text>
+        </Pressable>
       )}
+    </View>
+  );
+
+  return (
+    <ScrollView contentContainerStyle={[styles.container, !wide && styles.containerCompact]}>
+      <View style={styles.page}>
+        {/* The logo shares a line with the shell's floating hamburger instead of sitting under
+            it, which is what used to leave a tall empty band above the greeting. */}
+        <View style={[styles.topBar, !wide && styles.topBarCompact]}>
+          <OnTrackLogo size={22} />
+        </View>
+
+        <View style={[styles.header, wide && styles.headerWide]}>
+          <Text style={[styles.title, !wide && styles.titleCompact]}>
+            Welcome back, {data?.username ?? "Student"}!
+          </Text>
+          <View style={styles.headerActions}>
+            <Pressable style={styles.addAssignmentButton} onPress={onGoToMyCourses}>
+              <Feather name="arrow-up-right" size={16} color={colors.onField} style={{ marginRight: 6 }} />
+              <Text style={styles.addAssignmentText}>Add Assignment</Text>
+            </Pressable>
+            <Pressable style={styles.syncButton} onPress={onGoToCalendar}>
+              <Feather name="calendar" size={16} color={colors.boldText} style={{ marginRight: 6 }} />
+              <Text style={styles.syncText}>Sync</Text>
+            </Pressable>
+          </View>
+        </View>
+
+        <View style={[styles.overview, wide && styles.overviewWide]}>
+          {/* The two things a student is ranked on, kept together. A fixed-width rail when there
+              is room, the first two blocks of the stack when there is not. */}
+          <View style={[styles.rail, wide && { width: desktop ? 360 : 320 }]}>
+            {gpaCard}
+            <LeaderboardCard
+              onJoin={onJoinLeaderboard}
+              onOpen={onGoToLeaderboard}
+              onAuthError={onAuthError}
+            />
+          </View>
+
+          {/* Upcoming Due Dates. Stretches to the rail's height on wide screens. */}
+          <View style={[styles.card, styles.dueDatesCard, !wide && styles.cardCompact]}>
+            <View style={styles.dueDatesHeader}>
+              <Text style={styles.cardTitle}>Upcoming Due Dates</Text>
+              <Pressable onPress={onGoToCalendar} style={styles.viewAllButton}>
+                <Text style={styles.viewAllText}>View All</Text>
+              </Pressable>
+            </View>
+
+            {upcomingEvents.length === 0 ? (
+              <View style={[styles.emptyState, !wide && styles.emptyStateCompact]}>
+                <View style={styles.checkCircle}>
+                  <Feather name="check" size={22} color={colors.success} />
+                </View>
+                <Text style={styles.emptyText}>You're all caught up!</Text>
+              </View>
+            ) : (
+              <View style={styles.eventsList}>
+                {upcomingEvents.map((event) => (
+                  <EventRow
+                    key={event.eventKey}
+                    event={event}
+                    formatDueDate={formatDueDate}
+                    onComplete={markEventComplete}
+                  />
+                ))}
+              </View>
+            )}
+          </View>
+        </View>
+
+        {/* Current Semester Courses */}
+        {currentCourses.length > 0 && (
+          <View style={styles.semesterSection}>
+            <View style={styles.semesterHeader}>
+              <Text style={styles.cardTitle}>Current Semester Courses</Text>
+              <Text style={styles.semesterCount}>
+                {currentCourses.length} {currentCourses.length === 1 ? "course" : "courses"}
+              </Text>
+            </View>
+            {/* Rows are sized from the measured width, so the grid always reaches both edges.
+                The first frame has no width yet and renders nothing rather than guessing. */}
+            <View style={styles.semesterGrid} onLayout={onCourseGridLayout}>
+              {rows.map((count, r) => {
+                const start = rows.slice(0, r).reduce((a, b) => a + b, 0);
+                return (
+                  <View key={r} style={styles.semesterRow}>
+                    {currentCourses.slice(start, start + count).map((course, i) => {
+                      const index = start + i;
+                      const accent = ACCENT_COLORS[index % ACCENT_COLORS.length];
+                      const gradeDisplay = course.grade != null
+                        ? `${course.grade.toFixed(2)}%`
+                        : "No grade";
+                      return (
+                        <View
+                          key={`${course.courseCode}-${course.term}-${index}`}
+                          style={styles.semesterCard}
+                        >
+                          <View style={[styles.semesterAccent, { backgroundColor: accent }]} />
+                          <View style={styles.semesterCardContent}>
+                            <View style={styles.semesterCardHeader}>
+                              <Text style={styles.semesterCourseCode} numberOfLines={1}>
+                                {course.courseCode}
+                              </Text>
+                              <Text style={[styles.semesterGrade, { color: accent }]}>
+                                {gradeDisplay}
+                              </Text>
+                            </View>
+                            <Text style={styles.semesterCourseName} numberOfLines={1}>
+                              {course.courseName}
+                            </Text>
+                            <Text style={styles.semesterMeta}>
+                              {course.credits} Credits
+                            </Text>
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+        )}
+      </View>
 
       {/* Target GPA Modal */}
       <Modal
@@ -536,10 +580,11 @@ export default function DashboardScreen({
         onRequestClose={() => setShowTargetModal(false)}
       >
         <Pressable
+          {...noHover}
           style={styles.modalBackdrop}
           onPress={() => setShowTargetModal(false)}
         >
-          <Pressable style={styles.modalContent} onPress={() => {}}>
+          <Pressable {...noHover} style={styles.modalContent} onPress={() => {}}>
             <Text style={styles.modalTitle}>Set Target GPA</Text>
 
             <Text style={styles.inputLabel}>Target GPA (4.0 Scale)</Text>
@@ -549,7 +594,7 @@ export default function DashboardScreen({
               onChangeText={setTargetInput4}
               keyboardType="decimal-pad"
               placeholder="e.g. 3.8"
-              placeholderTextColor="#AAA"
+              placeholderTextColor={colors.placeholder}
             />
 
             <Text style={styles.inputLabel}>Target GPA (12.0 Scale)</Text>
@@ -559,7 +604,7 @@ export default function DashboardScreen({
               onChangeText={setTargetInput12}
               keyboardType="decimal-pad"
               placeholder="e.g. 11.0"
-              placeholderTextColor="#AAA"
+              placeholderTextColor={colors.placeholder}
             />
 
             <View style={styles.modalButtons}>
@@ -594,29 +639,58 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   container: {
-    padding: spacing.lg,
-    backgroundColor: "#F5F1F3",
+    // Top padding lines the logo up with the shell's floating hamburger (10pt down, 32pt tall).
+    paddingTop: 10,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.lg * 2,
+    backgroundColor: colors.background,
     minHeight: "100%",
   },
-  header: {
+  containerCompact: {
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.lg,
+  },
+  // Caps line length on very wide monitors so the rail and grid don't drift apart.
+  page: {
+    width: "100%",
+    maxWidth: 1360,
+    alignSelf: "center",
+  },
+  topBar: {
+    height: 32,
+    justifyContent: "center",
+    // The hamburger's right edge sits at x=52; this starts the logo just past it.
+    marginLeft: 52 + 12 - spacing.lg,
     marginBottom: spacing.lg,
   },
-  title: {
-    fontSize: 28,
-    fontWeight: "700",
-    color: "#3B0A1D",
+  topBarCompact: {
+    marginLeft: 52 + 12 - spacing.md,
+    marginBottom: spacing.md,
   },
-  subtitle: {
-    marginTop: 4,
-    color: "#888",
-    fontSize: 14,
+  header: {
+    gap: 12,
+    marginBottom: spacing.lg,
+  },
+  headerWide: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  title: {
+    ...typo.h1,
+    color: colors.boldText,
+    flexShrink: 1,
+  },
+  titleCompact: {
+    fontSize: 24,
+    letterSpacing: -0.3,
   },
   headerActions: {
     flexDirection: "row",
     flexWrap: "wrap",
     alignItems: "center",
     gap: 10,
-    marginTop: spacing.md,
   },
   addAssignmentButton: {
     flexDirection: "row",
@@ -625,72 +699,60 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: radius.md,
-    boxShadow: "0px 6px 12px rgba(122, 0, 60, 0.35)",
-    elevation: 6,
   },
   addAssignmentText: {
-    color: "white",
-    fontSize: 14,
-    fontWeight: "600",
+    ...typo.label,
+    color: colors.onField,
   },
   syncButton: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#FFF",
+    backgroundColor: colors.surface,
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: "#E0D7DE",
+    borderColor: colors.border,
   },
   syncText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#3B0A1D",
+    ...typo.label,
+    color: colors.boldText,
   },
-  cardsRow: {
+  overview: {
+    gap: spacing.md,
+  },
+  // Row children stretch by default, so the due dates card grows to the rail's height.
+  overviewWide: {
     flexDirection: "row",
-    gap: 16,
-    flexWrap: "wrap",
+  },
+  rail: {
+    gap: spacing.md,
   },
   card: {
-    backgroundColor: "#FFF",
+    backgroundColor: colors.surface,
     borderRadius: radius.lg,
     padding: spacing.lg,
-    minWidth: 280,
-    boxShadow: "0px 2px 6px rgba(0, 0, 0, 0.06)",
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
   },
-  gpaCard: {
-    flex: 1,
-    minWidth: 300,
-    maxWidth: 380,
-  },
-  leaderboardCard: {
-    flex: 1,
-    minWidth: 300,
-    maxWidth: 380,
+  cardCompact: {
+    padding: spacing.md + 4,
   },
   dueDatesCard: {
-    flex: 1.5,
-    minWidth: 300,
-    minHeight: 300,
+    flex: 1,
+  },
+  arcWrap: {
+    alignItems: "center",
   },
   gpaHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "flex-start",
+    alignItems: "center",
     marginBottom: 16,
   },
   cardTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#3B0A1D",
-  },
-  cardSubtitle: {
-    fontSize: 13,
-    color: "#888",
-    marginTop: 2,
+    ...typo.h2,
+    color: colors.boldText,
   },
   toggleContainer: {
     flexDirection: "row",
@@ -698,18 +760,19 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   toggleLabel: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#BBB",
+    ...typo.caption,
+    fontFamily: fonts.bodyMedium,
+    fontVariant: ["tabular-nums"],
+    color: colors.faintText,
   },
   toggleLabelActive: {
-    color: "#7A003C",
+    color: colors.primary,
   },
   toggleTrack: {
     width: 44,
     height: 24,
     borderRadius: radius.md,
-    backgroundColor: "#E8E0E5",
+    backgroundColor: colors.surfaceSunken,
     justifyContent: "center",
     paddingHorizontal: 3,
   },
@@ -717,20 +780,20 @@ const styles = StyleSheet.create({
     width: 18,
     height: 18,
     borderRadius: 9,
-    backgroundColor: "#7A003C",
+    backgroundColor: colors.primary,
   },
   setTargetButton: {
     alignSelf: "center",
     marginTop: 12,
-    paddingVertical: 6,
+    paddingVertical: 8,
     paddingHorizontal: 16,
     borderRadius: radius.sm,
-    backgroundColor: "#F5F0F3",
+    backgroundColor: colors.primarySoft,
   },
   setTargetText: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#7A003C",
+    ...typo.label,
+    fontSize: 13,
+    color: colors.primary,
   },
   targetLockedNote: {
     alignSelf: "center",
@@ -742,20 +805,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   targetLockedText: {
-    fontSize: 12,
-    color: "#6B5B63",
+    ...typo.caption,
+    color: colors.bodyText,
     textAlign: "center",
   },
   dueDatesHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  // Pads the link out to a comfortable touch target without moving the text.
+  viewAllButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    marginVertical: -8,
+    marginRight: -8,
+    borderRadius: radius.sm,
   },
   viewAllText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#7A003C",
+    ...typo.label,
+    color: colors.primary,
     textDecorationLine: "underline",
   },
   emptyState: {
@@ -764,33 +834,32 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 40,
   },
+  emptyStateCompact: {
+    paddingVertical: spacing.lg,
+  },
   checkCircle: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: "#F0ECF0",
+    backgroundColor: colors.successSoft,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 12,
   },
-  checkMark: {
-    fontSize: 20,
-    color: "#BBB",
-  },
   emptyText: {
-    fontSize: 15,
-    color: "#888",
+    ...typo.bodyLarge,
+    color: colors.bodyText,
   },
   eventsList: {
-    gap: 12,
+    gap: 4,
   },
   eventRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    paddingVertical: 8,
+    paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#F0ECF0",
+    borderBottomColor: colors.borderSubtle,
     overflow: "hidden",
   },
   completeCircle: {
@@ -801,13 +870,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  // Animated.Text skips the app Text wrapper, so these name their face outright.
   completeCheck: {
+    fontFamily: fonts.display,
     fontSize: 14,
-    fontWeight: "700",
-    color: "#FFFFFF",
+    color: colors.onField,
   },
   eventDateBadge: {
-    backgroundColor: "#F5F0F3",
+    backgroundColor: colors.primarySoft,
     borderRadius: radius.sm,
     paddingHorizontal: 10,
     paddingVertical: 6,
@@ -815,9 +885,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   eventDateText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#7A003C",
+    ...typo.caption,
+    fontFamily: fonts.bodyMedium,
+    fontVariant: ["tabular-nums"],
+    color: colors.primary,
   },
   eventDetails: {
     flex: 1,
@@ -827,44 +898,53 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   eventName: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#3B0A1D",
+    fontFamily: fonts.bodyMedium,
+    fontSize: 16,
+    letterSpacing: 0.32,
+    color: colors.boldText,
   },
   strikethroughLine: {
     position: "absolute",
     left: 0,
     top: "50%",
     height: 1.5,
-    backgroundColor: "#7A003C",
+    backgroundColor: colors.primary,
     borderRadius: 1,
   },
   eventCourse: {
-    fontSize: 13,
-    color: "#888",
+    ...typo.caption,
+    color: colors.bodyText,
     marginTop: 2,
   },
   // Semester Courses
   semesterSection: {
-    marginTop: spacing.lg,
+    marginTop: spacing.lg * 2,
   },
-  semesterTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: colors.boldText,
+  semesterHeader: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
     marginBottom: spacing.md,
   },
-  semesterScroll: {
-    gap: spacing.md,
-    paddingBottom: spacing.sm,
+  semesterCount: {
+    ...typo.caption,
+    color: colors.faintText,
+  },
+  semesterGrid: {
+    gap: COURSE_GAP,
+  },
+  semesterRow: {
+    flexDirection: "row",
+    gap: COURSE_GAP,
   },
   semesterCard: {
-    backgroundColor: "white",
+    flex: 1,
+    minWidth: 0,
+    backgroundColor: colors.surface,
     borderRadius: radius.lg,
     overflow: "hidden",
-    width: 240,
-    boxShadow: "0px 2px 6px rgba(0, 0, 0, 0.06)",
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
   },
   semesterAccent: {
     height: 4,
@@ -877,61 +957,65 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    gap: spacing.sm,
     marginBottom: 4,
   },
   semesterCourseCode: {
-    fontSize: 16,
-    fontWeight: "700",
+    ...typo.h3,
     color: colors.boldText,
+    flexShrink: 1,
   },
   semesterGrade: {
+    ...typo.data,
+    fontFamily: fonts.bodyMedium,
     fontSize: 16,
-    fontWeight: "700",
+    letterSpacing: 0.32,
   },
   semesterCourseName: {
-    fontSize: 13,
+    ...typo.body,
     color: colors.bodyText,
     marginBottom: spacing.sm,
   },
   semesterMeta: {
-    fontSize: 12,
-    color: colors.bodyText,
+    ...typo.caption,
+    color: colors.faintText,
   },
   // Modal
   modalBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.4)",
+    backgroundColor: colors.scrim,
     justifyContent: "center",
     alignItems: "center",
   },
   modalContent: {
-    backgroundColor: "#FFF",
+    backgroundColor: colors.surface,
     borderRadius: radius.lg,
     padding: 24,
     width: 340,
     maxWidth: "90%",
   },
   modalTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#3B0A1D",
+    ...typo.h2,
+    color: colors.boldText,
     marginBottom: 20,
   },
   inputLabel: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#666",
+    ...typo.body,
+    fontFamily: fonts.bodyMedium,
+    color: colors.bodyText,
     marginBottom: 6,
   },
   input: {
+    ...typo.data,
+    fontSize: 16,
+    letterSpacing: 0.32,
     borderWidth: 1,
-    borderColor: "#E0D7DE",
+    borderColor: colors.border,
     borderRadius: radius.md,
     paddingHorizontal: 14,
     paddingVertical: 10,
-    fontSize: 16,
     marginBottom: 16,
-    color: "#3B0A1D",
+    color: colors.boldText,
   },
   modalButtons: {
     flexDirection: "row",
@@ -945,19 +1029,17 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   cancelText: {
-    fontSize: 14,
-    color: "#888",
-    fontWeight: "600",
+    ...typo.label,
+    color: colors.bodyText,
   },
   saveButton: {
     paddingVertical: 10,
     paddingHorizontal: 20,
     borderRadius: radius.md,
-    backgroundColor: "#7A003C",
+    backgroundColor: colors.primary,
   },
   saveText: {
-    fontSize: 14,
-    color: "#FFF",
-    fontWeight: "600",
+    ...typo.label,
+    color: colors.onField,
   },
 });

@@ -5,17 +5,16 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
-  TextInput,
   View,
 } from "react-native";
+import { Text, TextInput } from "../src/ui/Text";
 import * as DocumentPicker from "expo-document-picker";
 import { Feather } from "@expo/vector-icons";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useTheme } from "../src/theme/ThemeContext";
 import { qk } from "../src/cache/keys";
-import { isAuthError, isServerRejection } from "../src/cache/authedGet";
+import { authedGet, isAuthError, isServerRejection, queryRetry } from "../src/cache/authedGet";
 import {
   fetchPreview,
   fetchStatus,
@@ -51,6 +50,7 @@ import TargetSlider from "./components/leaderboard/TargetSlider";
 import AvatarBuilder from "./components/leaderboard/AvatarBuilder";
 import PlayerAvatar from "./components/leaderboard/PlayerAvatar";
 import { radius } from "../src/theme/spacing";
+import { fonts, typo } from "../src/theme/typography";
 
 /**
  * Joining the board: seven cards, one decision each.
@@ -88,10 +88,10 @@ const REJOIN_FLOW: CardKey[] = ["consent", "handle", "avatar", "review"];
 const RULES = [
   "You are ranked on progress toward your own target, not on raw GPA.",
   "Your baseline and target freeze the moment you join. Neither moves for the rest of the season.",
-  "Aiming a full point or more above your baseline plays Growth, which can reach 12,250 points. Below that is Maintenance, which tops out at 7,000.",
+  "Aiming a full point or more above your baseline plays Growth, which can reach 12,250 Track Points. Below that is Maintenance, which tops out at 7,000.",
   "Progress saturates. Beating your target pays exactly what hitting it does.",
-  "Moving deadlines after grades land, or bunching a course onto one date, damps your score a little. It never falls below half.",
-  "Only your handle and your score are published. No grades, no name, no program.",
+  "Moving deadlines after grades land, or bunching a course onto one date, damps your Track Points a little. It never falls below half.",
+  "Only your handle and your Track Points are published. No grades, no name, no program.",
 ];
 
 type Props = {
@@ -103,6 +103,20 @@ type Props = {
 export default function LeaderboardOnboardingScreen({ onDone, onCancel, onAuthError }: Props) {
   const c = useTheme();
   const queryClient = useQueryClient();
+
+  // Same key and shape as the GPA calculator, so this is usually a cache hit. Past courses on file
+  // mean the student has likely imported a transcript there already, and will wonder why the
+  // join flow asks for it again. A failed read just leaves the explanation out.
+  const pastCoursesQuery = useQuery({
+    queryKey: qk.pastCourses,
+    queryFn: () =>
+      authedGet<{ courseName: string; credits: string; grade: string }[]>(
+        "/api/my-courses/past-courses"
+      ),
+    staleTime: 5 * 60_000,
+    retry: queryRetry,
+  });
+  const hasPastCourses = (pastCoursesQuery.data?.length ?? 0) > 0;
 
   const [loading, setLoading] = useState(true);
   const [flow, setFlow] = useState<CardKey[]>(FULL_FLOW);
@@ -391,6 +405,7 @@ export default function LeaderboardOnboardingScreen({ onDone, onCancel, onAuthEr
               uploading={uploading}
               error={uploadError}
               onPick={pickTranscript}
+              hasPastCourses={hasPastCourses}
             />
           )}
 
@@ -488,7 +503,7 @@ function ConsentCard({ agreed, onAgree }: { agreed: boolean; onAgree: () => void
       <View style={[styles.notice, { backgroundColor: c.primarySoft, borderColor: c.border }]}>
         <Text style={[styles.noticeTitle, { color: c.boldText }]}>What gets published</Text>
         <Text style={[styles.noticeBody, { color: c.bodyText }]}>
-          A handle you choose, and a score derived from your grades. Every other student can see
+          A handle you choose, and Track Points derived from your grades. Every other student can see
           both. Your GPA, your target, your name and your courses are not published, and this app
           keeps them encrypted.
         </Text>
@@ -564,12 +579,15 @@ function TranscriptCard({
   uploading,
   error,
   onPick,
+  hasPastCourses,
 }: {
   baseline: TranscriptBaseline | null;
   fileName: string | null;
   uploading: boolean;
   error: string | null;
   onPick: () => void;
+  /** Courses already on file, usually from a GPA calculator import. */
+  hasPastCourses: boolean;
 }) {
   const c = useTheme();
 
@@ -605,7 +623,7 @@ function TranscriptCard({
             <Text style={[styles.noticeTitle, { color: c.boldText }]}>You are above 11.0</Text>
             <Text style={[styles.noticeBody, { color: c.bodyText }]}>
               There is no room left to declare a full point of climb, so you play Ceiling: holding
-              your level is the whole game, and it scores up to 10,000.
+              your level is the whole game, and it earns up to 10,000 Track Points.
             </Text>
           </View>
         )}
@@ -625,6 +643,17 @@ function TranscriptCard({
         Your starting line comes from your transcript, not from a number you type. It is what every
         point of progress this season is measured against, and it cannot be changed once you join.
       </Text>
+
+      {hasPastCourses && (
+        <View style={[styles.notice, { backgroundColor: c.surfaceSunken, borderColor: c.border }]}>
+          <Text style={[styles.noticeTitle, { color: c.boldText }]}>Why upload it again?</Text>
+          <Text style={[styles.noticeBody, { color: c.bodyText }]}>
+            The GPA calculator saved your courses, not the PDF. To join, the leaderboard reads the
+            PDF itself, so your starting line comes straight from Mosaic rather than from course
+            entries that can be edited. The file is read once and not stored.
+          </Text>
+        </View>
+      )}
 
       <Pressable
         onPress={onPick}
@@ -689,7 +718,7 @@ function TargetCard({
 
         <Text style={[styles.lead, { color: c.bodyText }]}>
           You are starting at {fmtGpa(baseline.baselineGpa12)}, which leaves less than a full point
-          of the scale above you. There is no target to choose: you score on holding your level,
+          of the scale above you. There is no target to choose: you earn Track Points for holding your level,
           up to 10,000.
         </Text>
       </View>
@@ -714,7 +743,7 @@ function TargetCard({
           <View style={styles.fieldRight}>
             {/* The reward for reaching has to be visible at the moment of choosing, or there is
                 no reason to believe the ambition bonus is real. */}
-            <Text style={[styles.fieldLabel, { color: c.onFieldFaint }]}>Best possible score</Text>
+            <Text style={[styles.fieldLabel, { color: c.onFieldFaint }]}>Most Track Points possible</Text>
             <Text style={[styles.fieldValue, { color: c.accent }]}>{fmtScore(ceiling)}</Text>
           </View>
         </View>
@@ -740,7 +769,7 @@ function TargetCard({
           <Text style={[styles.noticeBody, { color: c.bodyText }]}>
             Anything under {fmtGpa(effectiveBaseline(baseline.baselineGpa12) + MIN_GROWTH_GAP)} is
             holding rather than
-            climbing, so your score tops out at 7,000 instead of 12,250. That is a fair trade for a
+            climbing, so your Track Points top out at 7,000 instead of 12,250. That is a fair trade for a
             heavy term, and you can continue with it.
           </Text>
         </View>
@@ -879,7 +908,7 @@ function ReviewCard({
           </Text>
           {!rejoining && (
             <Text style={[styles.reviewCeiling, { color: c.bodyText }]}>
-              Best possible score {fmtScore(ceiling)}
+              Up to {fmtScore(ceiling)} Track Points
             </Text>
           )}
         </View>
@@ -996,7 +1025,7 @@ function Footer({
           ]}
         >
           {busy ? (
-            <ActivityIndicator color="#FFFFFF" size="small" />
+            <ActivityIndicator color={c.onField} size="small" />
           ) : (
             <Text style={styles.footerNextText}>{nextLabel}</Text>
           )}
@@ -1075,12 +1104,11 @@ const styles = StyleSheet.create({
   headerStep: {
     fontSize: 12,
     fontWeight: "700",
-    letterSpacing: 0.5,
+    letterSpacing: 0.6,
     textTransform: "uppercase",
   },
   headerTitle: {
-    fontSize: 24,
-    fontWeight: "800",
+    ...typo.h1,
   },
   progressTrack: {
     flexDirection: "row",
@@ -1103,8 +1131,7 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   lead: {
-    fontSize: 14,
-    lineHeight: 21,
+    ...typo.bodyLarge,
   },
   notice: {
     borderWidth: 1,
@@ -1113,12 +1140,10 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   noticeTitle: {
-    fontSize: 13,
-    fontWeight: "700",
+    ...typo.h3,
   },
   noticeBody: {
-    fontSize: 13,
-    lineHeight: 19,
+    ...typo.body,
   },
   bigChoice: {
     flexDirection: "row",
@@ -1129,9 +1154,9 @@ const styles = StyleSheet.create({
     padding: 14,
   },
   bigChoiceText: {
-    fontSize: 14,
-    fontWeight: "600",
+    ...typo.body,
     flex: 1,
+    fontFamily: fonts.bodyMedium,
   },
   rules: {
     gap: 12,
@@ -1151,12 +1176,12 @@ const styles = StyleSheet.create({
   },
   ruleNumberText: {
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "700",
+    fontVariant: ["tabular-nums"],
   },
   ruleText: {
+    ...typo.body,
     flex: 1,
-    fontSize: 13.5,
-    lineHeight: 20,
   },
   dropzone: {
     borderWidth: 1,
@@ -1175,16 +1200,14 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   dropTitle: {
-    fontSize: 15,
-    fontWeight: "700",
+    ...typo.h3,
   },
   dropBody: {
-    fontSize: 13,
-    lineHeight: 19,
+    ...typo.body,
     textAlign: "center",
   },
   fileName: {
-    fontSize: 12,
+    ...typo.caption,
     marginTop: 2,
   },
   result: {
@@ -1200,16 +1223,13 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   resultTitle: {
-    fontSize: 14,
-    fontWeight: "700",
+    ...typo.h3,
   },
   resultBody: {
-    fontSize: 13,
-    lineHeight: 19,
+    ...typo.body,
   },
   link: {
-    fontSize: 13,
-    fontWeight: "600",
+    ...typo.label,
   },
   errorBox: {
     flexDirection: "row",
@@ -1220,9 +1240,8 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
   },
   errorText: {
+    ...typo.body,
     flex: 1,
-    fontSize: 13,
-    lineHeight: 19,
   },
   targetField: {
     borderRadius: radius.lg,
@@ -1235,25 +1254,25 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   fieldLabel: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "700",
-    letterSpacing: 0.5,
+    letterSpacing: 0.6,
     textTransform: "uppercase",
   },
   fieldValue: {
     fontSize: 18,
-    fontWeight: "800",
+    fontWeight: "700",
   },
   fieldBody: {
-    fontSize: 13,
-    lineHeight: 19,
+    ...typo.body,
     marginTop: 4,
   },
   targetValue: {
-    fontSize: 46,
-    fontWeight: "800",
+    ...typo.display,
+    fontSize: 48,
     fontVariant: ["tabular-nums"],
     marginBottom: 8,
+    lineHeight: 52,
   },
   fieldSplit: {
     flexDirection: "row",
@@ -1264,12 +1283,14 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
   },
   input: {
+    ...typo.body,
     borderWidth: 1.5,
     borderRadius: radius.md,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 16,
-    fontWeight: "600",
+    fontFamily: fonts.bodyMedium,
+    letterSpacing: 0.32,
   },
   inputMeta: {
     flexDirection: "row",
@@ -1279,12 +1300,11 @@ const styles = StyleSheet.create({
     marginTop: -8,
   },
   hint: {
+    ...typo.caption,
     flex: 1,
-    fontSize: 12,
-    lineHeight: 17,
   },
   counter: {
-    fontSize: 12,
+    ...typo.caption,
     fontVariant: ["tabular-nums"],
   },
   reviewHead: {
@@ -1297,11 +1317,10 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   reviewHandle: {
-    fontSize: 20,
-    fontWeight: "800",
+    ...typo.h2,
   },
   reviewCeiling: {
-    fontSize: 13,
+    ...typo.body,
   },
   reviewRows: {
     borderWidth: 1,
@@ -1316,13 +1335,13 @@ const styles = StyleSheet.create({
     paddingVertical: 13,
   },
   reviewLabel: {
-    fontSize: 13,
+    ...typo.body,
     width: 92,
   },
   reviewValue: {
+    ...typo.data,
     flex: 1,
-    fontSize: 14,
-    fontWeight: "700",
+    fontFamily: fonts.bodyMedium,
   },
   footer: {
     borderTopWidth: StyleSheet.hairlineWidth,
@@ -1332,7 +1351,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   footerHint: {
-    fontSize: 12,
+    ...typo.caption,
     textAlign: "right",
   },
   footerRow: {
@@ -1345,8 +1364,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
   },
   footerBackText: {
-    fontSize: 15,
-    fontWeight: "600",
+    ...typo.label,
   },
   footerNext: {
     minWidth: 132,
@@ -1357,8 +1375,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   footerNextText: {
+    ...typo.label,
     color: "#FFFFFF",
-    fontSize: 15,
-    fontWeight: "700",
+    fontFamily: fonts.display,
   },
 });

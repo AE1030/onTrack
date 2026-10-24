@@ -1,5 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import { View, Pressable, Text, StyleSheet, Platform, ActivityIndicator } from "react-native";
+import { View, Pressable, StyleSheet, Platform, ActivityIndicator } from "react-native";
+import { Text } from "../src/ui/Text";
+import { radius } from "../src/theme/spacing";
 import LoginScreen from "../screens/LoginScreen";
 import RegisterScreen from "../screens/RegisterScreen";
 import ForgotPasswordScreen from "../screens/ForgotPasswordScreen";
@@ -15,6 +17,7 @@ import { endSession, getToken, removeToken } from "../src/utils/tokenStorage";
 import { API_BASE_URL } from "../src/config/api";
 import { queryClient } from "../src/cache/queryClient";
 import { qk } from "../src/cache/keys";
+import { useTheme } from "../src/theme/ThemeContext";
 
 type Screen =
   | "dashboard"
@@ -63,6 +66,7 @@ function getScreenFromURL(): Screen {
 }
 
 export default function Home() {
+  const c = useTheme();
   const [loggedIn, setLoggedIn] = useState<boolean | null>(null);
   const [authScreen, setAuthScreen] = useState<AuthScreen>(getAuthScreenFromURL);
   const [screen, setScreen] = useState<Screen>(getScreenFromURL);
@@ -149,8 +153,8 @@ export default function Home() {
 
   if (loggedIn === null) {
     return (
-      <View style={{ flex: 1, backgroundColor: "#F5F1F3", justifyContent: "center", alignItems: "center" }}>
-        <ActivityIndicator size="large" color="#7A003C" />
+      <View style={{ flex: 1, backgroundColor: c.background, justifyContent: "center", alignItems: "center" }}>
+        <ActivityIndicator size="large" color={c.primary} />
       </View>
     );
   }
@@ -233,16 +237,18 @@ export default function Home() {
   };
 
   return (
-    <View style={styles.root}>
+    <View style={[styles.root, { backgroundColor: c.background }]}>
       {/* Hamburger button. Hidden where the screen draws its own header in that corner. */}
       {!OWNS_TOP_LEFT.includes(screen) && (
       <Pressable
         style={styles.hamburger}
         onPress={() => setDrawerOpen(true)}
+        accessibilityRole="button"
+        accessibilityLabel="Open menu"
       >
-        <View style={styles.hamburgerLine} />
-        <View style={styles.hamburgerLine} />
-        <View style={styles.hamburgerLine} />
+        <View style={[styles.hamburgerLine, { backgroundColor: c.boldText }]} />
+        <View style={[styles.hamburgerLine, { backgroundColor: c.boldText }]} />
+        <View style={[styles.hamburgerLine, { backgroundColor: c.boldText }]} />
       </Pressable>
       )}
 
@@ -269,7 +275,6 @@ export default function Home() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: "#F5F1F3",
   },
   hamburger: {
     position: "absolute",
@@ -278,11 +283,11 @@ const styles = StyleSheet.create({
     zIndex: 100,
     padding: 8,
     gap: 4,
+    borderRadius: radius.md,
   },
   hamburgerLine: {
     width: 22,
     height: 2.5,
-    backgroundColor: "#3B0A1D",
     borderRadius: 2,
   },
   content: {

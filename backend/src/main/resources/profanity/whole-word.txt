@@ -35,3 +35,39 @@ spic        # spice, suspicious, hospice
 tit         # title, institute, competition
 twat        # saltwater
 xxx         # xxxx
+
+# Moved from substring.txt: each one sits inside real names or ordinary words.
+cialis      # socialism, specialist
+quim        # joaquim, arquimedes
+ecchi       # vecchio, cecchini, secchi (Italian surnames)
+guro        # seguro, egurrola
+twink       # twinkle
+twinks
+boner       # carbonero
+fag         # fagan, fagundes
+fags
+smut        # wasmuth
+
+# Slurs and abuse too short or too common inside other words to match anywhere.
+dyke        # Dykes, the English surname, is left alone
+gook
+chink       # schinkel, pechinkin
+chinks
+chinky
+wop         # swop
+dago
+gypo
+gyppo
+squaw       # squawk
+yid         # yiddish
+heeb
+spaz
+tard        # tardy, retardant
+tards
+pedo        # torpedo, pedometer
+pedos
+kys         # "kill yourself"
+fuk         # fukuda
+fck
+staff       # staffing; impersonation as its own token
+registrar

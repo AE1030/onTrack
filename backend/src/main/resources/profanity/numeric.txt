@@ -1,0 +1,6 @@
+# Number codes, matched as a whole run of digits (separators ignored): Sam1488 and 14_88 are
+# caught, Class2014886 is not.
+#
+# They live apart from the letter lists because normalising turns digits into letters or drops
+# them, so a pure number code never reaches those lists.
+1488

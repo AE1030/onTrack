@@ -4,9 +4,9 @@ import {
   PanResponder,
   Pressable,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
+import { Text } from "../../../src/ui/Text";
 import { Feather } from "@expo/vector-icons";
 import { useTheme } from "../../../src/theme/ThemeContext";
 import { clamp } from "../../../src/leaderboard/scoring";
@@ -230,7 +230,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 42,
   },
   scaleText: {
-    fontSize: 11,
-    fontWeight: "600",
+    fontSize: 12,
+    fontWeight: "500",
+    fontVariant: ["tabular-nums"],
   },
 });

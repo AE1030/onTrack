@@ -1,5 +1,6 @@
 import React from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, View } from "react-native";
+import { Text } from "../../../src/ui/Text";
 import { Feather } from "@expo/vector-icons";
 import Svg, { Circle, Polyline } from "react-native-svg";
 import { useTheme } from "../../../src/theme/ThemeContext";
@@ -80,16 +81,26 @@ export function TrendChip({
 
   const flat = delta === 0;
   const up = delta > 0;
-  const tint = flat ? (onField ? c.onFieldMuted : c.bodyText) : up ? c.success : c.danger;
+  // On the field a climb gets a solid chip so it reads from across the dashboard; a slide or a
+  // hold stays on the translucent chip.
+  const solidUp = onField && up && !flat;
+  const tint = flat
+    ? onField ? c.onFieldMuted : c.bodyText
+    : up
+      ? onField ? c.onFieldUpInk : c.success
+      : onField ? c.onFieldDown : c.danger;
+  const chipBg = solidUp
+    ? c.onFieldUp
+    : onField ? "rgba(255,255,255,0.16)" : c.surfaceSunken;
 
   return (
-    <View style={[styles.chip, { backgroundColor: onField ? "rgba(255,255,255,0.16)" : c.surfaceSunken }]}>
+    <View style={[styles.chip, { backgroundColor: chipBg }]}>
       <Feather
         name={flat ? "minus" : up ? "arrow-up-right" : "arrow-down-right"}
         size={12}
         color={tint}
       />
-      <Text style={[styles.chipText, { color: tint, marginLeft: 3 }]}>
+      <Text style={[styles.chipText, solidUp && styles.chipTextStrong, { color: tint, marginLeft: 3 }]}>
         {flat ? "Held" : Math.abs(delta)}
       </Text>
     </View>
@@ -192,12 +203,11 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   pillText: {
-    fontSize: 11,
-    fontWeight: "600",
-    letterSpacing: 0.2,
+    fontSize: 12,
+    fontWeight: "500",
   },
   pillTextCompact: {
-    fontSize: 10,
+    fontSize: 11,
   },
   chip: {
     flexDirection: "row",
@@ -208,11 +218,15 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   chipText: {
-    fontSize: 11,
+    fontSize: 12,
+    fontWeight: "500",
+    fontVariant: ["tabular-nums"],
+  },
+  chipTextStrong: {
     fontWeight: "700",
   },
   sparkEmpty: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: "500",
   },
 });

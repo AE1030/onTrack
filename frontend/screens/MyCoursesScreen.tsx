@@ -1,7 +1,5 @@
 import {
   View,
-  Text,
-  TextInput,
   Pressable,
   StyleSheet,
   ScrollView,
@@ -10,6 +8,7 @@ import {
   Platform,
   useWindowDimensions,
 } from "react-native";
+import { Text, TextInput } from "../src/ui/Text";
 import { useEffect, useRef, useState } from "react";
 import * as DocumentPicker from "expo-document-picker";
 import Animated, {
@@ -32,8 +31,10 @@ import { authedFetch, authedGet, isAuthError, queryRetry } from "../src/cache/au
 import { toUserMessage } from "../src/utils/errorMessage";
 import { useCourseSearch } from "../src/hooks/useCourseSearch";
 import { useTerm } from "../src/terms/TermContext";
+import { fetchAssessmentTable } from "../src/cache/assessmentTable";
 import TermPicker from "./components/TermPicker";
 import CourseCalculatorScreen from "./CourseCalculatorScreen";
+import { fonts, typo } from "../src/theme/typography";
 
 const GRADE_REGEX = /^\d{0,3}(\.\d{0,2})?$/;
 const MAX_SYLLABUS_BYTES = 10 * 1024 * 1024;
@@ -119,12 +120,13 @@ const COMPACT_BREAKPOINT = 600;
 export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdowns, onHighlightComplete }: Props) {
   const { width } = useWindowDimensions();
   const isCompact = width < COMPACT_BREAKPOINT;
+  // Wide enough to set the add-courses heading beside its form instead of above it.
+  const addCardSplit = width >= 1024;
   const queryClient = useQueryClient();
   // The term list and the setter live in TermPicker now; this screen only needs to know which
   // term it is showing and whether that term accepts writes.
   const { selectedTerm, editable: termEditable } = useTerm();
   const [deletingCourse, setDeletingCourse] = useState<string | null>(null);
-  const [showAddCourses, setShowAddCourses] = useState(false);
   const [mode, setMode] = useState<"manual" | "transcript">("manual");
   const [rows, setRows] = useState<CourseRow[]>([
     { id: "1", courseCode: "", grade: "" },
@@ -133,6 +135,7 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [activeRowId, setActiveRowId] = useState<string | null>(
     null
   );
@@ -386,35 +389,6 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
     }, UPLOAD_COOLDOWN_MS);
   };
 
-  /**
-   * The saved assessment table, falling back to the extracted syllabus
-   * assessments when the student has not saved one yet.
-   */
-  const fetchAssessmentTable = async (courseCode: string, term: string) => {
-    const encodedCourse = encodeURIComponent(courseCode);
-    const encodedTerm = encodeURIComponent(term);
-
-    const assessmentRes = await authedFetch(
-      `/api/assessment-table/get-assessment-table?courseCode=${encodedCourse}&term=${encodedTerm}`
-    );
-
-    if (assessmentRes.status !== 404) {
-      if (!assessmentRes.ok) throw new Error("Failed to load assessment table");
-      const raw = await assessmentRes.text();
-      return raw ? JSON.parse(raw) : null;
-    }
-
-    const syllabusRes = await authedFetch(
-      `/api/syllabus/assessments?courseCode=${encodedCourse}&term=${encodedTerm}`
-    );
-
-    // Nothing uploaded for this course yet — a normal empty state.
-    if (syllabusRes.status === 404) return null;
-    if (!syllabusRes.ok) throw new Error("Failed to load syllabus assessments");
-
-    const raw = await syllabusRes.text();
-    return raw ? JSON.parse(raw) : null;
-  };
 
   const loadAssessmentTableFlow = async (
     key: string,
@@ -1006,6 +980,7 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
 
   const saveCourses = async () => {
     setLoading(true);
+    setSaveError(null);
     savedOpacity.value = 0;
 
     const token = await getToken();
@@ -1059,8 +1034,13 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
       setRows([{ id: Date.now().toString(), courseCode: "", grade: "" }]);
       // Adding courses changes the GPA the dashboard shows.
       queryClient.invalidateQueries();
+    } else {
+      setSaveError("Those courses could not be saved. Check each course code and try again.");
     }
   };
+
+  // Rows with a course code are the ones Save will send; blank rows are ignored.
+  const filledRows = rows.filter((r) => r.courseCode.trim() !== "").length;
 
   return (
     <View style={styles.screen}>
@@ -1081,9 +1061,6 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
       >
 
         <Text style={styles.title}>My Courses</Text>
-        <Text style={styles.subtitle}>
-          Manage your courses and ensure you're onTrack.
-        </Text>
 
         {/* Always rendered, including for a student with one term: it is what names the term the
             list below belongs to, and hiding it made looking back undiscoverable until a student
@@ -1103,30 +1080,18 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
           </View>
         )}
 
-        {/* Adding a course writes an enrollment, so it belongs to the current term only. */}
-        {termEditable && (
+        {/* Adding a course writes an enrollment, so it belongs to the current term only. The
+            form itself is the card at the end of the list; this only gets you there when a long
+            list has pushed it off screen. */}
+        {termEditable && currentCourses.length > 0 && (
           <Pressable
-            style={styles.addCoursesToggle}
-            onPress={() => {
-              setShowAddCourses((prev) => {
-                if (!prev) {
-                  setTimeout(() => {
-                    scrollRef.current?.scrollToEnd({ animated: true });
-                  }, 100);
-                }
-                return !prev;
-              });
-            }}
+            style={styles.jumpToAdd}
+            onPress={() => scrollRef.current?.scrollToEnd({ animated: true })}
+            accessibilityRole="button"
+            accessibilityLabel="Jump to add courses"
           >
-            <Feather
-              name={showAddCourses ? "x" : "plus"}
-              size={18}
-              color="white"
-              style={{ marginRight: 6 }}
-            />
-            <Text style={styles.addCoursesToggleText}>
-              {showAddCourses ? "Cancel" : "Add Courses"}
-            </Text>
+            <Feather name="plus" size={16} color={colors.primary} />
+            <Text style={styles.jumpToAddText}>Add courses</Text>
           </Pressable>
         )}
 
@@ -1187,7 +1152,7 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
                 styles.courseAccent,
                 {
                   backgroundColor:
-                    index % 2 === 0 ? "#7A003C" : "#F2B94A",
+                    colors.courseAccents[index % colors.courseAccents.length],
                 },
               ]}
             />
@@ -1217,7 +1182,7 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
                 <View style={styles.courseStat}>
                   <Text style={styles.courseStatLabel}>Current Grade</Text>
                   <Text style={styles.courseGrade}>
-                    {bestGrade != null ? `${bestGrade.toFixed(2)}%` : "--"}
+                    {bestGrade != null ? `${bestGrade.toFixed(2)}%` : "No grade"}
                   </Text>
                 </View>
                 <View style={[styles.courseDivider, isCompact && styles.courseDividerCompact]} />
@@ -1297,7 +1262,7 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
                     Remaining uploads:{" "}
                     {uploadState.remainingUploads ??
                       globalRemainingUploads ??
-                      "--"}
+                      "Not available"}
                   </Text>
 
                   {isAssessmentLoading && (
@@ -1335,10 +1300,10 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
                             width: `${Math.round(statusProgress * 100)}%`,
                             backgroundColor:
                               jobStatus === "FAILED"
-                                ? "#c0392b"
+                                ? colors.danger
                                 : jobStatus === "DONE"
-                                  ? "#2ecc71"
-                                  : "#7A003C",
+                                  ? colors.success
+                                  : colors.primary,
                           },
                         ]}
                       />
@@ -1403,10 +1368,26 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
         );
         })}
 
-        {showAddCourses && (
-          <View style={styles.contentWrap}>
+        {termEditable && (
+          <View
+            style={[
+              styles.addCard,
+              isCompact && styles.addCardCompact,
+              addCardSplit && styles.addCardSplit,
+            ]}
+          >
+            <View style={addCardSplit && styles.addCardIntroSplit}>
+              <Text style={styles.addCardTitle}>Add courses to {selectedTerm}</Text>
+              <Text style={styles.addCardSub}>
+                Search for each course by its code, or upload your transcript to add them all at
+                once.
+              </Text>
+            </View>
+
+            <View style={addCardSplit && styles.addCardBodySplit}>
+
             <View
-              style={styles.toggle}
+              style={[styles.toggle, styles.form]}
               onLayout={(e) => setTabWidth(e.nativeEvent.layout.width - 8)}
             >
               <Animated.View
@@ -1419,6 +1400,8 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
               <Pressable
                 style={styles.tabButton}
                 onPress={() => switchMode("manual")}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: mode === "manual" }}
               >
                 <Text
                   style={
@@ -1427,13 +1410,15 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
                       : styles.inactiveTabText
                   }
                 >
-                  Manual Entry
+                  Search courses
                 </Text>
               </Pressable>
 
               <Pressable
                 style={styles.tabButton}
                 onPress={() => switchMode("transcript")}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: mode === "transcript" }}
               >
                 <Text
                   style={
@@ -1442,42 +1427,30 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
                       : styles.inactiveTabText
                   }
                 >
-                  Transcript Upload
+                  Upload transcript
                 </Text>
               </Pressable>
             </View>
 
             {mode === "manual" && (
-              <>
-                <View style={styles.topActions}>
-                  <Pressable style={styles.add} onPress={addRow}>
-                    <Feather name="plus" size={16} color={colors.bodyText} style={{ marginRight: 4 }} />
-                    <Text style={styles.addText}>Add Course</Text>
-                  </Pressable>
-
-                  <Pressable
-                    style={styles.save}
-                    onPress={saveCourses}
-                    disabled={loading}
-                  >
-                    <Feather name="save" size={15} color="white" style={{ marginRight: 6 }} />
-                    <Text style={styles.saveText}>
-                      {loading ? "Saving..." : "Save Courses"}
-                    </Text>
-                  </Pressable>
+              <View style={styles.form}>
+                {/* Labelled once over the columns rather than in every placeholder. */}
+                <View style={styles.formLabels}>
+                  <Text style={[styles.formLabel, styles.formLabelCourse]}>Course code</Text>
+                  <Text style={[styles.formLabel, styles.formLabelGrade, isCompact && styles.gradeInputCompact]}>
+                    {isCompact ? "Grade" : "Grade (optional)"}
+                  </Text>
+                  <View style={styles.formLabelSpacer} />
                 </View>
 
-                <Animated.View style={[styles.savedCard, savedAnimatedStyle]} pointerEvents="none">
-                  <Feather name="check" size={13} color="#2E7D32" style={{ marginRight: 4 }} />
-                  <Text style={styles.savedText}>Saved</Text>
-                </Animated.View>
-
-                {rows.map((row, index) => (
+                {rows.map((row) => (
                   <View key={row.id} style={[styles.row, activeRowId === row.id && { zIndex: 10 }, activeRowId === row.id && canSearch && { paddingBottom: 230 }]}>
                     <View style={styles.inputWithDropdown}>
                       <TextInput
-                        placeholder={`Course ${index + 1}`}
-                        placeholderTextColor={colors.bodyText}
+                        placeholder="e.g. COMPSCI 2C03"
+                        placeholderTextColor={colors.placeholder}
+                        accessibilityLabel="Course code"
+                        autoCapitalize="characters"
                         value={row.courseCode}
                         onChangeText={(v) =>
                           updateRow(row.id, "courseCode", v)
@@ -1554,56 +1527,88 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
                     </View>
 
                     <TextInput
-                      placeholder="Grade %"
-                      placeholderTextColor={colors.bodyText}
+                      placeholder={isCompact ? "Optional" : "%"}
+                      placeholderTextColor={colors.placeholder}
+                      accessibilityLabel="Grade, optional"
                       value={row.grade}
                       onChangeText={(v) => updateRow(row.id, "grade", v)}
                       keyboardType="numeric"
-                      style={styles.input}
+                      style={[styles.input, styles.gradeInput, isCompact && styles.gradeInputCompact]}
                     />
 
-                    <Pressable onPress={() => removeRow(row.id)}>
-                      <Feather name="trash-2" size={16} color={colors.bodyText} />
-                    </Pressable>
+                    {/* A lone row has nothing to remove; the slot stays so the columns line up. */}
+                    {rows.length > 1 ? (
+                      <Pressable
+                        onPress={() => removeRow(row.id)}
+                        style={styles.removeRow}
+                        accessibilityRole="button"
+                        accessibilityLabel="Remove this course"
+                      >
+                        <Feather name="x" size={18} color={colors.bodyText} />
+                      </Pressable>
+                    ) : (
+                      <View style={styles.removeRow} />
+                    )}
                   </View>
                 ))}
-              </>
+
+                <Pressable style={styles.addRowButton} onPress={addRow}>
+                  <Feather name="plus" size={16} color={colors.primary} />
+                  <Text style={styles.addRowText}>Add another course</Text>
+                </Pressable>
+
+                <View style={styles.formFooter}>
+                  <Animated.View style={[styles.savedCard, savedAnimatedStyle]} pointerEvents="none">
+                    <Feather name="check" size={13} color={colors.success} style={{ marginRight: 4 }} />
+                    <Text style={styles.savedText}>Courses added</Text>
+                  </Animated.View>
+
+                  <Pressable
+                    style={[styles.save, (loading || filledRows === 0) && styles.saveDisabled]}
+                    onPress={saveCourses}
+                    disabled={loading || filledRows === 0}
+                  >
+                    <Text style={styles.saveText}>
+                      {loading
+                        ? "Saving..."
+                        : filledRows > 1
+                          ? `Save ${filledRows} courses`
+                          : "Save course"}
+                    </Text>
+                  </Pressable>
+                </View>
+
+                {saveError && <Text style={styles.formError}>{saveError}</Text>}
+              </View>
             )}
 
             {mode === "transcript" && (
-              <View style={styles.card}>
-                <Text style={styles.cardTitle}>Upload Transcript</Text>
-                <Text style={styles.cardSub}>
-                  Upload your PDF transcript to automatically add your current
-                  courses.
-                </Text>
-
+              <View style={styles.form}>
                 <View style={styles.uploadBox}>
                   <View style={styles.iconCircle}>
                     <Feather name="upload" size={24} color={colors.primary} />
                   </View>
 
-                  <Text style={styles.uploadTitle}>
-                    Select your transcript file
-                  </Text>
+                  <Text style={styles.uploadTitle}>Choose your transcript</Text>
 
                   <Text style={styles.uploadSub}>
-                    Supported formats: PDF, JPG, PNG
+                    We read this term's courses from it and add them to your list. PDF, JPG or
+                    PNG.
                   </Text>
 
                   <Pressable
-                    style={styles.browseButton}
+                    style={[styles.browseButton, uploading && styles.saveDisabled]}
                     onPress={uploadTranscript}
                     disabled={uploading}
                   >
                     <Feather
                       name="file"
                       size={16}
-                      color="white"
+                      color={colors.onField}
                       style={{ marginRight: 6 }}
                     />
                     <Text style={styles.browseText}>
-                      {uploading ? "Uploading..." : "Browse Files"}
+                      {uploading ? "Uploading..." : "Choose file"}
                     </Text>
                   </Pressable>
 
@@ -1612,16 +1617,17 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
                   )}
                 </View>
 
-                <Animated.View style={[styles.savedCard, uploadSuccessAnimatedStyle]} pointerEvents="none">
-                  <Feather name="check" size={13} color="#2E7D32" style={{ marginRight: 4 }} />
-                  <Text style={styles.savedText}>Added</Text>
+                <Animated.View style={[styles.savedCard, { marginTop: spacing.sm }, uploadSuccessAnimatedStyle]} pointerEvents="none">
+                  <Feather name="check" size={13} color={colors.success} style={{ marginRight: 4 }} />
+                  <Text style={styles.savedText}>Courses added from your transcript</Text>
                 </Animated.View>
 
                 {uploadError && (
-                  <Text style={styles.errorText}>{uploadError}</Text>
+                  <Text style={styles.formError}>{uploadError}</Text>
                 )}
               </View>
             )}
+            </View>
           </View>
         )}
 
@@ -1644,17 +1650,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   title: {
-    fontSize: 24,
-    fontWeight: "700",
+    ...typo.h1,
     marginBottom: 6,
     color: colors.boldText,
     textAlign: "center",
-  },
-  subtitle: {
-    color: colors.bodyText,
-    fontSize: 14,
-    textAlign: "center",
-    marginBottom: spacing.lg,
   },
   toggle: {
     flexDirection: "row",
@@ -1669,10 +1668,8 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: 4,
     bottom: 4,
-    backgroundColor: "white",
+    backgroundColor: colors.surface,
     borderRadius: radius.sm,
-    boxShadow: "0px 1px 3px rgba(0, 0, 0, 0.1)",
-    elevation: 2,
   },
   tabButton: {
     flex: 1,
@@ -1681,23 +1678,21 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   activeTabText: {
-    color: "#260D19",
-    fontWeight: "600",
-    fontSize: 14,
+    ...typo.label,
+    color: colors.boldText,
+    fontFamily: fonts.display,
   },
   inactiveTabText: {
+    ...typo.label,
     color: colors.bodyText,
-    fontSize: 14,
   },
   courseCard: {
-    backgroundColor: "white",
+    backgroundColor: colors.surface,
     borderRadius: radius.lg,
     marginBottom: spacing.lg,
     overflow: "hidden",
     borderWidth: 1,
-    borderColor: "#E8E1E6",
-    boxShadow: "0px 2px 6px rgba(0, 0, 0, 0.06)",
-    elevation: 2,
+    borderColor: colors.borderSubtle,
   },
   courseAccent: {
     height: 4,
@@ -1737,8 +1732,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   courseCode: {
-    fontSize: 18,
-    fontWeight: "600",
+    ...typo.h2,
     color: colors.boldText,
     marginRight: spacing.sm,
   },
@@ -1750,32 +1744,32 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     marginBottom: spacing.md,
     borderRadius: radius.sm,
-    backgroundColor: "#EEEEF5",
+    backgroundColor: colors.surfaceSunken,
   },
   readOnlyNoticeText: {
+    ...typo.caption,
     flex: 1,
-    fontSize: 13,
     color: colors.bodyText,
   },
   termPill: {
-    backgroundColor: "#F2B94A",
+    backgroundColor: colors.accentSoft,
     paddingHorizontal: spacing.sm,
     paddingVertical: 4,
     borderRadius: 999,
   },
   termText: {
-    fontSize: 11,
-    fontWeight: "500",
-    color: "#5A2A05",
+    ...typo.caption,
+    color: colors.boldText,
+    fontFamily: fonts.bodyMedium,
   },
   courseName: {
+    ...typo.body,
     color: colors.bodyText,
-    fontSize: 14,
     marginBottom: spacing.md,
   },
   courseLink: {
+    ...typo.label,
     color: colors.primary,
-    fontWeight: "500",
     fontSize: 13,
   },
   courseRight: {
@@ -1791,25 +1785,28 @@ const styles = StyleSheet.create({
     minWidth: 60,
   },
   courseStatLabel: {
+    ...typo.caption,
     color: colors.bodyText,
-    fontSize: 11,
-    fontWeight: "400",
     marginBottom: 6,
   },
   courseGrade: {
+    ...typo.data,
     fontSize: 18,
-    fontWeight: "600",
     color: colors.primary,
+    fontFamily: fonts.bodyMedium,
+    letterSpacing: 0.36,
   },
   courseCredits: {
+    ...typo.data,
     fontSize: 16,
-    fontWeight: "600",
     color: colors.boldText,
+    fontFamily: fonts.bodyMedium,
+    letterSpacing: 0.32,
   },
   courseDivider: {
     width: 1,
     height: 40,
-    backgroundColor: "#E0D7DE",
+    backgroundColor: colors.border,
     marginHorizontal: spacing.md,
   },
   courseDividerCompact: {
@@ -1820,14 +1817,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: radius.md,
-    backgroundColor: "#F0EAF0",
+    backgroundColor: colors.surfaceSunken,
     alignItems: "center" as const,
     justifyContent: "center" as const,
   },
   gpaPillText: {
-    fontSize: 11,
-    fontWeight: "500" as const,
+    ...typo.caption,
     color: colors.primary,
+    fontFamily: fonts.bodyMedium,
   },
   dropdownToggleWrap: {
     borderRadius: radius.sm,
@@ -1841,37 +1838,36 @@ const styles = StyleSheet.create({
   },
   courseCalculatorContainer: {
     borderTopWidth: 1,
-    borderTopColor: "#E8E1E6",
+    borderTopColor: colors.borderSubtle,
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.lg,
   },
   syllabusBox: {
-    backgroundColor: "#F8F3F6",
+    backgroundColor: colors.surfaceAlt,
     borderRadius: radius.md,
     padding: spacing.md,
     marginBottom: spacing.md,
     borderWidth: 1,
-    borderColor: "#E8E1E6",
+    borderColor: colors.borderSubtle,
   },
   syllabusTitle: {
-    fontSize: 14,
-    fontWeight: "600",
+    ...typo.h3,
     color: colors.boldText,
     marginBottom: 6,
   },
   syllabusText: {
+    ...typo.body,
     color: colors.bodyText,
-    fontSize: 13,
     marginBottom: spacing.sm,
   },
   syllabusMeta: {
-    color: "#6E6470",
-    fontSize: 12,
+    ...typo.caption,
+    color: colors.faintText,
     marginBottom: 6,
   },
   syllabusError: {
-    color: "#c0392b",
-    fontSize: 12,
+    ...typo.caption,
+    color: colors.danger,
     marginBottom: spacing.sm,
   },
   syllabusActions: {
@@ -1884,15 +1880,16 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: radius.md,
-    backgroundColor: "#7A003C",
+    backgroundColor: colors.primary,
   },
   uploadButtonDisabled: {
     opacity: 0.6,
   },
   uploadButtonText: {
-    color: "white",
-    fontWeight: "500",
-    fontSize: 12,
+    ...typo.label,
+    color: colors.onField,
+    fontSize: 13,
+    fontFamily: fonts.display,
   },
   jobRow: {
     flexDirection: "row",
@@ -1903,7 +1900,7 @@ const styles = StyleSheet.create({
   progressTrack: {
     height: 6,
     borderRadius: 999,
-    backgroundColor: "#E8E1E6",
+    backgroundColor: colors.surfaceSunken,
     overflow: "hidden",
     marginBottom: spacing.sm,
   },
@@ -1911,45 +1908,134 @@ const styles = StyleSheet.create({
     height: "100%",
     borderRadius: 999,
   },
-  contentWrap: {
-    maxWidth: 540,
-    width: "100%",
-    alignSelf: "center",
+  // The one form on the page: a single card at the end of the list. Overflow stays visible so
+  // the course search dropdown can hang below its row.
+  addCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.lg,
     zIndex: 5,
   },
-  topActions: {
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-    gap: 12,
-    marginBottom: spacing.lg,
+  addCardCompact: {
+    padding: spacing.md,
   },
-  addCoursesToggle: {
-    alignSelf: "center",
+  addCardSplit: {
+    flexDirection: "row",
+    gap: spacing.lg * 2,
+  },
+  addCardIntroSplit: {
+    width: 300,
+  },
+  addCardBodySplit: {
+    flex: 1,
+    maxWidth: 640,
+  },
+  addCardTitle: {
+    ...typo.h2,
+    color: colors.boldText,
+  },
+  addCardSub: {
+    ...typo.body,
+    color: colors.bodyText,
+    marginTop: 4,
+    marginBottom: spacing.md,
+    maxWidth: 560,
+  },
+  // Inputs read best at a form's width, not stretched across a 1200px card.
+  form: {
+    maxWidth: 640,
+    width: "100%",
+  },
+  formLabels: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: colors.primary,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: radius.md,
-    marginBottom: spacing.lg,
+    gap: spacing.sm,
+    marginBottom: 6,
   },
-  addCoursesToggleText: {
-    color: "white",
-    fontWeight: "500",
-    fontSize: 14,
+  formLabel: {
+    ...typo.caption,
+    fontFamily: fonts.bodyMedium,
+    color: colors.bodyText,
+  },
+  formLabelCourse: {
+    flex: 1,
+  },
+  formLabelGrade: {
+    width: 120,
+  },
+  formLabelSpacer: {
+    width: 36,
   },
   row: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "white",
-    padding: spacing.md,
-    borderRadius: radius.md,
+    gap: spacing.sm,
     marginBottom: spacing.sm,
-    boxShadow: "0px 1px 4px rgba(0, 0, 0, 0.06)",
-    elevation: 1,
     overflow: "visible",
     position: "relative",
+  },
+  gradeInput: {
+    flex: 0,
+    width: 120,
+    fontVariant: ["tabular-nums"],
+  },
+  gradeInputCompact: {
+    width: 84,
+  },
+  removeRow: {
+    width: 36,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radius.md,
+  },
+  addRowButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    marginLeft: -8,
+    borderRadius: radius.md,
+  },
+  addRowText: {
+    ...typo.label,
+    color: colors.primary,
+  },
+  formFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.md,
+    marginTop: spacing.md,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.borderSubtle,
+  },
+  saveDisabled: {
+    opacity: 0.45,
+  },
+  formError: {
+    ...typo.body,
+    color: colors.danger,
+    marginTop: spacing.sm,
+  },
+  jumpToAdd: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "center",
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginBottom: spacing.md,
+    borderRadius: radius.md,
+  },
+  jumpToAddText: {
+    ...typo.label,
+    color: colors.primary,
   },
   inputWithDropdown: {
     flex: 1,
@@ -1957,13 +2043,13 @@ const styles = StyleSheet.create({
     position: "relative",
   },
   input: {
+    ...typo.body,
     flex: 1,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.md,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    fontSize: 14,
     color: colors.boldText,
     backgroundColor: colors.surface,
   },
@@ -1972,7 +2058,7 @@ const styles = StyleSheet.create({
     top: 46,
     left: 0,
     right: 0,
-    backgroundColor: "white",
+    backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.md,
@@ -1990,35 +2076,21 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
   },
   dropdownTitle: {
-    fontWeight: "600",
-    fontSize: 14,
+    ...typo.body,
     color: colors.boldText,
+    fontFamily: fonts.bodyMedium,
   },
   dropdownSub: {
+    ...typo.caption,
     color: colors.bodyText,
-    fontSize: 12,
     marginTop: 2,
   },
   loadingRow: {
     paddingVertical: spacing.sm,
     alignItems: "center",
   },
-  add: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderWidth: 1,
-    borderStyle: "dashed",
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-  },
-  addText: {
-    fontWeight: "500",
-    fontSize: 13,
-    color: colors.bodyText,
-  },
   save: {
+    marginLeft: "auto",
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: colors.primary,
@@ -2027,28 +2099,9 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   saveText: {
-    color: "white",
-    fontWeight: "500",
-    fontSize: 14,
-  },
-  card: {
-    backgroundColor: "white",
-    borderRadius: radius.lg,
-    padding: spacing.lg,
-    boxShadow: "0px 2px 6px rgba(0, 0, 0, 0.06)",
-    elevation: 2,
-  },
-  cardTitle: {
-    fontSize: 17,
-    fontWeight: "600",
-    color: colors.boldText,
-    marginBottom: 6,
-  },
-  cardSub: {
-    color: colors.bodyText,
-    fontSize: 14,
-    lineHeight: 20,
-    marginBottom: spacing.lg,
+    ...typo.label,
+    color: colors.onField,
+    fontFamily: fonts.display,
   },
   uploadBox: {
     borderWidth: 1,
@@ -2059,7 +2112,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   iconCircle: {
-    backgroundColor: "#F2E6EC",
+    backgroundColor: colors.primarySoft,
     borderRadius: 999,
     padding: spacing.md,
     marginBottom: spacing.md,
@@ -2067,14 +2120,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   uploadTitle: {
-    fontWeight: "600",
-    fontSize: 15,
+    ...typo.h3,
     color: colors.boldText,
     marginBottom: 4,
   },
   uploadSub: {
+    ...typo.body,
     color: colors.bodyText,
-    fontSize: 13,
     textAlign: "center",
     marginBottom: spacing.md,
   },
@@ -2087,18 +2139,18 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   browseText: {
-    color: "white",
-    fontWeight: "500",
-    fontSize: 14,
+    ...typo.label,
+    color: colors.onField,
+    fontFamily: fonts.display,
   },
   fileName: {
+    ...typo.caption,
     marginTop: spacing.sm,
     color: colors.bodyText,
-    fontSize: 12,
   },
   errorText: {
-    color: "#B33A3A",
-    fontSize: 13,
+    ...typo.body,
+    color: colors.danger,
     marginTop: spacing.md,
     textAlign: "center",
   },
@@ -2106,15 +2158,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     alignSelf: "flex-start",
-    backgroundColor: "#E8F5E9",
+    backgroundColor: colors.successSoft,
     paddingVertical: 6,
     paddingHorizontal: 10,
     borderRadius: radius.sm,
-    marginTop: spacing.sm,
   },
   savedText: {
-    color: "#2E7D32",
-    fontWeight: "500",
-    fontSize: 12,
+    ...typo.caption,
+    color: colors.success,
+    fontFamily: fonts.bodyMedium,
   },
 });

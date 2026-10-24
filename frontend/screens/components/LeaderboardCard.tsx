@@ -1,15 +1,17 @@
 import React, { useEffect } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
+import { Text } from "../../src/ui/Text";
 import { Feather } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import { useTheme } from "../../src/theme/ThemeContext";
 import { qk } from "../../src/cache/keys";
 import { isAuthError, queryRetry } from "../../src/cache/authedGet";
 import { fetchBoard, fetchStatus } from "../../src/leaderboard/api";
-import { fmtScore } from "../../src/leaderboard/scoring";
+import { POINTS_SHORT, fmtScore } from "../../src/leaderboard/scoring";
 import BrandField from "./leaderboard/BrandField";
 import { ModePill, RankSparkline, TrendChip } from "./leaderboard/Indicators";
 import { radius } from "../../src/theme/spacing";
+import { fonts, typo } from "../../src/theme/typography";
 
 /**
  * The leaderboard's one card on the dashboard.
@@ -123,7 +125,10 @@ export default function LeaderboardCard({
             </View>
 
             <View style={styles.metaRow}>
-              <Text style={[styles.score, { color: c.accent }]}>{fmtScore(me!.score)}</Text>
+              <Text style={[styles.score, { color: c.accent }]}>
+                {fmtScore(me!.score)}
+                <Text style={[styles.unit, { color: c.onFieldFaint }]}> {POINTS_SHORT}</Text>
+              </Text>
               <View style={styles.spacer} />
               <RankSparkline history={history} onField />
             </View>
@@ -150,15 +155,13 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     minHeight: 150,
     borderWidth: 0,
-    boxShadow: "0px 2px 8px rgba(0,0,0,0.12)",
-    elevation: 3,
   },
   skeleton: {
     borderRadius: radius.lg,
   },
   errorText: {
+    ...typo.body,
     padding: 16,
-    fontSize: 13,
   },
   joinInner: {
     padding: 16,
@@ -176,14 +179,14 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   joinTitle: {
+    ...typo.label,
+    fontFamily: fonts.display,
     fontSize: 13,
-    fontWeight: "700",
-    letterSpacing: 0.4,
+    letterSpacing: 0.52,
     textTransform: "uppercase",
   },
   joinBody: {
-    fontSize: 13,
-    lineHeight: 19,
+    ...typo.body,
     flex: 1,
   },
   joinButton: {
@@ -193,9 +196,9 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   joinButtonText: {
-    color: "#3B0A1D",
-    fontSize: 13,
-    fontWeight: "700",
+    ...typo.label,
+    fontFamily: fonts.display,
+    color: "#3B0A1D", // dark ink on gold in both themes; boldText flips light in dark
   },
   rankRow: {
     flexDirection: "row",
@@ -204,13 +207,13 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   rankNumber: {
-    fontSize: 34,
-    fontWeight: "800",
+    ...typo.display,
     fontVariant: ["tabular-nums"],
   },
   rankOf: {
-    fontSize: 13,
-    fontWeight: "600",
+    ...typo.caption,
+    fontFamily: fonts.bodyMedium,
+    fontVariant: ["tabular-nums"],
   },
   spacer: {
     flex: 1,
@@ -220,9 +223,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   score: {
+    ...typo.rank,
     fontSize: 16,
-    fontWeight: "800",
-    fontVariant: ["tabular-nums"],
+  },
+  unit: {
+    ...typo.caption,
+    fontFamily: fonts.bodyMedium,
   },
   modeRow: {
     flexDirection: "row",

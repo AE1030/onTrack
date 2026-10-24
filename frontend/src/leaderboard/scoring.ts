@@ -103,3 +103,14 @@ export const fmtGpa = (v: number | null | undefined) =>
 export function targetRange(baseline: number): { min: number; max: number } {
   return { min: round2(clamp(effectiveBaseline(baseline), 0, SCALE_MAX)), max: SCALE_MAX };
 }
+
+/** What the board's points are called. The short form sits next to numbers where room is tight. */
+export const POINTS_NAME = "Track Points";
+export const POINTS_SHORT = "TP";
+
+/**
+ * Whole Track Points needed to strictly pass a score. The server orders on two decimals, so a tie on
+ * screen still needs one more point to pass.
+ */
+export const pointsToPass = (mine: number, theirs: number) =>
+  Math.max(1, Math.floor(theirs - mine) + 1);

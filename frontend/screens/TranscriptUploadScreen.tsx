@@ -1,4 +1,5 @@
-import { View, Text, Pressable, StyleSheet, Platform } from "react-native";
+import { View, Pressable, StyleSheet, Platform } from "react-native";
+import { Text } from "../src/ui/Text";
 import * as DocumentPicker from "expo-document-picker";
 import { Feather } from "@expo/vector-icons";
 import {
@@ -14,6 +15,7 @@ import { API_BASE_URL } from "../src/config/api";
 import { AuthError, isAuthError } from "../src/cache/authedGet";
 import { qk } from "../src/cache/keys";
 import { toUserMessage } from "../src/utils/errorMessage";
+import { fonts, typo } from "../src/theme/typography";
 
 type Props = {
   onBack: () => void;
@@ -136,17 +138,13 @@ export default function TranscriptUploadScreen({
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Upload Transcript</Text>
         <Text style={styles.cardSub}>
-          Upload your PDF transcript to automatically extract courses and grades.
+          We read your courses and grades straight from the PDF.
         </Text>
 
         <View style={styles.uploadBox}>
           <View style={styles.iconCircle}>
             <Feather name="upload" size={24} color={colors.primary} />
           </View>
-
-          <Text style={styles.uploadTitle}>
-            Select your transcript file
-          </Text>
 
           <Text style={styles.uploadSub}>
             Supported formats: PDF, JPG, PNG
@@ -160,7 +158,7 @@ export default function TranscriptUploadScreen({
             <Feather
               name="file"
               size={16}
-              color="white"
+              color={colors.onField}
               style={{ marginRight: 6 }}
             />
             <Text style={styles.browseText}>
@@ -184,7 +182,7 @@ export default function TranscriptUploadScreen({
               <Text style={styles.resultTitle}>Predicted GPA</Text>
               <Text style={styles.gpa}>{result.gpa.toFixed(2)}</Text>
               <Text style={styles.resultSub}>
-                Total Credits: {result.totalCredits}
+                {result.totalCredits} credits
               </Text>
             </>
           ) : (
@@ -212,22 +210,20 @@ const styles = StyleSheet.create({
     alignSelf: "center",
   },
   card: {
-    backgroundColor: "white",
+    backgroundColor: colors.surface,
     borderRadius: radius.lg,
     padding: spacing.lg,
-    boxShadow: "0px 2px 6px rgba(0, 0, 0, 0.06)",
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
   },
   cardTitle: {
-    fontSize: 17,
-    fontWeight: "600",
+    ...typo.h2,
     color: colors.boldText,
     marginBottom: 6,
   },
   cardSub: {
+    ...typo.body,
     color: colors.bodyText,
-    fontSize: 14,
-    lineHeight: 20,
     marginBottom: spacing.lg,
   },
   uploadBox: {
@@ -239,7 +235,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   iconCircle: {
-    backgroundColor: "#F2E6EC",
+    backgroundColor: colors.primarySoft,
     borderRadius: 999,
     padding: spacing.md,
     marginBottom: spacing.md,
@@ -247,14 +243,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   uploadTitle: {
-    fontWeight: "600",
-    fontSize: 15,
+    ...typo.h3,
     color: colors.boldText,
     marginBottom: 4,
   },
   uploadSub: {
+    ...typo.body,
     color: colors.bodyText,
-    fontSize: 13,
     textAlign: "center",
     marginBottom: spacing.md,
   },
@@ -267,14 +262,14 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   browseText: {
-    color: "white",
-    fontWeight: "500",
-    fontSize: 14,
+    ...typo.label,
+    color: colors.onField,
+    fontFamily: fonts.display,
   },
   fileName: {
+    ...typo.caption,
     marginTop: spacing.sm,
     color: colors.bodyText,
-    fontSize: 12,
   },
   resultCard: {
     backgroundColor: colors.primary,
@@ -282,28 +277,28 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     alignItems: "center",
     marginTop: spacing.lg,
-    boxShadow: "0px 4px 12px rgba(0, 0, 0, 0.15)",
-    elevation: 4,
   },
   resultTitle: {
-    color: "rgba(255,255,255,0.85)",
-    fontWeight: "500",
-    fontSize: 14,
+    ...typo.label,
+    color: colors.onFieldMuted,
     marginBottom: 8,
   },
   gpa: {
-    color: "white",
-    fontSize: 42,
-    fontWeight: "700",
+    ...typo.display,
+    color: colors.onField,
+    fontSize: 48,
+    lineHeight: 52,
+    fontVariant: ["tabular-nums"],
   },
   resultSub: {
-    color: "rgba(255,255,255,0.75)",
-    fontSize: 13,
+    ...typo.caption,
+    color: colors.onFieldMuted,
     marginTop: 6,
+    fontVariant: ["tabular-nums"],
   },
   error: {
-    color: "#DC2626",
-    fontSize: 13,
+    ...typo.body,
+    color: colors.danger,
     marginTop: spacing.md,
     textAlign: "center",
   },
