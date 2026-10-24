@@ -173,14 +173,17 @@ def _check_assessment(
         if not due_date:
             add("due_date_empty_list", ERROR, "due_date is an empty list, expected null")
         for entry in due_date:
-            if not isinstance(entry, str) or not ISO_DATE_RE.match(entry):
-                add("due_date_not_iso", ERROR, f"due_date entry {entry!r} is not YYYY-MM-DD")
+            # TBD holds an undated instance's place, so the dates around it stay aligned.
+            if not isinstance(entry, str) or not (entry == "TBD" or ISO_DATE_RE.match(entry)):
+                add("due_date_not_iso", ERROR, f"due_date entry {entry!r} is not YYYY-MM-DD or TBD")
         if isinstance(total, int) and len(due_date) != total:
-            # The prompt asks for one date per occurrence, index-aligned. A mismatch means the
-            # calendar would put deadlines against the wrong instances.
+            # The prompt asks for one date per occurrence, index-aligned, but real syllabi break
+            # that: dates shared by two assignments, a choice of sessions, one undated instance.
+            # The backend shows TBD past the end of a short list and the calendar skips anything
+            # that is not a single date, so this is a display gap, not a crash. Report, don't fail.
             add(
                 "due_date_count_mismatch",
-                ERROR,
+                WARNING,
                 f"{len(due_date)} date(s) against occurrence.total={total}",
             )
     elif isinstance(due_date, str):

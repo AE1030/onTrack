@@ -8,13 +8,16 @@ second record of something the database already knew, updated on a different sch
 So there are no state files. "What still needs doing" is a query, and a run that dies halfway
 leaves the next run with a correct picture by construction.
 
-Three tables, all created by the backend's Flyway baseline migration (V1) rather than by this module:
+Four tables, all created by the backend's Flyway migrations rather than by this module:
 
     syllabus_source        one row per scraped section, keyed by doc_code. Holds the flattened
                            text the extractor reads and a sha256 of it.
     syllabus               the catalog the backend reads, keyed by (course_code, term, doc_code).
                            Carries source_text_sha256, which is how extract knows what is stale.
     syllabus_pipeline_run  one row per run: counts, timings, and any verify violations.
+    syllabus_no_scheme     sources the extractor read and found no grading scheme in, keyed by
+                           doc_code with the source sha256 they were read at (V6). Extract skips
+                           them until the text changes.
 
 Two things are worth knowing before changing anything here:
 
@@ -29,11 +32,13 @@ Two things are worth knowing before changing anything here:
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
+import logging
 import zlib
 from datetime import datetime, timezone
-from typing import Any, Iterator, Optional
+from typing import Any, Callable, Iterator, Optional, TypeVar
 
 import psycopg2
 import psycopg2.extras
@@ -41,6 +46,37 @@ import psycopg2.extras
 SOURCES = "syllabus_source"
 CATALOG = "syllabus"
 RUNS = "syllabus_pipeline_run"
+NO_SCHEME = "syllabus_no_scheme"
+
+log = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
+
+
+def _reconnecting(method: Callable[..., _T]) -> Callable[..., _T]:
+    """Retry a Store method once on a fresh connection if the old one has dropped.
+
+    Neon suspends an idle compute after five minutes, and suspending it closes every open
+    connection. An extract pass holds one connection for hours and only queries between Gemini
+    calls, so a stretch of failed extractions with nothing to write is enough to lose it. Every
+    method here is a single autocommit statement and every write is an upsert or an update, so
+    running one again after a drop is safe. A second failure is a real outage and propagates.
+    """
+
+    @functools.wraps(method)
+    def wrapper(self: "Store", *args: Any, **kwargs: Any) -> _T:
+        try:
+            return method(self, *args, **kwargs)
+        except (psycopg2.InterfaceError, psycopg2.OperationalError) as exc:
+            # An OperationalError on a connection that is still open is the statement failing,
+            # not the connection, and retrying it would only hide that.
+            if not self._conn.closed:
+                raise
+            log.warning("Postgres connection dropped (%s); reconnecting", str(exc).strip())
+            self._connect()
+            return method(self, *args, **kwargs)
+
+    return wrapper
 
 
 def utc_now() -> datetime:
@@ -53,9 +89,13 @@ def sha256(text: str) -> str:
 
 class Store:
     def __init__(self, dsn: str):
+        self._dsn = dsn
+        self._connect()
+
+    def _connect(self) -> None:
         # A scrape of 1250 documents can outlast a short connect timeout on a cold managed
         # instance, and a Cloud Run Job that dies at minute 8 of 10 is worse than one that waits.
-        self._conn = psycopg2.connect(dsn, connect_timeout=20)
+        self._conn = psycopg2.connect(self._dsn, connect_timeout=20)
         # Every method here is self-contained, so committing as we go is what makes a run that
         # dies halfway leave a usable picture behind rather than rolling back the whole scrape.
         self._conn.autocommit = True
@@ -72,11 +112,19 @@ class Store:
     def _cursor(self):
         return self._conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
+    @_reconnecting
+    def _fetch_all(self, sql: str, params: Optional[tuple] = None) -> list[dict[str, Any]]:
+        with self._cursor() as cur:
+            cur.execute(sql, params)
+            return [dict(row) for row in cur.fetchall()]
+
+    @_reconnecting
     def ping(self) -> None:
         with self._cursor() as cur:
             cur.execute("select 1")
             cur.fetchone()
 
+    @_reconnecting
     def ensure_indexes(self) -> None:
         """Assert the schema is present. Flyway creates it; this only checks.
 
@@ -86,7 +134,7 @@ class Store:
         """
         missing = []
         with self._cursor() as cur:
-            for table in (SOURCES, CATALOG, RUNS):
+            for table in (SOURCES, CATALOG, RUNS, NO_SCHEME):
                 cur.execute("select to_regclass(%s) as oid", (f"public.{table}",))
                 if cur.fetchone()["oid"] is None:
                     missing.append(table)
@@ -95,16 +143,18 @@ class Store:
                 "missing table(s): "
                 + ", ".join(missing)
                 + ". The backend's Flyway migrations own this schema -- run the backend against "
-                "this database once (V1 creates them), or apply V1__baseline_schema.sql by hand."
+                "this database once (V1 and V6 create them), or apply the migrations by hand."
             )
 
     # ---------------------------------------------------------------- sources
 
+    @_reconnecting
     def known_source_codes(self) -> set[str]:
         with self._cursor() as cur:
             cur.execute(f"select doc_code from {SOURCES}")
             return {row["doc_code"] for row in cur}
 
+    @_reconnecting
     def upsert_source(
         self,
         doc_code: str,
@@ -172,6 +222,7 @@ class Store:
             )
         return digest
 
+    @_reconnecting
     def raw_for(self, doc_code: str) -> Optional[dict[str, Any]]:
         """Decompress a stored raw response. Only used for debugging a bad extraction."""
         with self._cursor() as cur:
@@ -192,22 +243,21 @@ class Store:
             "doc_code, course_code, term, title_raw, subtitle, entity_id, entity_type, "
             "family_name, text, text_sha256, text_length, fetched_at, scrape_run_id"
         )
-        with self._cursor() as cur:
-            if terms:
-                cur.execute(
-                    f"select {columns} from {SOURCES} where term = any(%s) order by doc_code",
-                    (list(terms),),
-                )
-            else:
-                cur.execute(f"select {columns} from {SOURCES} order by doc_code")
-            # Materialised deliberately. The caller runs a Gemini call per row, and holding a
-            # server-side cursor open across those would keep a transaction alive for the length
-            # of the whole stage.
-            for row in cur.fetchall():
-                yield dict(row)
+        # Materialised deliberately. The caller runs a Gemini call per row, and holding a
+        # server-side cursor open across those would keep a transaction alive for the length
+        # of the whole stage.
+        if terms:
+            rows = self._fetch_all(
+                f"select {columns} from {SOURCES} where term = any(%s) order by doc_code",
+                (list(terms),),
+            )
+        else:
+            rows = self._fetch_all(f"select {columns} from {SOURCES} order by doc_code")
+        yield from rows
 
     # ---------------------------------------------------------------- catalog
 
+    @_reconnecting
     def extracted_source_hashes(self) -> dict[str, str]:
         """doc_code -> the source sha256 its catalog entry was extracted from.
 
@@ -219,6 +269,7 @@ class Store:
             cur.execute(f"select doc_code, source_text_sha256 from {CATALOG}")
             return {row["doc_code"]: (row["source_text_sha256"] or "") for row in cur}
 
+    @_reconnecting
     def upsert_extraction(
         self,
         doc_code: str,
@@ -263,21 +314,51 @@ class Store:
                     "now": now,
                 },
             )
+            # A source that once had no scheme and now has one is no longer a no-scheme source.
+            cur.execute(f"delete from {NO_SCHEME} where doc_code = %s", (doc_code,))
+
+    # ---------------------------------------------------------------- no scheme
+
+    @_reconnecting
+    def no_scheme_hashes(self) -> dict[str, str]:
+        """doc_code -> the source sha256 at which the extractor found no grading scheme."""
+        with self._cursor() as cur:
+            cur.execute(f"select doc_code, source_text_sha256 from {NO_SCHEME}")
+            return {row["doc_code"]: row["source_text_sha256"] for row in cur}
+
+    @_reconnecting
+    def record_no_scheme(
+        self, doc_code: str, source_sha: str, reason: str, model: str, run_id: str
+    ) -> None:
+        with self._cursor() as cur:
+            cur.execute(
+                f"""
+                insert into {NO_SCHEME} (doc_code, source_text_sha256, reason, model,
+                                         extract_run_id, recorded_at)
+                values (%s, %s, %s, %s, %s, %s)
+                on conflict (doc_code) do update set
+                    source_text_sha256 = excluded.source_text_sha256,
+                    reason             = excluded.reason,
+                    model              = excluded.model,
+                    extract_run_id     = excluded.extract_run_id,
+                    recorded_at        = excluded.recorded_at
+                """,
+                (doc_code, source_sha, reason, model, run_id, utc_now()),
+            )
 
     def iter_catalog(self, terms: Optional[list[str]] = None) -> Iterator[dict[str, Any]]:
-        with self._cursor() as cur:
-            if terms:
-                cur.execute(
-                    f"select * from {CATALOG} where term = any(%s) order by course_code, term, doc_code",
-                    (list(terms),),
-                )
-            else:
-                cur.execute(f"select * from {CATALOG} order by course_code, term, doc_code")
-            for row in cur.fetchall():
-                yield dict(row)
+        if terms:
+            rows = self._fetch_all(
+                f"select * from {CATALOG} where term = any(%s) order by course_code, term, doc_code",
+                (list(terms),),
+            )
+        else:
+            rows = self._fetch_all(f"select * from {CATALOG} order by course_code, term, doc_code")
+        yield from rows
 
     # ---------------------------------------------------------------- runs
 
+    @_reconnecting
     def start_run(self, run_id: str, stages: list[str], trigger: str) -> None:
         with self._cursor() as cur:
             cur.execute(
@@ -294,6 +375,7 @@ class Store:
                 ),
             )
 
+    @_reconnecting
     def finish_run(self, run_id: str, status: str, results: dict[str, Any]) -> None:
         with self._cursor() as cur:
             cur.execute(
@@ -301,6 +383,7 @@ class Store:
                 (utc_now(), status, psycopg2.extras.Json(results, dumps=_dumps), run_id),
             )
 
+    @_reconnecting
     def last_runs(self, limit: int = 10) -> list[dict[str, Any]]:
         with self._cursor() as cur:
             cur.execute(

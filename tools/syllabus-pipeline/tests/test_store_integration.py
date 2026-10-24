@@ -22,7 +22,7 @@ import os
 
 import pytest
 
-from syllabus_pipeline.store import CATALOG, RUNS, SOURCES, Store, sha256
+from syllabus_pipeline.store import CATALOG, NO_SCHEME, RUNS, SOURCES, Store, sha256
 
 DSN = os.getenv("SYLLABUS_TEST_DSN", "").strip()
 
@@ -46,6 +46,7 @@ def store():
 def _purge(s: Store) -> None:
     with s._cursor() as cur:
         cur.execute(f"delete from {CATALOG} where doc_code like %s", (PREFIX + "%",))
+        cur.execute(f"delete from {NO_SCHEME} where doc_code like %s", (PREFIX + "%",))
         cur.execute(f"delete from {SOURCES} where doc_code like %s", (PREFIX + "%",))
         cur.execute(f"delete from {RUNS} where id like %s", (PREFIX + "%",))
 
@@ -304,3 +305,30 @@ class TestRuns:
             store.start_run(f"{PREFIX}run-order-{n}", ["scrape"], trigger="cli")
         ours = [r["id"] for r in store.last_runs(50) if r["id"].startswith(PREFIX + "run-order-")]
         assert ours == sorted(ours, reverse=True) or len(set(ours)) == 3
+
+
+class TestNoScheme:
+    def test_a_no_scheme_result_round_trips_and_is_replaced_on_rerecord(self, store):
+        doc = PREFIX + "none-1"
+        for sha in ("old", "new"):
+            store.record_no_scheme(
+                doc_code=doc, source_sha=sha, reason="no scheme", model="m", run_id=PREFIX + "r"
+            )
+        assert store.no_scheme_hashes()[doc] == "new"
+
+    def test_a_later_successful_extraction_clears_the_no_scheme_row(self, store):
+        doc = PREFIX + "none-2"
+        store.record_no_scheme(
+            doc_code=doc, source_sha="h", reason="no scheme", model="m", run_id=PREFIX + "r"
+        )
+        store.upsert_extraction(
+            doc_code=doc,
+            course_code="BIOLOGY 3AA3",
+            term="Winter 2026",
+            assessments=assessments(),
+            source_sha="h2",
+            model="m",
+            temperature=0.3,
+            run_id=PREFIX + "r",
+        )
+        assert doc not in store.no_scheme_hashes()
