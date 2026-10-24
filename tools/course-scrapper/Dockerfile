@@ -9,8 +9,7 @@ WORKDIR /app
 
 RUN pip install --no-cache-dir \
         "requests>=2.32,<3" \
-        "aiohttp>=3.9,<4" \
-        "beautifulsoup4>=4.12,<5" \
+        "pypdf>=6,<7" \
         "psycopg2-binary>=2.9,<3"
 
 COPY course-scrapper.py ./
