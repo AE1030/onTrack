@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.tracker.gpatracker.accounts.service.StudentService;
 import org.tracker.gpatracker.security.dto.AuthTokens;
+import org.tracker.gpatracker.security.exception.EmailAlreadyVerifiedException;
 import org.tracker.gpatracker.security.exception.InvalidTokenException;
 import org.tracker.gpatracker.mailing.AccountVerificationEmailContext;
 import org.tracker.gpatracker.mailing.PasswordResetEmailContext;
@@ -115,20 +116,25 @@ public class UserService {
             logger.error("Failed to send email", e);
         }
     }
+    // A used link and an expired one look the same here: a used token is deleted, so there is no
+    // way to tell which account it belonged to.
+    private static final String VERIFY_LINK_INVALID =
+            "This link has expired or has already been used. Try signing in. If your email still isn't verified, request a new link from the sign-in screen.";
+
     @Transactional
     public boolean verifyUser(String token) throws InvalidTokenException {
         if (StringUtils.isBlank(token)) {
-            throw new InvalidTokenException("Token is not valid");
+            throw new InvalidTokenException(VERIFY_LINK_INVALID);
         }
 
         String decoded = URLDecoder.decode(token, StandardCharsets.UTF_8);
         String cleanedToken = decoded.trim();
         SecureToken secureToken = secureTokenService.findByToken(cleanedToken);
         if (secureToken == null || secureToken.getTokenType() != TokenType.VERIFICATION) {
-            throw new InvalidTokenException("Token is not valid");
+            throw new InvalidTokenException(VERIFY_LINK_INVALID);
         }
         if (secureToken.getExpiredAt() == null || secureToken.isExpired()) {
-            throw new InvalidTokenException("Token is not valid");
+            throw new InvalidTokenException(VERIFY_LINK_INVALID);
         }
 
         Users user = userRepo.findById(secureToken.getUser().getId()).orElse(null);
@@ -156,7 +162,7 @@ public class UserService {
             throw new IllegalArgumentException("User not found");
         }
         if (user.isEmailVerified()) {
-            throw new IllegalStateException("User already verified");
+            throw new EmailAlreadyVerifiedException("This email is already verified. You can sign in.");
         }
 
         // Reuse existing token if it's still valid; enforce cooldown to prevent spam

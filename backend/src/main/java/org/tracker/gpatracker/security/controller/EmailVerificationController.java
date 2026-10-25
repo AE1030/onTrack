@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
+import org.tracker.gpatracker.security.exception.EmailAlreadyVerifiedException;
 import org.tracker.gpatracker.security.exception.InvalidTokenException;
 import org.tracker.gpatracker.security.service.UserService;
 
@@ -30,14 +31,24 @@ public class EmailVerificationController {
         this.userService = userService;
     }
 
-    @ResponseBody
+    // The emailed link only shows a confirm page. Mail security scanners open links (often with a
+    // HEAD request) before the person does, so verifying on GET let the scanner spend the token and
+    // the person's own click then failed. Verification happens on the page's button POST instead.
     @GetMapping("/verify")
-    public ResponseEntity<String> verifyUser(@RequestParam("token") String token) throws InvalidTokenException {
+    public String verifyForm(@RequestParam(value = "token", required = false) String token, org.springframework.ui.Model model) {
+        model.addAttribute("token", token == null ? "" : token);
+        return "mailing/verify-email-form";
+    }
+
+    @ResponseBody
+    @PostMapping("/verify")
+    public ResponseEntity<String> verifyUser(@RequestBody Map<String, String> body) throws InvalidTokenException {
+        String token = body.get("token");
         if (!StringUtils.hasText(token)) {
-            return ResponseEntity.badRequest().body("Verification token is required");
+            return ResponseEntity.badRequest().body("This link is missing its verification code. Open the link from your email again.");
         }
         userService.verifyUser(token);
-        return ResponseEntity.ok("Email Verified Successfully");
+        return ResponseEntity.ok("Email verified");
     }
 
     @ResponseBody
@@ -50,6 +61,8 @@ public class EmailVerificationController {
         try {
             userService.resendVerificationEmail(email);
             return ResponseEntity.ok("Verification email sent");
+        } catch (EmailAlreadyVerifiedException e) {
+            return ResponseEntity.status(409).body(e.getMessage());
         } catch (IllegalStateException e) {
             return ResponseEntity.status(429).body(e.getMessage());
         } catch (IllegalArgumentException e) {
