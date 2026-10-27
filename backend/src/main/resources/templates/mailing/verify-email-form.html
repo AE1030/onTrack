@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <meta name="robots" content="noindex"/>
+    <title>Verify Email - onTrack</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #F5F1F3; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 24px; }
+        .card { background: #fff; border-radius: 16px; padding: 32px; max-width: 400px; width: 100%; box-shadow: 0 2px 12px rgba(59,10,29,0.08); }
+        .logo { text-align: center; margin-bottom: 16px; font-size: 36px; font-weight: 700; }
+        .logo .on { color: #F2B94A; }
+        .logo .track { color: #3B0A1D; }
+        .logo .dot { display: inline-block; width: 10px; height: 10px; background: #7A003C; border-radius: 50%; margin-left: 2px; vertical-align: super; }
+        .subtitle { text-align: center; color: #888; font-size: 14px; margin-bottom: 24px; }
+        .btn { width: 100%; background: #7A003C; color: #fff; border: none; border-radius: 12px; padding: 14px; font-size: 16px; font-weight: 600; cursor: pointer; margin-top: 8px; }
+        .btn:hover { opacity: 0.9; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .error { color: #D32F2F; font-size: 13px; text-align: center; margin-bottom: 8px; line-height: 1.4; }
+        .success { color: #2E7D32; font-size: 14px; text-align: center; margin-bottom: 16px; }
+        @media (max-width: 480px) {
+            body { padding: 12px; }
+            .card { padding: 20px 16px; border-radius: 12px; }
+            .logo { font-size: 28px; margin-bottom: 12px; }
+            .subtitle { font-size: 13px; margin-bottom: 16px; }
+            .btn { padding: 12px; font-size: 15px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="logo"><span class="on">on</span><span class="track">Track</span><span class="dot"></span></div>
+        <div id="form-view">
+            <p class="subtitle">Confirm your email to finish setting up your account.</p>
+            <div id="error" class="error" style="display:none"></div>
+            <button class="btn" id="submit-btn" onclick="handleSubmit()">Verify my email</button>
+        </div>
+        <div id="success-view" style="display:none">
+            <p class="success">Your email is verified.</p>
+            <p class="subtitle">You can now sign in to onTrack.</p>
+        </div>
+        <input type="hidden" id="verifyToken" th:value="${token}" />
+    </div>
+    <script>
+        const TOKEN = document.getElementById('verifyToken').value;
+
+        // Errors come back as JSON {"error": "..."} from the exception handler, or as plain text.
+        async function readError(res) {
+            const text = await res.text();
+            try { return JSON.parse(text).error || text; } catch (_) { return text; }
+        }
+
+        async function handleSubmit() {
+            const errEl = document.getElementById('error');
+            const btn = document.getElementById('submit-btn');
+            errEl.style.display = 'none';
+            btn.disabled = true; btn.textContent = 'Verifying...';
+            try {
+                const res = await fetch('/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: TOKEN }) });
+                if (!res.ok) { throw new Error((await readError(res)) || 'Verification failed. Please try again.'); }
+                document.getElementById('form-view').style.display = 'none';
+                document.getElementById('success-view').style.display = 'block';
+            } catch (e) {
+                // fetch rejects with a TypeError only when the request never reached the server.
+                errEl.textContent = e instanceof TypeError ? 'Could not connect to the server. Please try again.' : e.message;
+                errEl.style.display = 'block';
+                btn.disabled = false; btn.textContent = 'Verify my email';
+            }
+        }
+    </script>
+</body>
+</html>

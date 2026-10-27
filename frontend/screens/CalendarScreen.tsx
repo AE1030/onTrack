@@ -66,7 +66,7 @@ type InternalCalendarEvent = {
   location: string | null;
 };
 
-type CalendarProvider = "GOOGLE" | "MICROSOFT";
+type CalendarProvider = "GOOGLE";
 
 type CalendarAccountStatus = {
   provider: CalendarProvider;
@@ -78,8 +78,11 @@ type DisconnectResult = { eventsRemoved: number; eventsNotRemoved: number };
 
 const PROVIDER_LABEL: Record<CalendarProvider, string> = {
   GOOGLE: "Google Calendar",
-  MICROSOFT: "Outlook Calendar",
 };
+
+// Google has not finished verifying the OAuth app, so the export button opens a coming-soon
+// notice instead of the connect flow. Flip this once the consent screen is approved.
+const GOOGLE_EXPORT_AVAILABLE = false;
 
 // Shown inside the export modal. Alert.alert does nothing on web, so results are rendered inline.
 type ExportStatus = { tone: "success" | "info" | "error"; text: string };
@@ -94,7 +97,7 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
   const [email, setEmail] = useState("");
   const [exporting, setExporting] = useState(false);
   const [exportStatus, setExportStatus] = useState<ExportStatus | null>(null);
-  const [outlookModalVisible, setOutlookModalVisible] = useState(false);
+  const [comingSoonVisible, setComingSoonVisible] = useState(false);
   const [disconnectTarget, setDisconnectTarget] = useState<CalendarAccountStatus | null>(null);
   const [removeEvents, setRemoveEvents] = useState(true);
   const [disconnecting, setDisconnecting] = useState(false);
@@ -354,17 +357,12 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
         <View style={styles.headerActions}>
           <Pressable
             style={styles.exportButton}
-            onPress={openExportModal}
+            onPress={
+              GOOGLE_EXPORT_AVAILABLE ? openExportModal : () => setComingSoonVisible(true)
+            }
           >
             <Feather name="upload-cloud" size={16} color={colors.primary} style={{ marginRight: 6 }} />
             <Text style={styles.exportButtonText}>Export to Google</Text>
-          </Pressable>
-          <Pressable
-            style={styles.exportButton}
-            onPress={() => setOutlookModalVisible(true)}
-          >
-            <Feather name="mail" size={16} color={colors.primary} style={{ marginRight: 6 }} />
-            <Text style={styles.exportButtonText}>Export to Outlook</Text>
           </Pressable>
         </View>
         {accounts.map((account) => (
@@ -728,27 +726,27 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
         </Pressable>
       </Modal>
 
-      {/* Outlook Coming Soon Modal */}
+      {/* Google export coming-soon notice, shown until the OAuth app is verified */}
       <Modal
-        visible={outlookModalVisible}
+        visible={comingSoonVisible}
         transparent
         animationType="fade"
-        onRequestClose={() => setOutlookModalVisible(false)}
+        onRequestClose={() => setComingSoonVisible(false)}
       >
         <Pressable
           {...noHover}
           style={styles.modalOverlay}
-          onPress={() => setOutlookModalVisible(false)}
+          onPress={() => setComingSoonVisible(false)}
         >
           <Pressable {...noHover} style={styles.modalContent} onPress={() => {}}>
             <Text style={styles.modalTitle}>Coming Soon</Text>
             <Text style={styles.modalSubtitle}>
-              Outlook calendar sync is not yet available. Stay tuned!
+              Google Calendar export is waiting on approval from Google. It will be available here soon.
             </Text>
             <View style={styles.modalActions}>
               <Pressable
                 style={styles.exportSubmitButton}
-                onPress={() => setOutlookModalVisible(false)}
+                onPress={() => setComingSoonVisible(false)}
               >
                 <Text style={styles.exportSubmitText}>Got it</Text>
               </Pressable>

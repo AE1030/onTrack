@@ -125,7 +125,7 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
   const queryClient = useQueryClient();
   // The term list and the setter live in TermPicker now; this screen only needs to know which
   // term it is showing and whether that term accepts writes.
-  const { selectedTerm, editable: termEditable } = useTerm();
+  const { selectedTerm, editable: termEditable, loading: termsLoading } = useTerm();
   const [deletingCourse, setDeletingCourse] = useState<string | null>(null);
   const [mode, setMode] = useState<"manual" | "transcript">("manual");
   const [rows, setRows] = useState<CourseRow[]>([
@@ -226,7 +226,9 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
   });
 
   const currentCourses = currentCoursesQuery.data ?? [];
-  const loadingCourses = currentCoursesQuery.isPending;
+  // Not isPending alone: a disabled query (no term yet) is pending forever, which spun this
+  // indefinitely whenever the term list failed to load.
+  const loadingCourses = selectedTerm ? currentCoursesQuery.isPending : termsLoading;
   const coursesError =
     currentCoursesQuery.error && !isAuthError(currentCoursesQuery.error)
       ? "Failed to load courses"

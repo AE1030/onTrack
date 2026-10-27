@@ -2,7 +2,7 @@
 """
 Seeds local-dev test accounts for the leaderboard, the multi-term picker and the calendar.
 
-Accounts are created through the real HTTP flow (POST /register, then GET /verify with the
+Accounts are created through the real HTTP flow (POST /register, then POST /verify with the
 token pulled out of secure_token) so that Users, the ROLE_USER grant and the Student row are
 all built by the application itself.
 
@@ -555,7 +555,7 @@ def register(email, username):
             token = cur.fetchone()[0]
 
     if token:
-        v = auth_call("GET", "/verify", params={"token": token})
+        v = auth_call("POST", "/verify", json={"token": token})
         if v.status_code != 200:
             raise SystemExit(f"verify {email} failed: {v.status_code} {v.text[:200]}")
 
