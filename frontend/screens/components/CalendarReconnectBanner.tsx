@@ -10,7 +10,7 @@ import { qk } from "../../src/cache/keys";
 import { spacing, radius } from "../../src/theme/spacing";
 import { useTheme } from "../../src/theme/ThemeContext";
 
-type CalendarProvider = "GOOGLE" | "MICROSOFT";
+type CalendarProvider = "GOOGLE";
 
 type CalendarAccountStatus = {
   provider: CalendarProvider;
@@ -20,14 +20,11 @@ type CalendarAccountStatus = {
 
 const PROVIDER_LABEL: Record<CalendarProvider, string> = {
   GOOGLE: "Google Calendar",
-  MICROSOFT: "Outlook Calendar",
 };
 
 /**
  * Starts the provider's OAuth flow again. Reconnecting replaces the account on the server, which
  * clears the flag, and the callback runs the first sync itself.
- *
- * Microsoft has no OAuth flow yet, so it has no entry; its warning still shows, without a button.
  */
 const RECONNECT: Partial<Record<CalendarProvider, (email: string | null) => Promise<void>>> = {
   GOOGLE: async (email) => {
