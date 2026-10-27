@@ -26,6 +26,9 @@ export default function Root({ children }: { children: React.ReactNode }) {
         {/* Runs before first paint so a stored choice wins over the media query. */}
         <script dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
 
+        <style dangerouslySetInnerHTML={{ __html: iosInputZoomGuard }} />
+        <script dangerouslySetInnerHTML={{ __html: iosScrollRestore }} />
+
         {/* Add any additional <head> elements that you want globally available on web... */}
       </head>
       <body>{children}</body>
@@ -57,4 +60,31 @@ const themeBootstrap = `
     var v = localStorage.getItem(${JSON.stringify(THEME_KEY)});
     if (v === 'light' || v === 'dark') document.documentElement.dataset.theme = v;
   } catch (e) {}
+})();`;
+
+// iOS Safari zooms the page in on focus for any input under 16px, and does not zoom back out.
+// Several screens use the 14px body face for inputs, which is how a phone ended up stuck zoomed.
+// Touch screens only, so desktop keeps the designed size. !important because react-native-web
+// writes the font size inline.
+const iosInputZoomGuard = `
+@media (pointer: coarse) {
+  input, textarea, select { font-size: 16px !important; }
+}`;
+
+// When the keyboard opens, iOS scrolls the document itself to keep the input in view. The reset
+// above sets body to overflow: hidden, so nothing ever scrolls it back: after the keyboard closes
+// the app stays shifted up with an empty band underneath. The document should never be scrolled
+// (every screen scrolls inside its own ScrollView), so put it back once no field has focus. The
+// check skips the moment between two fields, where the keyboard is still up.
+const iosScrollRestore = `
+(function () {
+  function restore() {
+    setTimeout(function () {
+      var a = document.activeElement;
+      if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return;
+      if (window.scrollY || window.scrollX) window.scrollTo(0, 0);
+    }, 100);
+  }
+  window.addEventListener('focusout', restore);
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', restore);
 })();`;
