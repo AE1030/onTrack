@@ -18,6 +18,7 @@ import { API_BASE_URL } from "../src/config/api";
 import { queryClient } from "../src/cache/queryClient";
 import { qk } from "../src/cache/keys";
 import { useTheme } from "../src/theme/ThemeContext";
+import { colors } from "../src/theme/colors";
 
 type Screen =
   | "dashboard"
@@ -45,6 +46,14 @@ const validScreens: Screen[] = [
  * maroon field. These screens own that corner instead.
  */
 const OWNS_TOP_LEFT: Screen[] = ["leaderboard", "leaderboardJoin"];
+
+/**
+ * The hamburger only floats over screens that still render light-only (the themed leaderboard
+ * screens hide it), so it takes the light palette too. Following the device theme made it
+ * near-white on a phone in dark mode, against a light screen. Move it to useTheme() once the
+ * screens under it are converted.
+ */
+const HAMBURGER_COLOR = colors.boldText;
 
 function getAuthScreenFromURL(): AuthScreen {
   if (Platform.OS !== "web") return "login";
@@ -139,6 +148,13 @@ export default function Home() {
     } catch {}
     return false;
   }, []);
+
+  // TermProvider sits above this screen, so its term list is first fetched before anyone is
+  // signed in and fails with a 401 that is never retried. Ask again once there is a session,
+  // or a new account (nothing stored to fall back on) never gets a selected term.
+  useEffect(() => {
+    if (loggedIn) queryClient.invalidateQueries({ queryKey: qk.terms });
+  }, [loggedIn]);
 
   useEffect(() => {
     getToken().then(async (token) => {
@@ -246,9 +262,9 @@ export default function Home() {
         accessibilityRole="button"
         accessibilityLabel="Open menu"
       >
-        <View style={[styles.hamburgerLine, { backgroundColor: c.boldText }]} />
-        <View style={[styles.hamburgerLine, { backgroundColor: c.boldText }]} />
-        <View style={[styles.hamburgerLine, { backgroundColor: c.boldText }]} />
+        <View style={[styles.hamburgerLine, { backgroundColor: HAMBURGER_COLOR }]} />
+        <View style={[styles.hamburgerLine, { backgroundColor: HAMBURGER_COLOR }]} />
+        <View style={[styles.hamburgerLine, { backgroundColor: HAMBURGER_COLOR }]} />
       </Pressable>
       )}
 
