@@ -496,9 +496,18 @@ export default function CourseCalculatorScreen({
       ? Math.max(...schemeGrades)
       : 0;
 
+  // With nothing graded, bestGrade is a placeholder 0 rather than a grade.
+  const hasGradedAssessment = schemes.some((s) =>
+    s.assessments.some((a) => a.grade != null)
+  );
+
+  // Report only a grade worked out from a loaded table with something graded in it. The parent
+  // shows the course's saved grade until then, and a 0 from a table still loading (or empty)
+  // used to overwrite it for a frame every time a panel opened on a cache miss.
   useEffect(() => {
+    if (loading || !hasHydrated.current || !hasGradedAssessment) return;
     onBestGradeChange?.(bestGrade);
-  }, [bestGrade, onBestGradeChange]);
+  }, [bestGrade, hasGradedAssessment, loading, onBestGradeChange]);
 
   const markDirty = () => {
     setDirty(true);
