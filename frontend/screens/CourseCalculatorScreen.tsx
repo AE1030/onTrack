@@ -16,6 +16,7 @@ import { getToken } from "../src/utils/tokenStorage";
 import { API_BASE_URL } from "../src/config/api";
 import { qk } from "../src/cache/keys";
 import { toUserMessage } from "../src/utils/errorMessage";
+import { DATE_MASK, TIME_MASK, formatMasked } from "../src/utils/maskedInput";
 import {
   HttpError,
   authedMutate,
@@ -193,6 +194,21 @@ export default function CourseCalculatorScreen({
     const parsed = new Date(value);
     if (Number.isNaN(parsed.getTime())) return "-";
     return parsed.toISOString().slice(0, 10);
+  };
+
+  // What the date and time inputs show: the text being typed, else the saved value. The mask
+  // compares against this to tell typing from deleting.
+  const dueDateText = (a: Assessment) =>
+    a.dueDateInput !== undefined
+      ? a.dueDateInput ?? ""
+      : a.dueDate
+        ? formatDate(a.dueDate)
+        : "";
+
+  const timeText = (a: Assessment, field: "startTime" | "endTime") => {
+    const typed = field === "startTime" ? a.startTimeInput : a.endTimeInput;
+    if (typed !== undefined) return typed ?? "";
+    return a[field] ? formatTime(a[field]) : "";
   };
 
   const getTimeDate = (value?: string | null, fallback = "12:00") => {
@@ -1070,15 +1086,14 @@ export default function CourseCalculatorScreen({
                       editable={editable}
                         style={styles.dateInput}
                         placeholder="-"
-                        value={
-                          a.dueDateInput !== undefined
-                            ? a.dueDateInput ?? ""
-                            : a.dueDate
-                              ? formatDate(a.dueDate)
-                              : ""
-                        }
+                        inputMode="numeric"
+                        value={dueDateText(a)}
                         onChangeText={(v) =>
-                          updateDueDateText(schemeIndex, a.id, v)
+                          updateDueDateText(
+                            schemeIndex,
+                            a.id,
+                            formatMasked(v, dueDateText(a), DATE_MASK, "-")
+                          )
                         }
                         onBlur={() => {
                           const normalized = normalizeDateInput(
@@ -1122,19 +1137,14 @@ export default function CourseCalculatorScreen({
                       editable={editable}
                         style={styles.timeInput}
                         placeholder="-"
-                        value={
-                          a.startTimeInput !== undefined
-                            ? a.startTimeInput ?? ""
-                            : a.startTime
-                              ? formatTime(a.startTime)
-                              : ""
-                        }
+                        inputMode="numeric"
+                        value={timeText(a, "startTime")}
                         onChangeText={(v) =>
                           updateTimeText(
                             schemeIndex,
                             a.id,
                             "startTime",
-                            v
+                            formatMasked(v, timeText(a, "startTime"), TIME_MASK, ":")
                           )
                         }
                         onBlur={() => {
@@ -1180,19 +1190,14 @@ export default function CourseCalculatorScreen({
                       editable={editable}
                         style={styles.timeInput}
                         placeholder="-"
-                        value={
-                          a.endTimeInput !== undefined
-                            ? a.endTimeInput ?? ""
-                            : a.endTime
-                              ? formatTime(a.endTime)
-                              : ""
-                        }
+                        inputMode="numeric"
+                        value={timeText(a, "endTime")}
                         onChangeText={(v) =>
                           updateTimeText(
                             schemeIndex,
                             a.id,
                             "endTime",
-                            v
+                            formatMasked(v, timeText(a, "endTime"), TIME_MASK, ":")
                           )
                         }
                         onBlur={() => {
