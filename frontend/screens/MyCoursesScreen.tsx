@@ -19,6 +19,7 @@ import Animated, {
   withSequence,
   runOnJS,
   Easing,
+  useReducedMotion,
 } from "react-native-reanimated";
 import { Feather } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -116,6 +117,101 @@ const isValidGradeInput = (value: string) => {
 };
 
 const COMPACT_BREAKPOINT = 600;
+
+// Course panel motion. A routine state change, so it stays short: the panel grows from under
+// the header and the cards below move with it through ordinary layout, and closing is quicker
+// than opening. Height rather than a layout transition: on web, Reanimated animates a layout
+// change with a scale transform, which squashed every line of text in the card mid-animation.
+const PANEL_EASE = Easing.bezier(0.16, 1, 0.3, 1);
+const PANEL_OPEN_MS = 280;
+const PANEL_CLOSE_MS = 180;
+const PANEL_SETTLE_PX = 8;
+
+/**
+ * Reveals its children by animating its own height to theirs, then lets go of the height so the
+ * content can keep growing (a table arriving after its spinner, a row added) without clipping.
+ * Keeps the children mounted through the close so it can play out before they unmount.
+ */
+function ExpandPanel({
+  expanded,
+  style,
+  children,
+}: {
+  expanded: boolean;
+  style?: object;
+  children: React.ReactNode;
+}) {
+  const reduceMotion = useReducedMotion();
+  const [mounted, setMounted] = useState(expanded);
+  const open = useSharedValue(expanded && reduceMotion ? 1 : 0);
+  const contentHeight = useSharedValue(0);
+  // 1 once fully open: height goes back to auto.
+  const settled = useSharedValue(expanded && reduceMotion ? 1 : 0);
+
+  useEffect(() => {
+    if (expanded) setMounted(true);
+    if (reduceMotion) {
+      open.value = expanded ? 1 : 0;
+      settled.value = expanded ? 1 : 0;
+      if (!expanded) setMounted(false);
+      return;
+    }
+    settled.value = 0;
+    open.value = expanded
+      ? withTiming(1, { duration: PANEL_OPEN_MS, easing: PANEL_EASE }, (finished) => {
+          if (finished) settled.value = 1;
+        })
+      : withTiming(0, { duration: PANEL_CLOSE_MS, easing: Easing.out(Easing.quad) }, (finished) => {
+          if (finished) runOnJS(setMounted)(false);
+        });
+  }, [expanded, reduceMotion, open, settled]);
+
+  const clipStyle = useAnimatedStyle(() =>
+    settled.value === 1
+      ? { height: "auto", overflow: "visible" }
+      : { height: contentHeight.value * open.value, overflow: "hidden" }
+  );
+  const contentStyle = useAnimatedStyle(() => ({
+    opacity: open.value,
+    transform: [{ translateY: (1 - open.value) * -PANEL_SETTLE_PX }],
+  }));
+
+  if (!mounted) return null;
+
+  return (
+    <Animated.View style={clipStyle}>
+      <Animated.View
+        style={[style, contentStyle]}
+        onLayout={(e) => {
+          contentHeight.value = e.nativeEvent.layout.height;
+        }}
+      >
+        {children}
+      </Animated.View>
+    </Animated.View>
+  );
+}
+
+/** Turns over rather than swapping icons, so the toggle reads as the same control changing state. */
+function ExpandChevron({ expanded }: { expanded: boolean }) {
+  const reduceMotion = useReducedMotion();
+  const turn = useSharedValue(expanded ? 1 : 0);
+
+  useEffect(() => {
+    const target = expanded ? 1 : 0;
+    turn.value = reduceMotion ? target : withTiming(target, { duration: 220, easing: PANEL_EASE });
+  }, [expanded, reduceMotion, turn]);
+
+  const style = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${turn.value * 180}deg` }],
+  }));
+
+  return (
+    <Animated.View style={style}>
+      <Feather name="chevron-down" size={18} color={colors.bodyText} />
+    </Animated.View>
+  );
+}
 
 export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdowns, onHighlightComplete }: Props) {
   const { width } = useWindowDimensions();
@@ -1248,16 +1344,11 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
                   )
                 }
               >
-                <Feather
-                  name={isExpanded ? "chevron-up" : "chevron-down"}
-                  size={18}
-                  color={colors.bodyText}
-                />
+                <ExpandChevron expanded={isExpanded} />
               </Pressable>
             </Animated.View>
 
-            {isExpanded && (
-              <View style={styles.courseCalculatorContainer}>
+            <ExpandPanel expanded={isExpanded} style={styles.courseCalculatorContainer}>
                 {/* The whole syllabus panel is a write surface: uploading one replaces the
                     course's assessment table. A past term does not get it at all. */}
                 {courseEditable && (
@@ -1386,8 +1477,7 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
                     })
                   }
                 />
-              </View>
-            )}
+              </ExpandPanel>
           </View>
         );
         })}
