@@ -108,8 +108,13 @@ export default function CourseCalculatorScreen({
   onSaved,
 }: Props) {
   const queryClient = useQueryClient();
-  const [schemes, setSchemes] = useState<GradingScheme[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Start from the data the caller already has, so an inline panel opened on a cache hit draws
+  // its table on the first frame instead of a spinner that the hydrate effect replaces a frame
+  // later.
+  const [schemes, setSchemes] = useState<GradingScheme[]>(() =>
+    externalResponse === undefined ? [] : schemesFrom(externalResponse)
+  );
+  const [loading, setLoading] = useState(externalResponse === undefined);
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [saveState, setSaveState] = useState<
@@ -129,7 +134,10 @@ export default function CourseCalculatorScreen({
     null
   );
   const hasInitialized = useRef(false);
-  const hasHydrated = useRef(false);
+  const hasHydrated = useRef(externalResponse !== undefined);
+  // The state above already holds the first externalResponse, so the hydrate effect's mount run
+  // would only parse it a second time.
+  const skipFirstHydrate = useRef(externalResponse !== undefined);
   const autoSavePending = useRef(false);
 
   // The term is whatever the caller selected. It used to be pinned to a literal here, which
@@ -149,17 +157,12 @@ export default function CourseCalculatorScreen({
 
   useEffect(() => {
     if (externalResponse === undefined) return;
+    if (skipFirstHydrate.current) {
+      skipFirstHydrate.current = false;
+      return;
+    }
     hasHydrated.current = true;
-    const nextSchemes =
-      externalResponse === null
-        ? [
-            {
-              name: "Marking Scheme 1",
-              assessments: [],
-            },
-          ]
-        : parseBackendResponse(externalResponse);
-    setSchemes(nextSchemes);
+    setSchemes(schemesFrom(externalResponse));
     setDirty(false);
     setSaveState("idle");
     setError(null);
@@ -1589,6 +1592,13 @@ function updateGrade(
   }
 }
 
+
+/** No saved table and no syllabus means one empty scheme to fill in by hand. */
+function schemesFrom(response: BackendResponse | null): GradingScheme[] {
+  return response === null
+    ? [{ name: "Marking Scheme 1", assessments: [] }]
+    : parseBackendResponse(response);
+}
 
 function parseBackendResponse(
   data: BackendResponse

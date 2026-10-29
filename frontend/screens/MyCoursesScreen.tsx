@@ -31,7 +31,7 @@ import { authedFetch, authedGet, isAuthError, queryRetry } from "../src/cache/au
 import { toUserMessage } from "../src/utils/errorMessage";
 import { useCourseSearch } from "../src/hooks/useCourseSearch";
 import { useTerm } from "../src/terms/TermContext";
-import { fetchAssessmentTable } from "../src/cache/assessmentTable";
+import { fetchAssessmentTable, type AssessmentTable } from "../src/cache/assessmentTable";
 import TermPicker from "./components/TermPicker";
 import CourseCalculatorScreen from "./CourseCalculatorScreen";
 import { fonts, typo } from "../src/theme/typography";
@@ -399,21 +399,8 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
   ) => {
     if (assessmentLoadingByCourse[key]) return;
 
-    setAssessmentLoadingByCourse((prev) => ({
-      ...prev,
-      [key]: true,
-    }));
-
-    try {
-      // Reads through the cache — no network call while the entry is fresh.
-      // Invalidated on assessment-table save and on syllabus upload completion.
-      const data = await queryClient.fetchQuery({
-        queryKey: qk.assessmentTable(courseCode, term),
-        queryFn: () => fetchAssessmentTable(courseCode, term),
-        staleTime: 5 * 60_000,
-        retry: queryRetry,
-      });
-
+    const queryKey = qk.assessmentTable(courseCode, term);
+    const showTable = (data: AssessmentTable | null) => {
       setExternalResponseByCourse((prev) => ({
         ...prev,
         [key]: data,
@@ -422,12 +409,44 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
         ...prev,
         [key]: (prev[key] ?? 0) + 1,
       }));
+    };
+
+    // Whatever the cache holds goes on screen in the same render as the expand, so a cache hit
+    // never shows a loading state. fetchQuery below is async and would always cost a frame.
+    const cachedData = queryClient.getQueryData<AssessmentTable | null>(queryKey);
+    const shown = cachedData !== undefined ? cachedData : externalResponseByCourse[key];
+    if (cachedData !== undefined && cachedData !== externalResponseByCourse[key]) {
+      showTable(cachedData);
+    }
+
+    // Only a real network fetch with nothing to show gets the loading row.
+    const nothingToShow = shown === undefined;
+    if (nothingToShow) {
+      setAssessmentLoadingByCourse((prev) => ({
+        ...prev,
+        [key]: true,
+      }));
+    }
+
+    try {
+      // Reads through the cache: no network call while the entry is fresh.
+      // Invalidated on assessment-table save and on syllabus upload completion.
+      const data = await queryClient.fetchQuery({
+        queryKey,
+        queryFn: () => fetchAssessmentTable(courseCode, term),
+        staleTime: 5 * 60_000,
+        retry: queryRetry,
+      });
+
+      // Structural sharing hands back the same reference when nothing changed, so an unchanged
+      // table is not re-hydrated (which would also throw away the calculator's local state).
+      if (data !== shown) showTable(data);
     } catch (err) {
       if (isAuthError(err)) {
         onAuthError();
         return;
       }
-      if (externalResponseByCourse[key] === undefined) {
+      if (nothingToShow) {
         setExternalResponseByCourse((prev) => ({
           ...prev,
           [key]: null,
@@ -438,10 +457,12 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
         }));
       }
     } finally {
-      setAssessmentLoadingByCourse((prev) => ({
-        ...prev,
-        [key]: false,
-      }));
+      if (nothingToShow) {
+        setAssessmentLoadingByCourse((prev) => ({
+          ...prev,
+          [key]: false,
+        }));
+      }
     }
   };
 
@@ -809,16 +830,14 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
     courseCode: string,
     term: string
   ) => {
-    setExpandedCourses((prev) => {
-      const next = !prev[key];
-      if (next) {
-        loadAssessmentTableFlow(key, courseCode, term);
-      }
-      return {
-        ...prev,
-        [key]: next,
-      };
-    });
+    // The load runs out here rather than inside the updater: StrictMode calls updaters twice,
+    // which started the fetch twice.
+    const opening = !expandedCourses[key];
+    setExpandedCourses((prev) => ({
+      ...prev,
+      [key]: opening,
+    }));
+    if (opening) loadAssessmentTableFlow(key, courseCode, term);
   };
 
   // The term list carries a course count, and deleting the last course in a term drops that
@@ -1126,6 +1145,9 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
               )
             : 0;
           const showSyllabusPrompt = cached === null;
+          // Undefined until the table has loaded. Guessing a heading before then swapped
+          // "Upload Syllabus" for "Syllabus not found" on courses with no syllabus.
+          const syllabusKnown = cached !== undefined;
           const jobStatus = uploadState.job?.status ?? null;
           const isPolling =
             !!uploadState.job &&
@@ -1240,7 +1262,7 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
                     course's assessment table. A past term does not get it at all. */}
                 {courseEditable && (
                 <View style={styles.syllabusBox}>
-                  {showSyllabusPrompt ? (
+                  {!syllabusKnown ? null : showSyllabusPrompt ? (
                     <>
                       <Text style={styles.syllabusTitle}>
                         Syllabus not found
