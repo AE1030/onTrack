@@ -26,6 +26,7 @@ import { fonts, typo } from "../src/theme/typography";
 import { qk } from "../src/cache/keys";
 import { authedFetch, authedGet, isAuthError, queryRetry, toHttpError } from "../src/cache/authedGet";
 import { toUserMessage } from "../src/utils/errorMessage";
+import { toFourPoint, toTwelvePoint } from "../src/utils/gpaScale";
 import { useTerm } from "../src/terms/TermContext";
 import GpaArc from "./components/GpaArc";
 import OnTrackLogo from "./components/OnTrackLogo";
@@ -324,6 +325,26 @@ export default function DashboardScreen({
     const { startedOn, endedOn } = backdropPress.current;
     backdropPress.current = { startedOn: false, endedOn: false };
     if (startedOn && endedOn) setShowTargetModal(false);
+  };
+
+  /**
+   * Typing on one scale fills in the other, so the two fields never disagree. A cleared field
+   * clears its partner. Anything that is not yet a number in range ("3.", "", "5") leaves the
+   * partner as it was; saving reports what is wrong with it.
+   */
+  const onTargetChange = (scale: 4 | 12, text: string) => {
+    const setOwn = scale === 4 ? setTargetInput4 : setTargetInput12;
+    const setOther = scale === 4 ? setTargetInput12 : setTargetInput4;
+    setOwn(text);
+    setTargetError(null);
+    const trimmed = text.trim();
+    if (!trimmed) {
+      setOther("");
+      return;
+    }
+    const value = Number(trimmed);
+    if (!Number.isFinite(value) || value < 0 || value > scale) return;
+    setOther(String(scale === 4 ? toTwelvePoint(value) : toFourPoint(value)));
   };
 
   /** The number in a target field, null when it is blank, or an error sentence. */
@@ -647,10 +668,7 @@ export default function DashboardScreen({
             <TextInput
               style={styles.input}
               value={targetInput4}
-              onChangeText={(v) => {
-                setTargetInput4(v);
-                setTargetError(null);
-              }}
+              onChangeText={(v) => onTargetChange(4, v)}
               accessibilityLabel="Target GPA, 4.0 scale"
               keyboardType="decimal-pad"
               placeholder="e.g. 3.8"
@@ -661,10 +679,7 @@ export default function DashboardScreen({
             <TextInput
               style={styles.input}
               value={targetInput12}
-              onChangeText={(v) => {
-                setTargetInput12(v);
-                setTargetError(null);
-              }}
+              onChangeText={(v) => onTargetChange(12, v)}
               accessibilityLabel="Target GPA, 12.0 scale"
               keyboardType="decimal-pad"
               placeholder="e.g. 11.0"
@@ -672,7 +687,7 @@ export default function DashboardScreen({
             />
 
             <Text style={styles.targetHint}>
-              Fill in one scale and we work out the other.
+              Type on either scale and we fill in the other.
             </Text>
 
             {targetError && (
