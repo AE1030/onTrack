@@ -348,24 +348,26 @@ export default function DashboardScreen({
   };
 
   /** The number in a target field, null when it is blank, or an error sentence. */
-  const readTarget = (raw: string, max: number, scaleName: string): number | null | string => {
+  // Each message names the field and how to fix it. "Not a number" also covers half-typed input
+  // such as "." or "-", so it shows what a finished value looks like.
+  const readTarget = (raw: string, scale: "4.0" | "12.0", example: string): number | null | string => {
     const text = raw.trim();
     if (!text) return null;
     const value = Number(text);
-    if (!Number.isFinite(value)) return `Enter a number for the ${scaleName} scale.`;
-    if (value < 0 || value > max) return `The ${scaleName} scale target must be between 0 and ${scaleName}.`;
+    if (!Number.isFinite(value)) return `Enter the ${scale} target as a number, like ${example}.`;
+    if (value < 0 || value > Number(scale)) return `Keep the ${scale} target between 0 and ${scale}.`;
     return value;
   };
 
   const saveTargetGpa = async () => {
-    const target4 = readTarget(targetInput4, 4, "4.0");
-    const target12 = readTarget(targetInput12, 12, "12.0");
+    const target4 = readTarget(targetInput4, "4.0", "3.8");
+    const target12 = readTarget(targetInput12, "12.0", "11");
     if (typeof target4 === "string" || typeof target12 === "string") {
       setTargetError(typeof target4 === "string" ? target4 : (target12 as string));
       return;
     }
     if (target4 === null && target12 === null) {
-      setTargetError("Enter a target on at least one scale.");
+      setTargetError("Enter a target on either scale to save.");
       return;
     }
 
@@ -392,7 +394,7 @@ export default function DashboardScreen({
         onAuthError();
         return;
       }
-      setTargetError(toUserMessage(err, "Could not save your target. Try again."));
+      setTargetError(toUserMessage(err, "Couldn't save your target. Please try again."));
     } finally {
       setSavingTarget(false);
     }
@@ -687,7 +689,7 @@ export default function DashboardScreen({
             />
 
             <Text style={styles.targetHint}>
-              Type on either scale and we fill in the other.
+              Enter either scale and we fill in the other.
             </Text>
 
             {targetError && (

@@ -58,7 +58,7 @@ public class DashboardService {
         BigDecimal target12 = dto.getTargetGpa12();
         if (target4 == null && target12 == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Enter a target on at least one scale.");
+                    "Enter a target on either scale to save.");
         }
         // One scale on its own still sets both, so the dashboard has a target on whichever scale
         // the student is viewing.
