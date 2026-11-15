@@ -4,7 +4,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 
 /**
- * Converts a McMaster 12-point GPA to the 4.0 scale.
+ * Converts between a McMaster 12-point GPA and the 4.0 scale.
  *
  * <p>The two scales are not proportional (an 11 is a 3.9, not a 3.67), so this follows the per-letter
  * points in {@link GradeDict} and interpolates linearly between neighbouring letters. Used where only a
@@ -32,5 +32,24 @@ public final class GpaScale {
         double fraction = value - lower;
         double interpolated = FOUR_POINT[lower] + fraction * (FOUR_POINT[lower + 1] - FOUR_POINT[lower]);
         return BigDecimal.valueOf(interpolated).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * The inverse of {@link #toFourPoint}. The 4.0 points rise strictly from letter to letter, so each
+     * 4.0 value maps back to exactly one 12-point value. Used when a student sets a target on the 4.0
+     * scale only and the dashboard still needs both.
+     */
+    public static BigDecimal toTwelvePoint(BigDecimal gpa4) {
+        if (gpa4 == null) {
+            return null;
+        }
+        double value = Math.min(Math.max(gpa4.doubleValue(), 0.0), FOUR_POINT[12]);
+        for (int lower = 0; lower < 12; lower++) {
+            if (value <= FOUR_POINT[lower + 1]) {
+                double fraction = (value - FOUR_POINT[lower]) / (FOUR_POINT[lower + 1] - FOUR_POINT[lower]);
+                return BigDecimal.valueOf(lower + fraction).setScale(2, RoundingMode.HALF_UP);
+            }
+        }
+        return BigDecimal.valueOf(12).setScale(2, RoundingMode.HALF_UP);
     }
 }

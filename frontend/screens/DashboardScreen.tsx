@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import {
   View,
   StyleSheet,
@@ -24,7 +24,8 @@ import { colors } from "../src/theme/colors";
 import { spacing, radius } from "../src/theme/spacing";
 import { fonts, typo } from "../src/theme/typography";
 import { qk } from "../src/cache/keys";
-import { authedFetch, authedGet, isAuthError, queryRetry } from "../src/cache/authedGet";
+import { authedFetch, authedGet, isAuthError, queryRetry, toHttpError } from "../src/cache/authedGet";
+import { toUserMessage } from "../src/utils/errorMessage";
 import { useTerm } from "../src/terms/TermContext";
 import GpaArc from "./components/GpaArc";
 import OnTrackLogo from "./components/OnTrackLogo";
@@ -228,6 +229,9 @@ export default function DashboardScreen({
   const [targetInput4, setTargetInput4] = useState("");
   const [targetInput12, setTargetInput12] = useState("");
   const [savingTarget, setSavingTarget] = useState(false);
+  const [targetError, setTargetError] = useState<string | null>(null);
+  // Where the current press on the backdrop began and ended. See backdropHandlers below.
+  const backdropPress = useRef({ startedOn: false, endedOn: false });
   const [courseGridWidth, setCourseGridWidth] = useState(0);
 
   const { width: windowWidth } = useWindowDimensions();
@@ -298,25 +302,76 @@ export default function DashboardScreen({
   const openTargetModal = () => {
     setTargetInput4(data?.targetGpa4 != null ? String(data.targetGpa4) : "");
     setTargetInput12(data?.targetGpa12 != null ? String(data.targetGpa12) : "");
+    setTargetError(null);
     setShowTargetModal(true);
   };
 
+  // The backdrop closes the popup when it is clicked, and the browser sends a click to the element
+  // that holds both ends of a press. A press that started in a field and was let go over the
+  // backdrop (selecting the typed number, say) therefore counted as a click on the backdrop and
+  // threw away what the student had typed. Only a press that both starts and ends on the backdrop
+  // itself closes it now. onMouseDown and onMouseUp are web only, hence the cast.
+  const backdropHandlers = {
+    onMouseDown: (e: { target: unknown; currentTarget: unknown }) => {
+      backdropPress.current.startedOn = e.target === e.currentTarget;
+    },
+    onMouseUp: (e: { target: unknown; currentTarget: unknown }) => {
+      backdropPress.current.endedOn = e.target === e.currentTarget;
+    },
+  } as {};
+
+  const onBackdropPress = () => {
+    const { startedOn, endedOn } = backdropPress.current;
+    backdropPress.current = { startedOn: false, endedOn: false };
+    if (startedOn && endedOn) setShowTargetModal(false);
+  };
+
+  /** The number in a target field, null when it is blank, or an error sentence. */
+  const readTarget = (raw: string, max: number, scaleName: string): number | null | string => {
+    const text = raw.trim();
+    if (!text) return null;
+    const value = Number(text);
+    if (!Number.isFinite(value)) return `Enter a number for the ${scaleName} scale.`;
+    if (value < 0 || value > max) return `The ${scaleName} scale target must be between 0 and ${scaleName}.`;
+    return value;
+  };
+
   const saveTargetGpa = async () => {
+    const target4 = readTarget(targetInput4, 4, "4.0");
+    const target12 = readTarget(targetInput12, 12, "12.0");
+    if (typeof target4 === "string" || typeof target12 === "string") {
+      setTargetError(typeof target4 === "string" ? target4 : (target12 as string));
+      return;
+    }
+    if (target4 === null && target12 === null) {
+      setTargetError("Enter a target on at least one scale.");
+      return;
+    }
+
+    setTargetError(null);
     setSavingTarget(true);
     try {
-      const body: any = {};
-      if (targetInput4.trim()) body.targetGpa4 = parseFloat(targetInput4);
-      if (targetInput12.trim()) body.targetGpa12 = parseFloat(targetInput12);
+      // A blank scale is left out and the server fills it in from the other one.
+      const body: { targetGpa4?: number; targetGpa12?: number } = {};
+      if (target4 !== null) body.targetGpa4 = target4;
+      if (target12 !== null) body.targetGpa12 = target12;
 
-      await authedFetch("/api/dashboard/target-gpa", {
+      const res = await authedFetch("/api/dashboard/target-gpa", {
         method: "PUT",
         body: JSON.stringify(body),
       });
+      // authedFetch only throws for auth failures. Without this a rejected save closed the popup
+      // as if it had worked.
+      if (!res.ok) throw await toHttpError(res);
       setShowTargetModal(false);
       // The dashboard is mounted, so this refetches immediately.
       queryClient.invalidateQueries({ queryKey: qk.dashboard });
     } catch (err) {
-      if (isAuthError(err)) onAuthError();
+      if (isAuthError(err)) {
+        onAuthError();
+        return;
+      }
+      setTargetError(toUserMessage(err, "Could not save your target. Try again."));
     } finally {
       setSavingTarget(false);
     }
@@ -581,8 +636,9 @@ export default function DashboardScreen({
       >
         <Pressable
           {...noHover}
+          {...backdropHandlers}
           style={styles.modalBackdrop}
-          onPress={() => setShowTargetModal(false)}
+          onPress={onBackdropPress}
         >
           <Pressable {...noHover} style={styles.modalContent} onPress={() => {}}>
             <Text style={styles.modalTitle}>Set Target GPA</Text>
@@ -591,7 +647,11 @@ export default function DashboardScreen({
             <TextInput
               style={styles.input}
               value={targetInput4}
-              onChangeText={setTargetInput4}
+              onChangeText={(v) => {
+                setTargetInput4(v);
+                setTargetError(null);
+              }}
+              accessibilityLabel="Target GPA, 4.0 scale"
               keyboardType="decimal-pad"
               placeholder="e.g. 3.8"
               placeholderTextColor={colors.placeholder}
@@ -601,11 +661,25 @@ export default function DashboardScreen({
             <TextInput
               style={styles.input}
               value={targetInput12}
-              onChangeText={setTargetInput12}
+              onChangeText={(v) => {
+                setTargetInput12(v);
+                setTargetError(null);
+              }}
+              accessibilityLabel="Target GPA, 12.0 scale"
               keyboardType="decimal-pad"
               placeholder="e.g. 11.0"
               placeholderTextColor={colors.placeholder}
             />
+
+            <Text style={styles.targetHint}>
+              Fill in one scale and we work out the other.
+            </Text>
+
+            {targetError && (
+              <Text style={styles.targetError} accessibilityRole="alert">
+                {targetError}
+              </Text>
+            )}
 
             <View style={styles.modalButtons}>
               <Pressable
@@ -1016,6 +1090,18 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     marginBottom: 16,
     color: colors.boldText,
+  },
+  targetHint: {
+    ...typo.body,
+    fontSize: 13,
+    color: colors.bodyText,
+    marginTop: -8,
+    marginBottom: 12,
+  },
+  targetError: {
+    ...typo.body,
+    color: colors.danger,
+    marginBottom: 12,
   },
   modalButtons: {
     flexDirection: "row",
