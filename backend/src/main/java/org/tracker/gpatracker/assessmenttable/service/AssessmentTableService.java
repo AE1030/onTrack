@@ -231,6 +231,13 @@ public class AssessmentTableService {
         }
         SaveAssessmentTableDTO dto = toSaveDTO(courseCode, items);
         saveToRepo(dto);
+
+        // The new table carries no marks, so the grade worked out from the old one no longer has
+        // anything behind it. Cleared rather than set to 0: a course with no grade is left out of
+        // the GPA until a mark is entered, whereas a 0 would count as a failing grade. This used
+        // to be left to the client, which auto-saved the empty table with a placeholder 0 grade,
+        // and only when the course's panel happened to be open.
+        studentService.clearCourseGrade(courseCode, currentTerm);
     }
 
     public void createFromSyllabus(String courseCode) {

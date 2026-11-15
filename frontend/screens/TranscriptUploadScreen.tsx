@@ -116,8 +116,9 @@ export default function TranscriptUploadScreen({
       return;
     }
 
+    // PDF only: the server reads the transcript's text layer and refuses anything else.
     const picked = await DocumentPicker.getDocumentAsync({
-      type: ["application/pdf", "image/*"],
+      type: ["application/pdf"],
       copyToCacheDirectory: true,
     });
 
@@ -147,7 +148,7 @@ export default function TranscriptUploadScreen({
           </View>
 
           <Text style={styles.uploadSub}>
-            Supported formats: PDF, JPG, PNG
+            Supported format: PDF
           </Text>
 
           <Pressable

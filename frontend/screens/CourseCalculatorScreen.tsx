@@ -90,7 +90,6 @@ type Props = {
   externalResponse?: BackendResponse | null;
   externalVersion?: number;
   skipFetch?: boolean;
-  autoSaveVersion?: number;
   /** Fired after a successful save (autosave included) so the parent can evict its cache. */
   onSaved?: () => void;
 };
@@ -105,7 +104,6 @@ export default function CourseCalculatorScreen({
   externalResponse,
   externalVersion,
   skipFetch = false,
-  autoSaveVersion,
   onSaved,
 }: Props) {
   const queryClient = useQueryClient();
@@ -139,7 +137,6 @@ export default function CourseCalculatorScreen({
   // The state above already holds the first externalResponse, so the hydrate effect's mount run
   // would only parse it a second time.
   const skipFirstHydrate = useRef(externalResponse !== undefined);
-  const autoSavePending = useRef(false);
 
   // The term is whatever the caller selected. It used to be pinned to a literal here, which
   // collapsed every term onto one cache entry and made a term picker impossible.
@@ -169,11 +166,6 @@ export default function CourseCalculatorScreen({
     setError(null);
     setLoading(false);
   }, [externalResponse, externalVersion]);
-
-  useEffect(() => {
-    if (autoSaveVersion === undefined) return;
-    autoSavePending.current = true;
-  }, [autoSaveVersion]);
 
   const formatTime = (value?: string | null) => {
     if (!value) return "-";
@@ -877,8 +869,10 @@ export default function CourseCalculatorScreen({
     const unchanged =
       previousGrade !== null && round2(bestGrade) === round2(previousGrade);
 
-    // Omitting an unchanged grade keeps a due-date edit from touching Postgres at all.
-    const grade = unchanged ? null : bestGrade;
+    // Omitting an unchanged grade keeps a due-date edit from touching Postgres at all. With
+    // nothing graded, bestGrade is the placeholder 0, not a grade: sending it stored a failing
+    // mark, including over a grade entered by hand when the course was added.
+    const grade = unchanged || !hasGradedAssessment ? null : bestGrade;
 
     saveMutation.mutate({ ...buildSavePayload(), grade });
   };
@@ -910,19 +904,6 @@ export default function CourseCalculatorScreen({
     };
   }, [schemes, dirty, allFieldsValid, editable]);
 
-  useEffect(() => {
-    if (!autoSavePending.current) return;
-    if (!editable) {
-      // Drop the request rather than holding it: switching back to the current term must not
-      // flush a save that was queued while a past term was on screen.
-      autoSavePending.current = false;
-      return;
-    }
-    if (loading) return;
-    if (!allFieldsValid) return;
-    autoSavePending.current = false;
-    saveAssessmentTable();
-  }, [schemes, loading, allFieldsValid, editable]);
 
   if (loading) {
     return (

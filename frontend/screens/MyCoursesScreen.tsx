@@ -223,6 +223,7 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
   // term it is showing and whether that term accepts writes.
   const { selectedTerm, editable: termEditable, loading: termsLoading } = useTerm();
   const [deletingCourse, setDeletingCourse] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [mode, setMode] = useState<"manual" | "transcript">("manual");
   const [rows, setRows] = useState<CourseRow[]>([
     { id: "1", courseCode: "", grade: "" },
@@ -252,9 +253,6 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
     Record<string, any>
   >({});
   const [externalVersionByCourse, setExternalVersionByCourse] = useState<
-    Record<string, number>
-  >({});
-  const [autoSaveVersionByCourse, setAutoSaveVersionByCourse] = useState<
     Record<string, number>
   >({});
   const [assessmentLoadingByCourse, setAssessmentLoadingByCourse] = useState<
@@ -732,12 +730,7 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
             courseCode,
             term
           );
-          if (success) {
-            setAutoSaveVersionByCourse((prev) => ({
-              ...prev,
-              [key]: (prev[key] ?? 0) + 1,
-            }));
-          }
+          if (success) syllabusReplacedGrade(key, term);
         }
       } catch (err) {
         updateUploadState(key, {
@@ -746,6 +739,23 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
         stopPolling(key);
       }
     }, 2000);
+  };
+
+  /**
+   * A finished syllabus upload replaces the course's table with one that has no marks, and the
+   * server clears the course's grade to match. The card's grade is dropped here (the course-list
+   * sync only ever adds grades, so a cleared one would otherwise linger), and the course list and
+   * dashboard are re-read so the cleared grade and the GPA it changed show up.
+   */
+  const syllabusReplacedGrade = (key: string, term: string) => {
+    setBestGradesByCourse((prev) => {
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+    queryClient.invalidateQueries({ queryKey: qk.currentCourses(term) });
+    queryClient.invalidateQueries({ queryKey: qk.dashboard });
   };
 
   /**
@@ -786,6 +796,7 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
         queryClient.invalidateQueries({
           queryKey: qk.assessmentTable(job.courseCode, job.term),
         });
+        syllabusReplacedGrade(key, job.term);
       } else if (job.status === "FAILED") {
         updateUploadState(key, {
           job,
@@ -946,6 +957,11 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
   const deleteCurrentCourse = async (courseCode: string, term: string) => {
     if (deletingCourse) return;
     setDeletingCourse(courseCode);
+    setDeleteError(null);
+    // Set once the request has gone out. From then on the server may have changed even if the
+    // response says it failed (the course row can go before a later step throws), so the list
+    // is re-read whatever the outcome rather than trusted.
+    let sent = false;
     try {
       const token = await getToken();
       if (!token) {
@@ -955,6 +971,7 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
 
       const encodedCourse = encodeURIComponent(courseCode);
       const encodedTerm = encodeURIComponent(term);
+      sent = true;
       const res = await fetch(
         `${API_BASE_URL.replace(/\/$/, "")}/api/my-courses/delete-course?courseCode=${encodedCourse}&term=${encodedTerm}`,
         {
@@ -966,16 +983,22 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
       );
 
       if (res.status === 401 || res.status === 403) {
+        sent = false;
         onAuthError();
         return;
       }
 
-      if (res.ok) {
+      if (!res.ok) {
+        setDeleteError(`${courseCode} could not be deleted. Try again in a moment.`);
+      }
+    } catch {
+      setDeleteError(`${courseCode} could not be deleted. Check your connection and try again.`);
+    } finally {
+      if (sent) {
         // Removing a course changes the GPA the dashboard shows.
-        await refetchCurrentCourses();
+        refetchCurrentCourses();
         queryClient.invalidateQueries({ queryKey: qk.dashboard });
       }
-    } finally {
       setDeletingCourse(null);
     }
   };
@@ -1042,8 +1065,9 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
       return;
     }
 
+    // PDF only: the server reads the transcript's text layer and refuses anything else.
     const result = await DocumentPicker.getDocumentAsync({
-      type: ["application/pdf", "image/*"],
+      type: ["application/pdf"],
       copyToCacheDirectory: true,
     });
 
@@ -1220,6 +1244,10 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
 
         {coursesError && (
           <Text style={styles.errorText}>{coursesError}</Text>
+        )}
+
+        {deleteError && (
+          <Text style={styles.errorText} accessibilityRole="alert">{deleteError}</Text>
         )}
 
         {currentCourses.map((course, index) => {
@@ -1470,7 +1498,6 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
                   externalResponse={externalResponseByCourse[key]}
                   externalVersion={externalVersionByCourse[key]}
                   skipFetch={true}
-                  autoSaveVersion={autoSaveVersionByCourse[key]}
                   onSaved={() =>
                     queryClient.invalidateQueries({
                       queryKey: qk.assessmentTable(course.courseCode, effectiveTerm),
@@ -1706,8 +1733,8 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
                   <Text style={styles.uploadTitle}>Choose your transcript</Text>
 
                   <Text style={styles.uploadSub}>
-                    We read this term's courses from it and add them to your list. PDF, JPG or
-                    PNG.
+                    We add this term's courses to your list and replace your past courses with
+                    the ones on your transcript. PDF only.
                   </Text>
 
                   <Pressable
@@ -1733,7 +1760,7 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
 
                 <Animated.View style={[styles.savedCard, { marginTop: spacing.sm }, uploadSuccessAnimatedStyle]} pointerEvents="none">
                   <Feather name="check" size={13} color={colors.success} style={{ marginRight: 4 }} />
-                  <Text style={styles.savedText}>Courses added from your transcript</Text>
+                  <Text style={styles.savedText}>Transcript uploaded. Courses and GPA updated</Text>
                 </Animated.View>
 
                 {uploadError && (

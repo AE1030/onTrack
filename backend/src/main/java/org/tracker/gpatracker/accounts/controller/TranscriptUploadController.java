@@ -38,19 +38,20 @@ public class TranscriptUploadController {
         return ResponseEntity.ok(result);
     }
 
+    /**
+     * The My Courses upload. Same processing as {@code /calculateGPA} on purpose, so a transcript
+     * means one thing wherever it is uploaded: past courses are replaced with the transcript's,
+     * current-term courses are added (existing ones and their grades are kept), and the GPA is
+     * recalculated. Kept as its own path so builds already in the field keep working.
+     */
     @PostMapping(value = "/add-current-courses",
             consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<String> uploadTranscriptForGetCurrentCourses(@RequestParam("file") MultipartFile file) {
+    public ResponseEntity<GPACalculatorResponse> uploadTranscriptForGetCurrentCourses(@RequestParam("file") MultipartFile file) throws IOException {
+        logger.info("POST /api/transcript/add-current-courses — file size: {} bytes", file.getSize());
         validatePdfUpload(file);
-        try {
-            service.processTranscriptForGetCurrentCourses(file);
-        } catch (Exception e) {
-            logger.error("POST /api/transcript/add-current-courses — failed", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body("Failed to process transcript.");
-        }
+        GPACalculatorResponse result = service.processTranscriptForGPACalc(file);
         logger.info("POST /api/transcript/add-current-courses — success");
-        return ResponseEntity.ok("Extraction Complete. Current courses have been added.");
+        return ResponseEntity.ok(result);
     }
 
     private void validatePdfUpload(MultipartFile file) {

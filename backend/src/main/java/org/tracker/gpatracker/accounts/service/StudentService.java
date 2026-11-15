@@ -137,6 +137,35 @@ public class StudentService {
         eventPublisher.publishEvent(new GpaRecalculationEvent(this, enrollement.getOwnerId()));
     }
 
+    /**
+     * Removes a course's grade because its assessment table no longer has any marks behind it.
+     *
+     * <p>A course with no grade is skipped by the GPA listener, so this takes it out of the GPA
+     * without touching includeInGpa: the moment a mark is entered again, the course counts again.
+     * A no-op when there is no grade to clear, so saving an ungraded table does not recalculate
+     * the GPA every time. Also a no-op when the course or enrollment does not exist, unlike
+     * {@link #updateCourseGrade}: its caller (a syllabus upload finishing on a background thread)
+     * has already written the new table, and has nothing useful to do with a 404.
+     */
+    @Transactional
+    public void clearCourseGrade(String courseCode, String term) {
+        termService.requireEditable(term);
+        Student student = getStudentAccount();
+        Optional<Course> course = courseRepo.findBycourseCode(courseCode);
+        if (course.isEmpty()) {
+            return;
+        }
+        CourseEnrollement enrollement = enrollementRepo
+                .findByIdForUpdate(new CourseEnrollementKey(student.getId(), course.get().getId(), term))
+                .orElse(null);
+        if (enrollement == null || enrollement.getGrade() == null) {
+            return;
+        }
+        enrollement.setGrade(null);
+        enrollementRepo.save(enrollement);
+        eventPublisher.publishEvent(new GpaRecalculationEvent(this, enrollement.getOwnerId()));
+    }
+
     /** Resolves a course code plus term to this student's enrollment, locked for update. */
     private CourseEnrollement lockEnrollment(String courseCode, String term) {
         Student student = getStudentAccount();
