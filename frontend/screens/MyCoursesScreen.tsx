@@ -213,6 +213,48 @@ function ExpandChevron({ expanded }: { expanded: boolean }) {
   );
 }
 
+// The course search dropdown used to close on a 150ms timer after the input blurred. The input
+// blurs on mousedown but a row is only selected on click (after mouseup), so any press held longer
+// than 150ms lost the race: the row unmounted before the release and the selection went nowhere.
+// Two changes replace the timer:
+//
+// 1. Pressing inside the dropdown cancels mousedown's default action, which is what moves focus.
+//    The input never blurs, so the list stays mounted until the row's click selects it.
+// 2. A press anywhere else still blurs the input, but the dropdown waits for the pointer to be
+//    released before closing. Closing it collapses the 230px of room the open list reserves under
+//    its row, and doing that mid-press slid whatever button was being pressed out from under the
+//    pointer, so its click was lost too.
+const keepInputFocus = {
+  onMouseDown: (e: { preventDefault: () => void }) => e.preventDefault(),
+} as {};
+
+let pointerIsDown = false;
+if (typeof window !== "undefined") {
+  window.addEventListener("pointerdown", () => { pointerIsDown = true; }, true);
+  window.addEventListener("pointerup", () => { pointerIsDown = false; }, true);
+  window.addEventListener("pointercancel", () => { pointerIsDown = false; }, true);
+}
+
+/**
+ * Runs `fn` once the current press, if any, has finished, including the click it produces. The
+ * click is dispatched in the same task as the pointerup, so a zero timeout lands after it. With no
+ * press in progress (tabbing away, or a tap, where the blur arrives after the finger lifts) the
+ * timeout alone is enough.
+ */
+function afterPointerRelease(fn: () => void) {
+  if (!pointerIsDown) {
+    setTimeout(fn, 0);
+    return;
+  }
+  const onRelease = () => {
+    window.removeEventListener("pointerup", onRelease, true);
+    window.removeEventListener("pointercancel", onRelease, true);
+    setTimeout(fn, 0);
+  };
+  window.addEventListener("pointerup", onRelease, true);
+  window.addEventListener("pointercancel", onRelease, true);
+}
+
 export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdowns, onHighlightComplete }: Props) {
   const { width } = useWindowDimensions();
   const isCompact = width < COMPACT_BREAKPOINT;
@@ -1604,7 +1646,7 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
                           }
                         }}
                         onBlur={() => {
-                          setTimeout(() => {
+                          afterPointerRelease(() => {
                             setActiveRowId((current) => {
                               if (current === row.id) {
                                 setQuery("");
@@ -1613,13 +1655,13 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
                               }
                               return current;
                             });
-                          }, 150);
+                          });
                         }}
                         style={styles.input}
                       />
 
                       {activeRowId === row.id && canSearch && (
-                        <View style={styles.dropdown}>
+                        <View style={styles.dropdown} {...keepInputFocus}>
                           {searching && results.length === 0 ? (
                             <View style={styles.loadingRow}>
                               <ActivityIndicator
