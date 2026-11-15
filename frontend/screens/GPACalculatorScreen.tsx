@@ -3,9 +3,12 @@ import {
   Pressable,
   StyleSheet,
   ScrollView,
+  Modal,
+  ActivityIndicator,
   useWindowDimensions,
 } from "react-native";
 import { Text, TextInput } from "../src/ui/Text";
+import { noHover } from "../src/ui/hover";
 import { Picker } from "@react-native-picker/picker";
 import { useState, useEffect, useRef } from "react";
 import Animated, {
@@ -196,6 +199,49 @@ export default function GPACalculatorScreen({ onAuthError }: Props) {
     }
   };
 
+  const [confirmClearVisible, setConfirmClearVisible] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [clearError, setClearError] = useState<string | null>(null);
+  const hasCourses = rows.some((r) => r.courseName || r.credits);
+
+  const openConfirmClear = () => {
+    setClearError(null);
+    setConfirmClearVisible(true);
+  };
+
+  const closeConfirmClear = () => {
+    if (clearing) return;
+    setConfirmClearVisible(false);
+  };
+
+  // One request for the whole list. Deleting row by row spent a request per course and ran
+  // into the rate limit on a long transcript.
+  const clearAllRows = async () => {
+    setClearing(true);
+    setClearError(null);
+    try {
+      const res = await authedFetch("/api/my-courses/past-courses/all", { method: "DELETE" });
+      if (!res.ok) {
+        setClearError("Couldn't delete your courses. Please try again.");
+        return;
+      }
+      setRows([{ id: Date.now().toString(), courseName: "", credits: "", grade: "A" }]);
+      setResult(null);
+      setConfirmClearVisible(false);
+      queryClient.invalidateQueries({ queryKey: qk.pastCourses });
+      queryClient.invalidateQueries({ queryKey: qk.dashboard });
+    } catch (err) {
+      if (isAuthError(err)) {
+        setConfirmClearVisible(false);
+        onAuthError();
+        return;
+      }
+      setClearError("Couldn't delete your courses. Please try again.");
+    } finally {
+      setClearing(false);
+    }
+  };
+
   const calculateGPA = async () => {
     setLoading(true);
 
@@ -313,6 +359,13 @@ export default function GPACalculatorScreen({ onAuthError }: Props) {
                 {loading ? "Calculating..." : "Calculate GPA"}
               </Text>
             </Pressable>
+
+            {hasCourses && !loadingCourses && (
+              <Pressable style={styles.add} onPress={openConfirmClear}>
+                <Feather name="trash-2" size={15} color={colors.danger} style={{ marginRight: 4 }} />
+                <Text style={styles.deleteAllText}>Delete All</Text>
+              </Pressable>
+            )}
           </View>
 
           {loadingCourses ? (
@@ -382,6 +435,44 @@ export default function GPACalculatorScreen({ onAuthError }: Props) {
           )}
         </View>
       )}
+
+      <Modal
+        visible={confirmClearVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={closeConfirmClear}
+      >
+        <Pressable {...noHover} style={styles.modalOverlay} onPress={closeConfirmClear}>
+          <Pressable {...noHover} style={styles.modalContent} onPress={() => {}}>
+            <Text style={styles.modalTitle}>Delete all courses?</Text>
+            <Text style={styles.modalSubtitle}>
+              This removes every course in the calculator and the past courses saved to your
+              account. Your dashboard GPA will update to match. This can't be undone.
+            </Text>
+            {clearError && <Text style={styles.modalError}>{clearError}</Text>}
+            <View style={styles.modalActions}>
+              <Pressable
+                style={styles.cancelButton}
+                onPress={closeConfirmClear}
+                disabled={clearing}
+              >
+                <Text style={styles.cancelText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.dangerButton, clearing && styles.disabledButton]}
+                onPress={clearAllRows}
+                disabled={clearing}
+              >
+                {clearing ? (
+                  <ActivityIndicator size="small" color={colors.onField} />
+                ) : (
+                  <Text style={styles.dangerButtonText}>Delete All</Text>
+                )}
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {/* TRANSCRIPT UPLOAD */}
       {mode === "transcript" && (
@@ -463,6 +554,7 @@ const styles = StyleSheet.create({
   },
   topActions: {
     flexDirection: "row",
+    flexWrap: "wrap",
     justifyContent: "center",
     alignItems: "center",
     gap: 12,
@@ -539,6 +631,68 @@ const styles = StyleSheet.create({
     ...typo.label,
     color: colors.onField,
     fontFamily: fonts.display,
+  },
+  deleteAllText: {
+    ...typo.label,
+    color: colors.danger,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: colors.scrim,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalContent: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    width: "85%",
+    maxWidth: 400,
+  },
+  modalTitle: {
+    ...typo.h2,
+    color: colors.boldText,
+    marginBottom: 4,
+  },
+  modalSubtitle: {
+    ...typo.body,
+    color: colors.bodyText,
+    marginBottom: spacing.md,
+  },
+  modalError: {
+    ...typo.body,
+    color: colors.danger,
+    marginBottom: spacing.md,
+  },
+  modalActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 12,
+  },
+  cancelButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: radius.md,
+  },
+  cancelText: {
+    ...typo.label,
+    color: colors.bodyText,
+  },
+  dangerButton: {
+    backgroundColor: colors.danger,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: radius.md,
+    minWidth: 110,
+    alignItems: "center",
+  },
+  dangerButtonText: {
+    ...typo.label,
+    color: colors.onField,
+    fontFamily: fonts.display,
+  },
+  disabledButton: {
+    opacity: 0.6,
   },
   resultCard: {
     backgroundColor: colors.primary,
