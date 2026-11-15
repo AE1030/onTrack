@@ -243,14 +243,11 @@ public class UserService {
         }
 
         String decoded = java.net.URLDecoder.decode(token, java.nio.charset.StandardCharsets.UTF_8).trim();
-        logger.info("resetPassword — decoded token length: {}", decoded.length());
         SecureToken secureToken = secureTokenService.findByToken(decoded);
         if (secureToken == null || secureToken.getTokenType() != TokenType.PASSWORD_RESET) {
             logger.warn("resetPassword — token not found or wrong type (found: {})", secureToken != null ? secureToken.getTokenType() : "null");
             throw new InvalidTokenException("Token is not valid");
         }
-        logger.info("resetPassword — token found, type: {}, expiredAt: {}, isExpired: {}",
-                secureToken.getTokenType(), secureToken.getExpiredAt(), secureToken.isExpired());
         if (secureToken.getExpiredAt() == null || secureToken.isExpired()) {
             logger.warn("resetPassword — token has expired");
             throw new InvalidTokenException("Token has expired");

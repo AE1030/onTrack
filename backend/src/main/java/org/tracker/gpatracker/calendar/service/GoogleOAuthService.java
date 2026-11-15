@@ -81,7 +81,7 @@ public class GoogleOAuthService {
     public OAuthTokens refreshAccessToken(String refreshToken) {
         String clientId = properties.getClientId();
         String clientSecret = properties.getClientSecret();
-        logger.info("Refreshing Google access token with clientId={}", clientId);
+        logger.info("Refreshing Google access token");
         MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
         form.add("client_id", clientId);
         form.add("client_secret", clientSecret);

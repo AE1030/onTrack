@@ -29,7 +29,7 @@ public class DefaultEmailService implements EmailService {
     @Override
     public void sendMail(AbstractEmailContext email) throws MessagingException {
 
-        logger.info("sendMail — to: {}, subject: {}", email.getTo(), email.getSubject());
+        logger.info("sendMail — subject: {}", email.getSubject());
 
         Context context = new Context();
         context.setVariables(email.getContext());
@@ -44,9 +44,9 @@ public class DefaultEmailService implements EmailService {
 
         try {
             CreateEmailResponse response = resend.emails().send(params);
-            logger.info("sendMail — sent successfully to: {}, id: {}", email.getTo(), response.getId());
+            logger.info("sendMail — sent successfully, id: {}", response.getId());
         } catch (ResendException e) {
-            logger.error("sendMail — failed to send to: {}", email.getTo(), e);
+            logger.error("sendMail — failed to send, subject: {}", email.getSubject(), e);
             throw new MessagingException("Failed to send email via Resend", e);
         }
     }

@@ -34,7 +34,7 @@ public class TranscriptUploadController {
         logger.info("POST /api/transcript/calculateGPA — file size: {} bytes", file.getSize());
         validatePdfUpload(file);
         GPACalculatorResponse result = service.processTranscriptForGPACalc(file);
-        logger.info("POST /api/transcript/calculateGPA — success, GPA: {}", result.getGpa());
+        logger.info("POST /api/transcript/calculateGPA — success");
         return ResponseEntity.ok(result);
     }
 
