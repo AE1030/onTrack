@@ -9,6 +9,7 @@ import { authedGet, authedMutate, queryRetry } from "../../src/cache/authedGet";
 import { qk } from "../../src/cache/keys";
 import { spacing, radius } from "../../src/theme/spacing";
 import { useTheme } from "../../src/theme/ThemeContext";
+import { GOOGLE_CALENDAR_SYNC_ENABLED } from "../../src/config/features";
 
 type CalendarProvider = "GOOGLE";
 
@@ -55,7 +56,11 @@ export default function CalendarReconnectBanner() {
     refetchInterval: 5 * 60_000,
     refetchOnWindowFocus: true,
     retry: queryRetry,
+    enabled: GOOGLE_CALENDAR_SYNC_ENABLED,
   });
+
+  // While sync is paused a reconnect prompt would send the student into the feature we are hiding.
+  if (!GOOGLE_CALENDAR_SYNC_ENABLED) return null;
 
   const broken = (accountsQuery.data ?? []).filter((a) => a.needsReconnect);
   if (broken.length === 0) return null;
