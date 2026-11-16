@@ -15,6 +15,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "../src/theme/ThemeContext";
 import { qk } from "../src/cache/keys";
 import { authedGet, isAuthError, isServerRejection, queryRetry } from "../src/cache/authedGet";
+import { toUserMessage } from "../src/utils/errorMessage";
 import {
   fetchPreview,
   fetchStatus,
@@ -273,9 +274,7 @@ export default function LeaderboardOnboardingScreen({ onDone, onCancel, onAuthEr
       // A failed parse is a fixable error and never a prompt to type a number in. A wrong baseline
       // is invisible, permanent for the season, and nothing downstream will correct it.
       setUploadError(
-        isServerRejection(err) && err.serverMessage
-          ? err.serverMessage
-          : "That transcript could not be read. Upload the PDF exactly as Mosaic exports it."
+        toUserMessage(err, "That transcript could not be read. Upload the PDF exactly as Mosaic exports it.")
       );
     } finally {
       setUploading(false);
@@ -305,10 +304,7 @@ export default function LeaderboardOnboardingScreen({ onDone, onCancel, onAuthEr
         onAuthError();
         return;
       }
-      const message =
-        isServerRejection(err) && err.serverMessage
-          ? err.serverMessage
-          : "That did not go through. Try again in a moment.";
+      const message = toUserMessage(err, "That did not go through. Try again in a moment.");
       setSubmitError(message);
       // A handle rejection has to send them back to the card that can fix it, or the message sits
       // on a review screen with no field on it.

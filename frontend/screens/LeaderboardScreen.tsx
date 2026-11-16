@@ -16,7 +16,8 @@ import Animated, { FadeInDown } from "react-native-reanimated";
 
 import { useTheme } from "../src/theme/ThemeContext";
 import { qk } from "../src/cache/keys";
-import { isAuthError, isServerRejection, queryRetry } from "../src/cache/authedGet";
+import { isAuthError, queryRetry } from "../src/cache/authedGet";
+import { toUserMessage } from "../src/utils/errorMessage";
 import { changeHandle, fetchBoard, fetchStatus, withdraw } from "../src/leaderboard/api";
 import { LeaderboardRow } from "../src/leaderboard/types";
 import { POINTS_NAME } from "../src/leaderboard/scoring";
@@ -388,11 +389,7 @@ function SettingsSheet({
         onAuthError();
         return;
       }
-      setError(
-        isServerRejection(err) && err.serverMessage
-          ? err.serverMessage
-          : "That did not save. Try again in a moment."
-      );
+      setError(toUserMessage(err, "That did not save. Try again in a moment."));
     } finally {
       setSaving(false);
     }
