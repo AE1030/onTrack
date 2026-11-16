@@ -85,9 +85,17 @@ public class CalendarProjectionService {
 
         String today = java.time.LocalDate.now().toString();
 
+        // Soonest first. The projection is stored course by course, so without this a new due date
+        // landed after every other event in its course rather than in date order. Due dates are
+        // ISO yyyy-MM-dd and times HH:mm, so string order is time order; an all-day event (no
+        // start time) sorts before timed ones on the same day.
         return calendarEvents.get().getEvents().stream()
                 .filter(event -> !event.isCompleted())
                 .filter(event -> event.getDueDate() != null && event.getDueDate().compareTo(today) >= 0)
+                .sorted(java.util.Comparator
+                        .comparing(InternalCalendarEvent::getDueDate)
+                        .thenComparing(InternalCalendarEvent::getStartTime,
+                                java.util.Comparator.nullsFirst(java.util.Comparator.naturalOrder())))
                 .toList();
     }
 
