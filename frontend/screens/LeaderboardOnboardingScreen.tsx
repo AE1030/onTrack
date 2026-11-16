@@ -50,6 +50,8 @@ import TargetSlider from "./components/leaderboard/TargetSlider";
 import AvatarBuilder from "./components/leaderboard/AvatarBuilder";
 import PlayerAvatar from "./components/leaderboard/PlayerAvatar";
 import { radius } from "../src/theme/spacing";
+import { Skeleton, SkeletonGroup, SkeletonLines } from "../src/ui/Skeleton";
+import ThemeToggle from "../src/ui/ThemeToggle";
 import { fonts, typo } from "../src/theme/typography";
 
 /**
@@ -360,9 +362,49 @@ export default function LeaderboardOnboardingScreen({ onDone, onCancel, onAuthEr
   };
 
   if (loading) {
+    // The same floating card, with the header chrome real (close and the theme switch work while
+    // it loads) and the step, title and first card waiting to fill in.
     return (
-      <View style={[styles.loading, { backgroundColor: c.background }]}>
-        <ActivityIndicator size="large" color={c.primary} />
+      <View style={[styles.screen, { backgroundColor: c.background }]}>
+        <View
+          style={[
+            styles.frame,
+            { backgroundColor: c.surface, borderColor: c.border, boxShadow: `0px 12px 40px ${c.shadowStrong}` },
+          ]}
+        >
+          <SkeletonGroup label="Loading the leaderboard sign-up" style={{ flex: 1 }}>
+            <BrandField style={styles.header}>
+              <View style={styles.headerTop}>
+                <Skeleton width={84} height={11} tone="field" />
+                <View style={styles.headerActions}>
+                  <ThemeToggle tone="field" size={18} style={styles.headerIcon} />
+                  <Pressable onPress={onCancel} hitSlop={10} accessibilityRole="button" accessibilityLabel="Close">
+                    <Feather name="x" size={20} color={c.onFieldMuted} />
+                  </Pressable>
+                </View>
+              </View>
+              <Skeleton width="62%" height={28} tone="field" />
+              <View style={styles.progressTrack}>
+                {[0, 1, 2, 3, 4].map((i) => (
+                  <View key={i} style={[styles.progressSegment, { backgroundColor: "rgba(255,255,255,0.22)" }]} />
+                ))}
+              </View>
+            </BrandField>
+
+            <View style={[styles.body, styles.bodyContent, { gap: 16 }]}>
+              <SkeletonLines lines={3} height={14} gap={10} lastWidth="72%" />
+              <Skeleton height={120} radius={radius.md} />
+              <SkeletonLines lines={2} height={14} gap={10} lastWidth="48%" />
+            </View>
+
+            <View style={[styles.footer, { borderTopColor: c.border }]}>
+              <View style={styles.footerRow}>
+                <Skeleton width={56} height={14} />
+                <Skeleton width={132} height={44} radius={radius.md} />
+              </View>
+            </View>
+          </SkeletonGroup>
+        </View>
       </View>
     );
   }
@@ -518,15 +560,15 @@ function ConsentCard({ agreed, onAgree }: { agreed: boolean; onAgree: () => void
         onPress={onAgree}
         style={[
           styles.bigChoice,
-          { borderColor: agreed ? c.primary : c.border, backgroundColor: agreed ? c.primarySoft : c.surface },
+          { borderColor: agreed ? c.primaryInk : c.border, backgroundColor: agreed ? c.primarySoft : c.surface },
         ]}
       >
         <Feather
           name={agreed ? "check-circle" : "circle"}
           size={20}
-          color={agreed ? c.primary : c.muted}
+          color={agreed ? c.primaryInk : c.muted}
         />
-        <Text style={[styles.bigChoiceText, { color: agreed ? c.primary : c.boldText }]}>
+        <Text style={[styles.bigChoiceText, { color: agreed ? c.primaryInk : c.boldText }]}>
           I understand what is published
         </Text>
       </Pressable>
@@ -546,7 +588,7 @@ function RulesCard({ accepted, onToggle }: { accepted: boolean; onToggle: () => 
         {RULES.map((rule, i) => (
           <View key={i} style={styles.rule}>
             <View style={[styles.ruleNumber, { backgroundColor: c.primarySoft }]}>
-              <Text style={[styles.ruleNumberText, { color: c.primary }]}>{i + 1}</Text>
+              <Text style={[styles.ruleNumberText, { color: c.primaryInk }]}>{i + 1}</Text>
             </View>
             <Text style={[styles.ruleText, { color: c.boldText }]}>{rule}</Text>
           </View>
@@ -557,15 +599,15 @@ function RulesCard({ accepted, onToggle }: { accepted: boolean; onToggle: () => 
         onPress={onToggle}
         style={[
           styles.bigChoice,
-          { borderColor: accepted ? c.primary : c.border, backgroundColor: accepted ? c.primarySoft : c.surface },
+          { borderColor: accepted ? c.primaryInk : c.border, backgroundColor: accepted ? c.primarySoft : c.surface },
         ]}
       >
         <Feather
           name={accepted ? "check-square" : "square"}
           size={20}
-          color={accepted ? c.primary : c.muted}
+          color={accepted ? c.primaryInk : c.muted}
         />
-        <Text style={[styles.bigChoiceText, { color: accepted ? c.primary : c.boldText }]}>
+        <Text style={[styles.bigChoiceText, { color: accepted ? c.primaryInk : c.boldText }]}>
           I have read the rules
         </Text>
       </Pressable>
@@ -630,7 +672,7 @@ function TranscriptCard({
 
         {!baseline.frozen && (
           <Pressable onPress={onPick} disabled={uploading}>
-            <Text style={[styles.link, { color: c.primary }]}>Upload a different transcript</Text>
+            <Text style={[styles.link, { color: c.primaryInk }]}>Upload a different transcript</Text>
           </Pressable>
         )}
       </View>
@@ -662,9 +704,9 @@ function TranscriptCard({
       >
         <View style={[styles.dropIcon, { backgroundColor: c.primarySoft }]}>
           {uploading ? (
-            <ActivityIndicator color={c.primary} />
+            <ActivityIndicator color={c.primaryInk} />
           ) : (
-            <Feather name="upload" size={22} color={c.primary} />
+            <Feather name="upload" size={22} color={c.primaryInk} />
           )}
         </View>
         <Text style={[styles.dropTitle, { color: c.boldText }]}>
@@ -967,9 +1009,12 @@ function Header({
         <Text style={[styles.headerStep, { color: c.onFieldFaint }]}>
           Step {step} of {total}
         </Text>
-        <Pressable onPress={onClose} hitSlop={10}>
-          <Feather name="x" size={20} color={c.onFieldMuted} />
-        </Pressable>
+        <View style={styles.headerActions}>
+          <ThemeToggle tone="field" size={18} style={styles.headerIcon} />
+          <Pressable onPress={onClose} hitSlop={10} accessibilityRole="button" accessibilityLabel="Close">
+            <Feather name="x" size={20} color={c.onFieldMuted} />
+          </Pressable>
+        </View>
       </View>
 
       <Text style={[styles.headerTitle, { color: c.onField }]}>{title}</Text>
@@ -1025,9 +1070,9 @@ function Footer({
           ]}
         >
           {busy ? (
-            <ActivityIndicator color={c.onField} size="small" />
+            <ActivityIndicator color={c.onPrimary} size="small" />
           ) : (
-            <Text style={styles.footerNextText}>{nextLabel}</Text>
+            <Text style={[styles.footerNextText, { color: c.onPrimary }]}>{nextLabel}</Text>
           )}
         </Pressable>
       </View>
@@ -1074,11 +1119,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: Platform.OS === "ios" ? 12 : 24,
   },
-  loading: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
   frame: {
     width: "100%",
     maxWidth: 560,
@@ -1100,6 +1140,15 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  headerIcon: {
+    width: 30,
+    height: 30,
   },
   headerStep: {
     fontSize: 12,
@@ -1376,7 +1425,6 @@ const styles = StyleSheet.create({
   },
   footerNextText: {
     ...typo.label,
-    color: "#FFFFFF",
     fontFamily: fonts.display,
   },
 });

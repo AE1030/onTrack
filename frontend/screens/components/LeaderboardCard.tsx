@@ -10,6 +10,7 @@ import { fetchBoard, fetchStatus } from "../../src/leaderboard/api";
 import { POINTS_SHORT, fmtScore } from "../../src/leaderboard/scoring";
 import BrandField from "./leaderboard/BrandField";
 import { ModePill, RankSparkline, TrendChip } from "./leaderboard/Indicators";
+import { Skeleton, SkeletonGroup } from "../../src/ui/Skeleton";
 import { radius } from "../../src/theme/spacing";
 import { fonts, typo } from "../../src/theme/typography";
 
@@ -59,7 +60,11 @@ export default function LeaderboardCard({
   const me = boardQuery.data?.me ?? null;
 
   if (statusQuery.isLoading) {
-    return <View style={[styles.card, styles.skeleton, { backgroundColor: c.surfaceSunken }]} />;
+    return (
+      <SkeletonGroup label="Loading your leaderboard standing">
+        <Skeleton height={150} radius={radius.lg} />
+      </SkeletonGroup>
+    );
   }
 
   // A failed status read should not remove a dashboard tile and reflow the grid under the
@@ -155,9 +160,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     minHeight: 150,
     borderWidth: 0,
-  },
-  skeleton: {
-    borderRadius: radius.lg,
   },
   errorText: {
     ...typo.body,

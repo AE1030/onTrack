@@ -1,7 +1,8 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { View, StyleSheet } from "react-native";
 import { Text } from "../../src/ui/Text";
-import { colors } from "../../src/theme/colors";
+import { Palette } from "../../src/theme/colors";
+import { useTheme } from "../../src/theme/ThemeContext";
 import { fonts } from "../../src/theme/typography";
 
 type Props = {
@@ -9,6 +10,8 @@ type Props = {
 };
 
 export default function OnTrackLogo({ size = 22 }: Props) {
+  const colors = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const dotSize = size * 0.3;
 
   return (
@@ -31,7 +34,8 @@ export default function OnTrackLogo({ size = 22 }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Palette) =>
+  StyleSheet.create({
   container: {
     flexDirection: "row",
     alignItems: "flex-end",

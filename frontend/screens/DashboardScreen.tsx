@@ -1,11 +1,10 @@
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import {
   View,
   StyleSheet,
   Pressable,
   ScrollView,
   Modal,
-  ActivityIndicator,
   LayoutChangeEvent,
   useWindowDimensions,
 } from "react-native";
@@ -20,7 +19,8 @@ import Animated, {
 } from "react-native-reanimated";
 import { Feather } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { colors } from "../src/theme/colors";
+import { Palette } from "../src/theme/colors";
+import { useTheme } from "../src/theme/ThemeContext";
 import { spacing, radius } from "../src/theme/spacing";
 import { fonts, typo } from "../src/theme/typography";
 import { qk } from "../src/cache/keys";
@@ -31,6 +31,7 @@ import { useTerm } from "../src/terms/TermContext";
 import GpaArc from "./components/GpaArc";
 import OnTrackLogo from "./components/OnTrackLogo";
 import LeaderboardCard from "./components/LeaderboardCard";
+import { Skeleton, SkeletonCircle, SkeletonGroup, SkeletonLines } from "../src/ui/Skeleton";
 
 type DashboardData = {
   username: string;
@@ -64,8 +65,6 @@ type CurrentCourse = {
   includeInGpa: boolean;
 };
 
-const ACCENT_COLORS = colors.courseAccents;
-
 type EventRowProps = {
   event: UpcomingEvent;
   formatDueDate: (dateStr: string) => string;
@@ -73,6 +72,8 @@ type EventRowProps = {
 };
 
 function EventRow({ event, formatDueDate, onComplete }: EventRowProps) {
+  const colors = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const checkFill = useSharedValue(0);
   const strikethrough = useSharedValue(0);
   const textFade = useSharedValue(1);
@@ -216,6 +217,89 @@ function courseRows(count: number, width: number): number[] {
   return out;
 }
 
+/**
+ * The dashboard while it loads: the same page, with the numbers not in yet.
+ *
+ * Built from the real container, rail and card styles so nothing shifts when data lands. The logo
+ * is chrome, not data, so it renders for real. Also shown by the app shell while it checks a stored
+ * session, because that check always ends on this screen.
+ */
+export function DashboardSkeleton() {
+  const colors = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const { width: windowWidth } = useWindowDimensions();
+  const wide = windowWidth >= WIDE;
+  const desktop = windowWidth >= DESKTOP;
+
+  return (
+    <ScrollView contentContainerStyle={[styles.container, !wide && styles.containerCompact]}>
+      <SkeletonGroup style={styles.page} label="Loading your dashboard">
+        <View style={[styles.topBar, !wide && styles.topBarCompact]}>
+          <OnTrackLogo size={22} />
+        </View>
+
+        <View style={[styles.header, wide && styles.headerWide]}>
+          <Skeleton width={wide ? 340 : "75%"} height={wide ? 30 : 26} />
+          <View style={styles.headerActions}>
+            <Skeleton width={150} height={38} radius={radius.md} />
+            <Skeleton width={84} height={38} radius={radius.md} />
+          </View>
+        </View>
+
+        <View style={[styles.overview, wide && styles.overviewWide]}>
+          <View style={[styles.rail, wide && { width: desktop ? 360 : 320 }]}>
+            <View style={[styles.card, !wide && styles.cardCompact]}>
+              <View style={[skel.row, { justifyContent: "space-between" }]}>
+                <Skeleton width={140} height={20} />
+                <Skeleton width={88} height={20} radius={radius.pill} />
+              </View>
+              {/* The gauge's silhouette: a half disc the width of the arc. */}
+              <View style={skel.gauge}>
+                <Skeleton width={200} height={100} radius={0} style={skel.halfDisc} />
+              </View>
+              <Skeleton width="100%" height={40} radius={radius.md} />
+            </View>
+            <View style={[styles.card, !wide && styles.cardCompact]}>
+              <Skeleton width={120} height={20} />
+              <View style={[skel.row, { marginTop: spacing.md, gap: 12 }]}>
+                <Skeleton width={56} height={40} />
+                <View style={{ flex: 1 }}>
+                  <SkeletonLines lines={2} />
+                </View>
+              </View>
+            </View>
+          </View>
+
+          <View style={[styles.card, styles.dueDatesCard, !wide && styles.cardCompact]}>
+            <View style={styles.dueDatesHeader}>
+              <Skeleton width={190} height={20} />
+              <Skeleton width={60} height={14} />
+            </View>
+            <View style={styles.eventsList}>
+              {[0, 1, 2, 3].map((i) => (
+                <View key={i} style={styles.eventRow}>
+                  <SkeletonCircle size={28} />
+                  <Skeleton width={72} height={30} radius={radius.sm} />
+                  <View style={{ flex: 1, gap: 6 }}>
+                    <Skeleton width={i % 2 ? "55%" : "70%"} height={14} />
+                    <Skeleton width="35%" height={11} />
+                  </View>
+                </View>
+              ))}
+            </View>
+          </View>
+        </View>
+      </SkeletonGroup>
+    </ScrollView>
+  );
+}
+
+const skel = StyleSheet.create({
+  row: { flexDirection: "row", alignItems: "center" },
+  gauge: { alignItems: "center", paddingTop: spacing.lg, paddingBottom: spacing.md },
+  halfDisc: { borderTopLeftRadius: 100, borderTopRightRadius: 100 },
+});
+
 export default function DashboardScreen({
   onGoToCalendar,
   onGoToMyCourses,
@@ -223,6 +307,8 @@ export default function DashboardScreen({
   onJoinLeaderboard,
   onAuthError,
 }: Props) {
+  const colors = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const queryClient = useQueryClient();
   const { currentTerm } = useTerm();
   const [use12Scale, setUse12Scale] = useState(false);
@@ -460,11 +546,7 @@ export default function DashboardScreen({
   };
 
   if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
-      </View>
-    );
+    return <DashboardSkeleton />;
   }
 
   const rows = courseRows(currentCourses.length, courseGridWidth);
@@ -542,7 +624,7 @@ export default function DashboardScreen({
           </Text>
           <View style={styles.headerActions}>
             <Pressable style={styles.addAssignmentButton} onPress={onGoToMyCourses}>
-              <Feather name="arrow-up-right" size={16} color={colors.onField} style={{ marginRight: 6 }} />
+              <Feather name="arrow-up-right" size={16} color={colors.onPrimary} style={{ marginRight: 6 }} />
               <Text style={styles.addAssignmentText}>Add Assignment</Text>
             </Pressable>
             <Pressable style={styles.syncButton} onPress={onGoToCalendar}>
@@ -613,7 +695,7 @@ export default function DashboardScreen({
                   <View key={r} style={styles.semesterRow}>
                     {currentCourses.slice(start, start + count).map((course, i) => {
                       const index = start + i;
-                      const accent = ACCENT_COLORS[index % ACCENT_COLORS.length];
+                      const accent = colors.courseAccents[index % colors.courseAccents.length];
                       const gradeDisplay = course.grade != null
                         ? `${course.grade.toFixed(2)}%`
                         : "No grade";
@@ -722,13 +804,8 @@ export default function DashboardScreen({
   );
 }
 
-const styles = StyleSheet.create({
-  loadingContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: colors.background,
-  },
+const makeStyles = (colors: Palette) =>
+  StyleSheet.create({
   container: {
     // Top padding lines the logo up with the shell's floating hamburger (10pt down, 32pt tall).
     paddingTop: 10,
@@ -793,7 +870,7 @@ const styles = StyleSheet.create({
   },
   addAssignmentText: {
     ...typo.label,
-    color: colors.onField,
+    color: colors.onPrimary,
   },
   syncButton: {
     flexDirection: "row",
@@ -857,7 +934,7 @@ const styles = StyleSheet.create({
     color: colors.faintText,
   },
   toggleLabelActive: {
-    color: colors.primary,
+    color: colors.primaryInk,
   },
   toggleTrack: {
     width: 44,
@@ -871,7 +948,7 @@ const styles = StyleSheet.create({
     width: 18,
     height: 18,
     borderRadius: 9,
-    backgroundColor: colors.primary,
+    backgroundColor: colors.primaryInk,
   },
   setTargetButton: {
     alignSelf: "center",
@@ -884,7 +961,7 @@ const styles = StyleSheet.create({
   setTargetText: {
     ...typo.label,
     fontSize: 13,
-    color: colors.primary,
+    color: colors.primaryInk,
   },
   targetLockedNote: {
     alignSelf: "center",
@@ -916,7 +993,7 @@ const styles = StyleSheet.create({
   },
   viewAllText: {
     ...typo.label,
-    color: colors.primary,
+    color: colors.primaryInk,
     textDecorationLine: "underline",
   },
   emptyState: {
@@ -965,7 +1042,7 @@ const styles = StyleSheet.create({
   completeCheck: {
     fontFamily: fonts.display,
     fontSize: 14,
-    color: colors.onField,
+    color: colors.onPrimary,
   },
   eventDateBadge: {
     backgroundColor: colors.primarySoft,
@@ -979,7 +1056,7 @@ const styles = StyleSheet.create({
     ...typo.caption,
     fontFamily: fonts.bodyMedium,
     fontVariant: ["tabular-nums"],
-    color: colors.primary,
+    color: colors.primaryInk,
   },
   eventDetails: {
     flex: 1,
@@ -999,7 +1076,7 @@ const styles = StyleSheet.create({
     left: 0,
     top: "50%",
     height: 1.5,
-    backgroundColor: colors.primary,
+    backgroundColor: colors.primaryInk,
     borderRadius: 1,
   },
   eventCourse: {
@@ -1143,6 +1220,6 @@ const styles = StyleSheet.create({
   },
   saveText: {
     ...typo.label,
-    color: colors.onField,
+    color: colors.onPrimary,
   },
 });

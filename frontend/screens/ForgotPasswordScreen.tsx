@@ -6,8 +6,9 @@ import {
   Platform,
 } from "react-native";
 import { Text, TextInput } from "../src/ui/Text";
-import { useState } from "react";
-import { colors } from "../src/theme/colors";
+import { useState, useMemo } from "react";
+import { Palette } from "../src/theme/colors";
+import { useTheme } from "../src/theme/ThemeContext";
 import { spacing, radius } from "../src/theme/spacing";
 import { API_BASE_URL } from "../src/config/api";
 import { toHttpError } from "../src/cache/authedGet";
@@ -20,6 +21,8 @@ type Props = {
 };
 
 export default function ForgotPasswordScreen({ onGoToLogin }: Props) {
+  const colors = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -148,7 +151,8 @@ export default function ForgotPasswordScreen({ onGoToLogin }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Palette) =>
+  StyleSheet.create({
   screen: {
     flex: 1,
     justifyContent: "center",
@@ -189,7 +193,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.32,
   },
   inputFocused: {
-    borderColor: colors.primary,
+    borderColor: colors.primaryInk,
     borderWidth: 1.5,
   },
   inputError: {
@@ -212,7 +216,7 @@ const styles = StyleSheet.create({
   },
   buttonText: {
     ...typo.label,
-    color: colors.onField,
+    color: colors.onPrimary,
     fontSize: 16,
     fontFamily: fonts.display,
     letterSpacing: 0.32,
@@ -232,7 +236,7 @@ const styles = StyleSheet.create({
     color: colors.bodyText,
   },
   linkBold: {
-    color: colors.primary,
+    color: colors.primaryInk,
     fontFamily: fonts.bodyMedium,
   },
   successTitle: {

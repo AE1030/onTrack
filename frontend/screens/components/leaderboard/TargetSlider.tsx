@@ -103,7 +103,7 @@ export default function TargetSlider({
           <View
             style={[
               styles.fill,
-              { backgroundColor: c.primary, width: thumbLeft + THUMB / 2 },
+              { backgroundColor: c.primaryInk, width: thumbLeft + THUMB / 2 },
             ]}
           />
 
@@ -122,7 +122,7 @@ export default function TargetSlider({
               {
                 left: thumbLeft,
                 backgroundColor: c.surface,
-                borderColor: c.primary,
+                borderColor: c.primaryInk,
                 shadowColor: c.shadowStrong,
               },
             ]}
@@ -166,7 +166,7 @@ function Nudge({
         disabled && { opacity: 0.4 },
       ]}
     >
-      <Feather name={icon} size={16} color={c.primary} />
+      <Feather name={icon} size={16} color={c.primaryInk} />
     </Pressable>
   );
 }

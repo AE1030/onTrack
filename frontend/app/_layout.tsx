@@ -12,6 +12,7 @@ import { IBMPlexSans_300Light } from '@expo-google-fonts/ibm-plex-sans/300Light'
 import { IBMPlexSans_400Regular } from '@expo-google-fonts/ibm-plex-sans/400Regular';
 import { IBMPlexSans_500Medium } from '@expo-google-fonts/ibm-plex-sans/500Medium';
 import { Stack } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useMemo } from 'react';
 import 'react-native-reanimated';
@@ -82,7 +83,7 @@ function RootLayoutNav() {
       ...base,
       colors: {
         ...base.colors,
-        primary: c.primary,
+        primary: c.primaryInk,
         background: c.background,
         card: c.surface,
         text: c.boldText,
@@ -97,6 +98,8 @@ function RootLayoutNav() {
       <TermProvider>
         <NavigationThemeProvider value={navigationTheme}>
           <HoverStyles />
+          {/* Follows the in-app choice, not the system: light ink on the dark theme and back. */}
+          <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
           <Stack screenOptions={{ headerShown: false }}>
             <Stack.Screen name="index" />
             <Stack.Screen name="dashboard" />

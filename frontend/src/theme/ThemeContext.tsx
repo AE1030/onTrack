@@ -4,10 +4,12 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { Appearance, Platform } from "react-native";
 import { Palette, ThemeName, palettes } from "./colors";
+import { ThemeVeil, installTransitionStyles, withThemeTransition } from "./themeTransition";
 import {
   THEME_KEY,
   ThemeOverride,
@@ -89,13 +91,21 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const scheme: ThemeName = override ?? system;
+  const systemRef = useRef(system);
+  systemRef.current = system;
+
+  useEffect(installTransitionStyles, []);
 
   useEffect(() => {
     paintDocument(scheme);
   }, [scheme]);
 
   const setOverride = useCallback((value: ThemeOverride) => {
-    setOverrideState(value);
+    withThemeTransition(() => {
+      setOverrideState(value);
+      // Painted here as well as in the effect, so the document ground is in the "after" snapshot.
+      paintDocument(value ?? systemRef.current);
+    });
     void setThemeOverride(value);
   }, []);
 
@@ -112,7 +122,12 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     [scheme, override, setOverride]
   );
 
-  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
+  return (
+    <ThemeContext.Provider value={value}>
+      {children}
+      <ThemeVeil scheme={scheme} />
+    </ThemeContext.Provider>
+  );
 }
 
 /**

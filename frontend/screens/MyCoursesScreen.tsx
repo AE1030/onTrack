@@ -9,7 +9,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { Text, TextInput } from "../src/ui/Text";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import * as DocumentPicker from "expo-document-picker";
 import Animated, {
   useSharedValue,
@@ -23,7 +23,9 @@ import Animated, {
 } from "react-native-reanimated";
 import { Feather } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { colors } from "../src/theme/colors";
+import { Palette } from "../src/theme/colors";
+import { Skeleton, SkeletonGroup } from "../src/ui/Skeleton";
+import { useTheme } from "../src/theme/ThemeContext";
 import { spacing, radius } from "../src/theme/spacing";
 import { getToken } from "../src/utils/tokenStorage";
 import { API_BASE_URL } from "../src/config/api";
@@ -141,6 +143,8 @@ function ExpandPanel({
   style?: object;
   children: React.ReactNode;
 }) {
+  const colors = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const reduceMotion = useReducedMotion();
   const [mounted, setMounted] = useState(expanded);
   const open = useSharedValue(expanded && reduceMotion ? 1 : 0);
@@ -194,6 +198,8 @@ function ExpandPanel({
 
 /** Turns over rather than swapping icons, so the toggle reads as the same control changing state. */
 function ExpandChevron({ expanded }: { expanded: boolean }) {
+  const colors = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const reduceMotion = useReducedMotion();
   const turn = useSharedValue(expanded ? 1 : 0);
 
@@ -256,6 +262,8 @@ function afterPointerRelease(fn: () => void) {
 }
 
 export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdowns, onHighlightComplete }: Props) {
+  const colors = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const { width } = useWindowDimensions();
   const isCompact = width < COMPACT_BREAKPOINT;
   // Wide enough to set the add-courses heading beside its form instead of above it.
@@ -1273,15 +1281,39 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
             accessibilityRole="button"
             accessibilityLabel="Jump to add courses"
           >
-            <Feather name="plus" size={16} color={colors.primary} />
+            <Feather name="plus" size={16} color={colors.primaryInk} />
             <Text style={styles.jumpToAddText}>Add courses</Text>
           </Pressable>
         )}
 
         {loadingCourses && (
-          <View style={styles.loadingRow}>
-            <ActivityIndicator size="small" color={colors.primary} />
-          </View>
+          // Three course cards with the accent bar still neutral: the course colours belong to
+          // real courses, so the placeholder does not borrow them.
+          <SkeletonGroup label="Loading your courses">
+            {[0, 1, 2].map((i) => (
+              <View key={i} style={styles.courseCard}>
+                <View style={[styles.courseAccent, { backgroundColor: colors.skeleton }]} />
+                <View style={[styles.courseContent, isCompact && styles.courseContentCompact]}>
+                  <View style={[styles.courseLeft, isCompact && styles.courseLeftCompact, { gap: 8 }]}>
+                    <View style={[styles.courseHeader, { gap: 10 }]}>
+                      <Skeleton width={96} height={20} />
+                      <Skeleton width={84} height={20} radius={radius.pill} />
+                    </View>
+                    <Skeleton width={i === 1 ? "50%" : "68%"} height={14} />
+                    <Skeleton width={150} height={12} />
+                  </View>
+                  <View style={[styles.courseRight, isCompact && styles.courseRightCompact, { gap: 24 }]}>
+                    {[0, 1, 2].map((k) => (
+                      <View key={k} style={[styles.courseStat, { gap: 8 }]}>
+                        <Skeleton width={56} height={10} />
+                        <Skeleton width={48} height={18} />
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              </View>
+            ))}
+          </SkeletonGroup>
         )}
 
         {coursesError && (
@@ -1451,12 +1483,11 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
                   </Text>
 
                   {isAssessmentLoading && (
-                    <View style={styles.jobRow}>
-                      <Text style={styles.syllabusMeta}>
-                        Loading assessment data...
-                      </Text>
-                      <ActivityIndicator size="small" color={colors.primary} />
-                    </View>
+                    // Where the syllabus heading and its line will land.
+                    <SkeletonGroup label="Loading assessment data" style={{ gap: 8, marginBottom: spacing.sm }}>
+                      <Skeleton width={140} height={18} />
+                      <Skeleton width="80%" height={13} />
+                    </SkeletonGroup>
                   )}
 
                   {uploadState.error && (
@@ -1471,7 +1502,7 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
                         Status: {uploadState.job.status}
                       </Text>
                       {isPolling && (
-                        <ActivityIndicator size="small" color={colors.primary} />
+                        <ActivityIndicator size="small" color={colors.primaryInk} />
                       )}
                     </View>
                   )}
@@ -1488,7 +1519,7 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
                                 ? colors.danger
                                 : jobStatus === "DONE"
                                   ? colors.success
-                                  : colors.primary,
+                                  : colors.primaryInk,
                           },
                         ]}
                       />
@@ -1663,12 +1694,14 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
                       {activeRowId === row.id && canSearch && (
                         <View style={styles.dropdown} {...keepInputFocus}>
                           {searching && results.length === 0 ? (
-                            <View style={styles.loadingRow}>
-                              <ActivityIndicator
-                                size="small"
-                                color={colors.primary}
-                              />
-                            </View>
+                            <SkeletonGroup label="Searching courses">
+                              {[0, 1, 2].map((i) => (
+                                <View key={i} style={[styles.dropdownItem, { gap: 6 }]}>
+                                  <Skeleton width={84} height={14} />
+                                  <Skeleton width={i === 1 ? "45%" : "62%"} height={12} />
+                                </View>
+                              ))}
+                            </SkeletonGroup>
                           ) : (
                             <FlatList
                               data={results}
@@ -1695,12 +1728,12 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
                               )}
                               ListFooterComponent={
                                 searching && results.length > 0 ? (
-                                  <View style={styles.loadingRow}>
-                                    <ActivityIndicator
-                                      size="small"
-                                      color={colors.primary}
-                                    />
-                                  </View>
+                                  <SkeletonGroup label="Loading more courses">
+                                    <View style={[styles.dropdownItem, { gap: 6, borderBottomWidth: 0 }]}>
+                                      <Skeleton width={84} height={14} />
+                                      <Skeleton width="55%" height={12} />
+                                    </View>
+                                  </SkeletonGroup>
                                 ) : null
                               }
                             />
@@ -1736,7 +1769,7 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
                 ))}
 
                 <Pressable style={styles.addRowButton} onPress={addRow}>
-                  <Feather name="plus" size={16} color={colors.primary} />
+                  <Feather name="plus" size={16} color={colors.primaryInk} />
                   <Text style={styles.addRowText}>Add another course</Text>
                 </Pressable>
 
@@ -1769,7 +1802,7 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
               <View style={styles.form}>
                 <View style={styles.uploadBox}>
                   <View style={styles.iconCircle}>
-                    <Feather name="upload" size={24} color={colors.primary} />
+                    <Feather name="upload" size={24} color={colors.primaryInk} />
                   </View>
 
                   <Text style={styles.uploadTitle}>Choose your transcript</Text>
@@ -1787,7 +1820,7 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
                     <Feather
                       name="file"
                       size={16}
-                      color={colors.onField}
+                      color={colors.onPrimary}
                       style={{ marginRight: 6 }}
                     />
                     <Text style={styles.browseText}>
@@ -1819,7 +1852,8 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Palette) =>
+  StyleSheet.create({
   screen: {
     flex: 1,
     position: "relative",
@@ -1952,7 +1986,7 @@ const styles = StyleSheet.create({
   },
   courseLink: {
     ...typo.label,
-    color: colors.primary,
+    color: colors.primaryInk,
     fontSize: 13,
   },
   courseRight: {
@@ -1975,7 +2009,7 @@ const styles = StyleSheet.create({
   courseGrade: {
     ...typo.data,
     fontSize: 18,
-    color: colors.primary,
+    color: colors.primaryInk,
     fontFamily: fonts.bodyMedium,
     letterSpacing: 0.36,
   },
@@ -2006,7 +2040,7 @@ const styles = StyleSheet.create({
   },
   gpaPillText: {
     ...typo.caption,
-    color: colors.primary,
+    color: colors.primaryInk,
     fontFamily: fonts.bodyMedium,
   },
   dropdownToggleWrap: {
@@ -2070,7 +2104,7 @@ const styles = StyleSheet.create({
   },
   uploadButtonText: {
     ...typo.label,
-    color: colors.onField,
+    color: colors.onPrimary,
     fontSize: 13,
     fontFamily: fonts.display,
   },
@@ -2186,7 +2220,7 @@ const styles = StyleSheet.create({
   },
   addRowText: {
     ...typo.label,
-    color: colors.primary,
+    color: colors.primaryInk,
   },
   formFooter: {
     flexDirection: "row",
@@ -2218,7 +2252,7 @@ const styles = StyleSheet.create({
   },
   jumpToAddText: {
     ...typo.label,
-    color: colors.primary,
+    color: colors.primaryInk,
   },
   inputWithDropdown: {
     flex: 1,
@@ -2283,7 +2317,7 @@ const styles = StyleSheet.create({
   },
   saveText: {
     ...typo.label,
-    color: colors.onField,
+    color: colors.onPrimary,
     fontFamily: fonts.display,
   },
   uploadBox: {
@@ -2323,7 +2357,7 @@ const styles = StyleSheet.create({
   },
   browseText: {
     ...typo.label,
-    color: colors.onField,
+    color: colors.onPrimary,
     fontFamily: fonts.display,
   },
   fileName: {

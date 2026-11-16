@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import {
   View,
   Pressable,
@@ -19,7 +19,8 @@ import Animated, {
   runOnJS,
 } from "react-native-reanimated";
 import { useQuery } from "@tanstack/react-query";
-import { colors } from "../../src/theme/colors";
+import { Palette } from "../../src/theme/colors";
+import { useTheme } from "../../src/theme/ThemeContext";
 import { qk } from "../../src/cache/keys";
 import { fetchStatus } from "../../src/leaderboard/api";
 import { AvatarConfig, avatarFor, normalizeAvatar } from "../../src/leaderboard/avatar";
@@ -64,6 +65,8 @@ export default function SideDrawer({
   onClose,
   onLogout,
 }: Props) {
+  const colors = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
   const boardAvatar = useBoardAvatar();
   const translateX = useSharedValue(-DRAWER_WIDTH);
@@ -138,7 +141,7 @@ export default function SideDrawer({
                 <Feather
                   name={item.icon}
                   size={18}
-                  color={isActive ? colors.onField : colors.boldText}
+                  color={isActive ? colors.onPrimary : colors.boldText}
                   style={styles.navIcon}
                 />
                 <Text
@@ -210,7 +213,8 @@ function useBoardAvatar(): AvatarConfig | null {
   return normalizeAvatar(data.avatar) ?? avatarFor(data.handle ?? "");
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Palette) =>
+  StyleSheet.create({
   wrapper: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 1000,
@@ -232,7 +236,7 @@ const styles = StyleSheet.create({
     paddingTop: Platform.OS === "ios" ? 60 : 40,
     paddingHorizontal: 0,
     justifyContent: "space-between",
-    boxShadow: "2px 0px 12px rgba(0, 0, 0, 0.1)",
+    boxShadow: `2px 0px 12px ${colors.shadow}`,
     elevation: 8,
   },
   logoContainer: {
@@ -270,7 +274,7 @@ const styles = StyleSheet.create({
   },
   navTextActive: {
     fontFamily: fonts.display,
-    color: colors.onField,
+    color: colors.onPrimary,
   },
   bottomSection: {
     borderTopWidth: 1,
@@ -297,7 +301,7 @@ const styles = StyleSheet.create({
   },
   avatarText: {
     ...typo.h3,
-    color: colors.onField,
+    color: colors.onPrimary,
   },
   username: {
     ...typo.body,

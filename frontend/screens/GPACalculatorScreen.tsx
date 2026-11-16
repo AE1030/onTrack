@@ -10,7 +10,7 @@ import {
 import { Text, TextInput } from "../src/ui/Text";
 import { noHover } from "../src/ui/hover";
 import { Picker } from "@react-native-picker/picker";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -19,7 +19,9 @@ import Animated, {
 } from "react-native-reanimated";
 import { Feather } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { colors } from "../src/theme/colors";
+import { Palette } from "../src/theme/colors";
+import { Skeleton, SkeletonGroup } from "../src/ui/Skeleton";
+import { useTheme } from "../src/theme/ThemeContext";
 import { spacing, radius } from "../src/theme/spacing";
 import { qk } from "../src/cache/keys";
 import { authedFetch, authedGet, isAuthError, queryRetry } from "../src/cache/authedGet";
@@ -51,6 +53,8 @@ type Props = {
 };
 
 export default function GPACalculatorScreen({ onAuthError }: Props) {
+  const colors = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const { width } = useWindowDimensions();
   const isWide = width >= WIDE_BREAKPOINT;
   const scrollRef = useRef<ScrollView>(null);
@@ -354,7 +358,7 @@ export default function GPACalculatorScreen({ onAuthError }: Props) {
               onPress={calculateGPA}
               disabled={loading}
             >
-              <Feather name="bar-chart-2" size={15} color={colors.onField} style={{ marginRight: 6 }} />
+              <Feather name="bar-chart-2" size={15} color={colors.onPrimary} style={{ marginRight: 6 }} />
               <Text style={styles.calculateText}>
                 {loading ? "Calculating..." : "Calculate GPA"}
               </Text>
@@ -369,9 +373,16 @@ export default function GPACalculatorScreen({ onAuthError }: Props) {
           </View>
 
           {loadingCourses ? (
-            <Text style={styles.loadingText}>
-              Loading past courses...
-            </Text>
+            // Course rows waiting for the past courses: name, credits and grade, in their columns.
+            <SkeletonGroup label="Loading past courses">
+              {[0, 1, 2].map((i) => (
+                <View key={i} style={[styles.row, { gap: spacing.sm }]}>
+                  <Skeleton height={40} radius={radius.md} style={{ flex: 1 }} width="auto" />
+                  <Skeleton height={40} radius={radius.md} style={{ flex: 1 }} width="auto" />
+                  <Skeleton height={40} radius={radius.md} style={{ flex: 1 }} width="auto" />
+                </View>
+              ))}
+            </SkeletonGroup>
           ) : (
             <>
               {rows.map((row, index) => (
@@ -464,7 +475,7 @@ export default function GPACalculatorScreen({ onAuthError }: Props) {
                 disabled={clearing}
               >
                 {clearing ? (
-                  <ActivityIndicator size="small" color={colors.onField} />
+                  <ActivityIndicator size="small" color={colors.onPrimary} />
                 ) : (
                   <Text style={styles.dangerButtonText}>Delete All</Text>
                 )}
@@ -488,7 +499,8 @@ export default function GPACalculatorScreen({ onAuthError }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Palette) =>
+  StyleSheet.create({
   container: {
     padding: spacing.lg,
     backgroundColor: colors.background,
@@ -629,7 +641,7 @@ const styles = StyleSheet.create({
   },
   calculateText: {
     ...typo.label,
-    color: colors.onField,
+    color: colors.onPrimary,
     fontFamily: fonts.display,
   },
   deleteAllText: {
@@ -679,7 +691,7 @@ const styles = StyleSheet.create({
     color: colors.bodyText,
   },
   dangerButton: {
-    backgroundColor: colors.danger,
+    backgroundColor: colors.dangerFill,
     paddingVertical: 10,
     paddingHorizontal: 20,
     borderRadius: radius.md,
@@ -688,14 +700,14 @@ const styles = StyleSheet.create({
   },
   dangerButtonText: {
     ...typo.label,
-    color: colors.onField,
+    color: colors.onPrimary,
     fontFamily: fonts.display,
   },
   disabledButton: {
     opacity: 0.6,
   },
   resultCard: {
-    backgroundColor: colors.primary,
+    backgroundColor: colors.fieldA,
     padding: spacing.lg,
     borderRadius: radius.lg,
     alignItems: "center",

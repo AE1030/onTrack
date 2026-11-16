@@ -2,16 +2,14 @@
  * The app's colour tokens, in both themes.
  *
  * Previously a flat object every screen imported directly. A static import cannot re-render when
- * the theme changes, so the shape is now { light, dark } and screens read it through useTheme()
- * rather than importing it. The flat `colors` export below is kept as the light palette so screens
- * that have not been converted yet still compile and still look exactly as they did.
+ * the theme changes, so the shape is now { light, dark } and every screen reads it through
+ * useTheme() rather than importing it.
  *
  * Two groups are worth reading before adding to this file:
  *
  *   Brand field (fieldA/fieldB/onField). The leaderboard draws a full-bleed maroon field — board
  *   header, podium, dashboard join card — and that field stays deep maroon in BOTH themes. It is
- *   not `primary`: primary lifts to #EE86AC in dark so maroon text stays legible on a dark ground,
- *   and a pink header would read as a different product. Anything drawn on a brand field needs the
+ *   kept separate from `primary` so the field can change independently of buttons. Anything drawn on a brand field needs the
  *   pair: a token for the field, a token for the text on it.
  *
  *   Semantic tokens (danger/success/muted/scrim/...). The palette used to be brand-only, so these
@@ -27,6 +25,16 @@ export type Palette = {
   primarySoft: string;
   accent: string;
   accentSoft: string;
+  // Maroon used as type, icons, strokes and selection marks on the page ground. Identical to
+  // primary in light. In dark, brand maroon on a near-black ground is 1.6:1, so ink lifts to a
+  // dusty rose (5:1 or better on every dark ground) while fills stay maroon.
+  primaryInk: string;
+  // Type and icons on a filled primary or dangerFill button. White in both themes: the fill is
+  // brand maroon either way.
+  onPrimary: string;
+  // Destructive buttons. Semantic `danger` lifts in dark for text use, where white on it fails,
+  // so the fill gets its own token.
+  dangerFill: string;
 
   // Grounds
   background: string;
@@ -71,6 +79,10 @@ export type Palette = {
   shadow: string;
   shadowStrong: string;
 
+  // Loading placeholders. One step off the surface they sit on: present, never louder than content.
+  skeleton: string;
+  onFieldSkeleton: string;
+
   // Per-course accents. Picked against white in light, re-picked against near-black in dark.
   courseAccents: string[];
 
@@ -85,6 +97,9 @@ const light: Palette = {
   primarySoft: "#F2E6EC",
   accent: "#F2B94A",
   accentSoft: "#FDF2DC",
+  primaryInk: "#7A003C",
+  onPrimary: "#FFFFFF", // 11.1:1 on primary
+  dangerFill: "#D32F2F", // 5.0:1 under white
 
   background: "#F5F1F3",
   surface: "#FFFFFF",
@@ -122,6 +137,9 @@ const light: Palette = {
   shadow: "rgba(0,0,0,0.10)",
   shadowStrong: "rgba(0,0,0,0.18)",
 
+  skeleton: "#E6DDE3",
+  onFieldSkeleton: "rgba(255,255,255,0.14)",
+
   courseAccents: [
     "#7A003C", // maroon
     "#F2B94A", // gold
@@ -137,11 +155,15 @@ const light: Palette = {
 };
 
 const dark: Palette = {
-  // Lifted off the brand maroon: #7A003C as type on a dark ground fails contrast outright.
-  primary: "#EE86AC",
+  // Brand maroon holds in dark. Buttons, the logo and active nav stay the colour students know;
+  // only maroon used as ink moves (primaryInk below).
+  primary: "#7A003C",
   primarySoft: "#3A1526",
   accent: "#F2B94A", // passes on both grounds, so it does not move
   accentSoft: "#3A2E16",
+  primaryInk: "#C97895", // 6.1:1 bg, 5.7:1 surface, 5.0:1 primarySoft
+  onPrimary: "#FFFFFF", // 11.1:1 on primary
+  dangerFill: "#B3261E",
 
   background: "#140A10",
   surface: "#1E121A",
@@ -181,8 +203,11 @@ const dark: Palette = {
   shadow: "rgba(0,0,0,0.50)",
   shadowStrong: "rgba(0,0,0,0.70)",
 
+  skeleton: "#33222D",
+  onFieldSkeleton: "rgba(255,255,255,0.12)",
+
   courseAccents: [
-    "#EE86AC", // maroon, lifted
+    "#C97895", // maroon, as ink
     "#F2B94A", // gold
     "#7FA8CC", // navy, lifted
     "#4FC3A1", // teal, lifted
@@ -196,12 +221,3 @@ const dark: Palette = {
 };
 
 export const palettes: Record<ThemeName, Palette> = { light, dark };
-
-/**
- * The light palette under its old name.
- *
- * Screens that have not been converted to useTheme() still import this, and they render light-only
- * until they are. Kept deliberately rather than deleted: breaking sixteen screens at once to prove
- * a point about a hook is not an improvement.
- */
-export const colors = light;

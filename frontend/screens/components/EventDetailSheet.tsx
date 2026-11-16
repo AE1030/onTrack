@@ -1,10 +1,12 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { Modal, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import { Text } from "../../src/ui/Text";
 import { noHover } from "../../src/ui/hover";
-import { colors } from "../../src/theme/colors";
+import { Skeleton, SkeletonGroup } from "../../src/ui/Skeleton";
+import { Palette } from "../../src/theme/colors";
+import { useTheme } from "../../src/theme/ThemeContext";
 import { radius, spacing } from "../../src/theme/spacing";
 import { fonts, typo } from "../../src/theme/typography";
 import { qk } from "../../src/cache/keys";
@@ -104,6 +106,10 @@ function lookup(table: AssessmentTable | null | undefined, name: string) {
 }
 
 export default function EventDetailSheet({ event, accent, term, onClose }: Props) {
+  const colors = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const statusStyles = useMemo(() => makeStatusStyles(colors), [colors]);
+  const statusTextStyles = useMemo(() => makeStatusTextStyles(colors), [colors]);
   const { width } = useWindowDimensions();
   const asSheet = width < SHEET_BREAKPOINT;
 
@@ -167,7 +173,16 @@ export default function EventDetailSheet({ event, accent, term, onClose }: Props
           {/* Weight and grade come from the course's assessment table. When the event has no
               matching row there is nothing true to show, so the section is left out. */}
           {term && tableQuery.isPending ? (
-            <Text style={styles.loading}>Loading weight and grade...</Text>
+            <SkeletonGroup label="Loading weight and grade" style={[styles.stats, { gap: spacing.lg }]}>
+              <View style={{ gap: 6 }}>
+                <Skeleton width={48} height={10} />
+                <Skeleton width={56} height={20} />
+              </View>
+              <View style={{ gap: 6 }}>
+                <Skeleton width={48} height={10} />
+                <Skeleton width={56} height={20} />
+              </View>
+            </SkeletonGroup>
           ) : (
             found && (found.weight || found.grade) && (
               <View style={styles.stats}>
@@ -210,7 +225,8 @@ export default function EventDetailSheet({ event, accent, term, onClose }: Props
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Palette) =>
+  StyleSheet.create({
   overlay: {
     flex: 1,
     backgroundColor: colors.scrim,
@@ -342,15 +358,17 @@ const styles = StyleSheet.create({
   },
 });
 
-const statusStyles = StyleSheet.create({
+const makeStatusStyles = (colors: Palette) =>
+  StyleSheet.create({
   soon: { backgroundColor: colors.primarySoft },
   later: { backgroundColor: colors.surfaceSunken },
   past: { backgroundColor: colors.dangerSoft },
   done: { backgroundColor: colors.successSoft },
 });
 
-const statusTextStyles = StyleSheet.create({
-  soon: { color: colors.primary },
+const makeStatusTextStyles = (colors: Palette) =>
+  StyleSheet.create({
+  soon: { color: colors.primaryInk },
   later: { color: colors.bodyText },
   past: { color: colors.dangerDeep },
   done: { color: colors.success },

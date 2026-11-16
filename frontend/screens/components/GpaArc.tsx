@@ -1,8 +1,9 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useMemo } from "react";
 import { View, StyleSheet } from "react-native";
 import { Text } from "../../src/ui/Text";
 import Svg, { Path } from "react-native-svg";
-import { colors } from "../../src/theme/colors";
+import { Palette } from "../../src/theme/colors";
+import { useTheme } from "../../src/theme/ThemeContext";
 import { typo } from "../../src/theme/typography";
 import Animated, {
   useSharedValue,
@@ -39,6 +40,8 @@ type Props = {
 };
 
 export default function GpaArc({ gpa, targetGpa, maxScale }: Props) {
+  const colors = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const gpaProgress = useSharedValue(0);
   const targetProgress = useSharedValue(0);
 
@@ -105,7 +108,7 @@ export default function GpaArc({ gpa, targetGpa, maxScale }: Props) {
         {/* GPA arc (maroon) — on top */}
         <AnimatedPath
           d={arcD}
-          stroke={colors.primary}
+          stroke={colors.primaryInk}
           strokeWidth={STROKE_WIDTH}
           fill="none"
           strokeLinecap="round"
@@ -123,7 +126,8 @@ export default function GpaArc({ gpa, targetGpa, maxScale }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Palette) =>
+  StyleSheet.create({
   container: {
     alignItems: "center",
     justifyContent: "center",
@@ -136,7 +140,7 @@ const styles = StyleSheet.create({
   gpaValue: {
     ...typo.display,
     fontVariant: ["tabular-nums"],
-    color: colors.primary,
+    color: colors.primaryInk,
   },
   targetLabel: {
     ...typo.caption,

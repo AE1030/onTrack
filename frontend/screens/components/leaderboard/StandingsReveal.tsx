@@ -181,7 +181,7 @@ function useTicker(from: number, to: number, ms: number): number {
 
 // School colours plus the climb mint. White and pink carry it over the maroon header; maroon and gold
 // carry it over the light sheet.
-const CONFETTI = ["#F2B94A", "#FFFFFF", "#7CE8A6", "#EE86AC", "#7A003C", "#F2B94A"];
+const CONFETTI = ["#F2B94A", "#FFFFFF", "#7CE8A6", "#C97895", "#7A003C", "#F2B94A"];
 const PIECES = 46;
 
 /** Seeded, so the burst has the same shape on every render instead of reshuffling mid-fall. */

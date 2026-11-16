@@ -1,9 +1,13 @@
+import { useMemo } from "react";
 import { View, StyleSheet } from 'react-native';
 import { Text } from '../src/ui/Text';
-import { colors } from '../src/theme/colors';
+import { Palette } from '../src/theme/colors';
+import { useTheme } from '../src/theme/ThemeContext';
 import { typo } from '../src/theme/typography';
 
 export default function NotFoundScreen() {
+  const colors = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   return (
     <View style={styles.container}>
       <Text style={styles.code}>404</Text>
@@ -12,7 +16,8 @@ export default function NotFoundScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Palette) =>
+  StyleSheet.create({
   container: {
     flex: 1,
     alignItems: 'center',

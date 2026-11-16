@@ -3,7 +3,6 @@ import {
   View,
   ScrollView,
   StyleSheet,
-  ActivityIndicator,
   Pressable,
   Platform,
 } from "react-native";
@@ -11,7 +10,9 @@ import { Text, TextInput } from "../src/ui/Text";
 import { Feather } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { colors } from "../src/theme/colors";
+import { Palette } from "../src/theme/colors";
+import { Skeleton, SkeletonGroup } from "../src/ui/Skeleton";
+import { useTheme } from "../src/theme/ThemeContext";
 import { getToken } from "../src/utils/tokenStorage";
 import { API_BASE_URL } from "../src/config/api";
 import { qk } from "../src/cache/keys";
@@ -106,6 +107,8 @@ export default function CourseCalculatorScreen({
   skipFetch = false,
   onSaved,
 }: Props) {
+  const colors = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const queryClient = useQueryClient();
   // Start from the data the caller already has, so an inline panel opened on a cache hit draws
   // its table on the first frame instead of a spinner that the hydrate effect replaces a frame
@@ -906,10 +909,40 @@ export default function CourseCalculatorScreen({
 
 
   if (loading) {
+    // One marking scheme's table, empty: the real column header so the student sees what is
+    // coming, and four rows whose blocks sit in the same columns the values will.
+    const COLS: [number, number][] = [[2, 70], [1, 80], [1, 50], [1, 50], [2, 55], [1, 40], [1, 40]];
     return (
-      <View style={[styles.center, variant === "inline" && styles.inlineCenter]}>
-        <ActivityIndicator />
-      </View>
+      <SkeletonGroup
+        label="Loading the assessment table"
+        style={[styles.container, variant === "inline" && styles.inlineContainer]}
+      >
+        <View style={styles.schemeBox}>
+          <View style={styles.schemeHeader}>
+            <Skeleton width={160} height={20} />
+          </View>
+          <View style={styles.headerRow}>
+            <Text style={[styles.col, styles.col2]}>Assignment</Text>
+            <Text style={styles.col}>Due Date (YYYY-MM-DD)</Text>
+            <Text style={styles.col}>Start (HH:mm)</Text>
+            <Text style={styles.col}>End (HH:mm)</Text>
+            <Text style={[styles.col, styles.col2]}>Location</Text>
+            <Text style={styles.col}>Weight</Text>
+            <Text style={styles.col}>Grade</Text>
+            <View style={styles.colDelete} />
+          </View>
+          {[0, 1, 2, 3].map((r) => (
+            <View key={r} style={styles.row}>
+              {COLS.map(([flex, pct], ci) => (
+                <View key={ci} style={{ flex, paddingRight: 8 }}>
+                  <Skeleton width={`${Math.max(30, pct - ((r * 13 + ci * 7) % 25))}%`} height={14} />
+                </View>
+              ))}
+              <View style={styles.colDelete} />
+            </View>
+          ))}
+        </View>
+      </SkeletonGroup>
     );
   }
 
@@ -1622,7 +1655,8 @@ function parseBackendResponse(
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Palette) =>
+  StyleSheet.create({
   container: {
     flex: 1,
     padding: 16,
@@ -1776,7 +1810,7 @@ const styles = StyleSheet.create({
   schemeGrade: {
     ...typo.h3,
     marginTop: 12,
-    color: colors.primary,
+    color: colors.primaryInk,
     fontVariant: ["tabular-nums"],
   },
   saveRow: {
@@ -1796,7 +1830,7 @@ const styles = StyleSheet.create({
   },
   saveButtonText: {
     ...typo.label,
-    color: colors.onField,
+    color: colors.onPrimary,
     fontSize: 13,
     fontFamily: fonts.display,
   },
@@ -1818,14 +1852,14 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: colors.primary,
+    borderColor: colors.primaryInk,
   },
   addSchemeButtonDisabled: {
     opacity: 0.5,
   },
   addSchemeButtonText: {
     ...typo.label,
-    color: colors.primary,
+    color: colors.primaryInk,
     fontSize: 13,
   },
   addButton: {
@@ -1836,11 +1870,11 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: colors.primary,
+    borderColor: colors.primaryInk,
   },
   addButtonText: {
     ...typo.label,
-    color: colors.primary,
+    color: colors.primaryInk,
     fontSize: 13,
   },
   deleteButton: {

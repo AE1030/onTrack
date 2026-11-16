@@ -1,14 +1,14 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import { View, Pressable, StyleSheet, Platform, ActivityIndicator } from "react-native";
+import { View, Pressable, StyleSheet, Platform } from "react-native";
 import { Text } from "../src/ui/Text";
 import { radius } from "../src/theme/spacing";
 import LoginScreen from "../screens/LoginScreen";
 import RegisterScreen from "../screens/RegisterScreen";
 import ForgotPasswordScreen from "../screens/ForgotPasswordScreen";
-import DashboardScreen from "../screens/DashboardScreen";
+import DashboardScreen, { DashboardSkeleton } from "../screens/DashboardScreen";
 import GPACalculatorScreen from "../screens/GPACalculatorScreen";
 import MyCoursesScreen from "../screens/MyCoursesScreen";
-import CalendarScreen from "../screens/CalendarScreen";
+import CalendarScreen, { CalendarSkeleton } from "../screens/CalendarScreen";
 import LeaderboardScreen from "../screens/LeaderboardScreen";
 import LeaderboardOnboardingScreen from "../screens/LeaderboardOnboardingScreen";
 import SideDrawer from "../screens/components/SideDrawer";
@@ -18,7 +18,11 @@ import { API_BASE_URL } from "../src/config/api";
 import { queryClient } from "../src/cache/queryClient";
 import { qk } from "../src/cache/keys";
 import { useTheme } from "../src/theme/ThemeContext";
-import { colors } from "../src/theme/colors";
+import ThemeToggle from "../src/ui/ThemeToggle";
+import { Skeleton, SkeletonGroup } from "../src/ui/Skeleton";
+import BrandField from "../screens/components/leaderboard/BrandField";
+import { PodiumSkeleton } from "../screens/components/leaderboard/Podium";
+import { RankRowSkeleton } from "../screens/components/leaderboard/RankRow";
 
 type Screen =
   | "dashboard"
@@ -47,13 +51,6 @@ const validScreens: Screen[] = [
  */
 const OWNS_TOP_LEFT: Screen[] = ["leaderboard", "leaderboardJoin"];
 
-/**
- * The hamburger only floats over screens that still render light-only (the themed leaderboard
- * screens hide it), so it takes the light palette too. Following the device theme made it
- * near-white on a phone in dark mode, against a light screen. Move it to useTheme() once the
- * screens under it are converted.
- */
-const HAMBURGER_COLOR = colors.boldText;
 
 function getAuthScreenFromURL(): AuthScreen {
   if (Platform.OS !== "web") return "login";
@@ -167,10 +164,18 @@ export default function Home() {
     });
   }, [fetchUsername]);
 
+  // The light/dark switch floats top right on every screen that does not draw its own header
+  // there, mirroring the hamburger on the left. The leaderboard screens carry it in their header.
+  const floatingToggle = <ThemeToggle style={styles.themeToggle} />;
+
   if (loggedIn === null) {
+    const onField = OWNS_TOP_LEFT.includes(screen);
     return (
-      <View style={{ flex: 1, backgroundColor: c.background, justifyContent: "center", alignItems: "center" }}>
-        <ActivityIndicator size="large" color={c.primary} />
+      <View style={[styles.root, { backgroundColor: c.background }]}>
+        <View style={styles.content}>
+          <ShellSkeleton screen={screen} />
+        </View>
+        <ThemeToggle tone={onField ? "field" : "ground"} style={styles.themeToggle} />
       </View>
     );
   }
@@ -181,21 +186,26 @@ export default function Home() {
       window.location.href = "/";
       return null;
     }
-    if (authScreen === "forgotPassword") {
-      return <ForgotPasswordScreen onGoToLogin={goToLogin} />;
-    }
-    if (authScreen === "register") {
-      return <RegisterScreen onGoToLogin={goToLogin} />;
-    }
+    const authView =
+      authScreen === "forgotPassword" ? (
+        <ForgotPasswordScreen onGoToLogin={goToLogin} />
+      ) : authScreen === "register" ? (
+        <RegisterScreen onGoToLogin={goToLogin} />
+      ) : (
+        <LoginScreen
+          onLoginSuccess={() => {
+            setLoggedIn(true);
+            fetchUsername();
+          }}
+          onGoToRegister={() => setAuthScreen("register")}
+          onGoToForgotPassword={() => setAuthScreen("forgotPassword")}
+        />
+      );
     return (
-      <LoginScreen
-        onLoginSuccess={() => {
-          setLoggedIn(true);
-          fetchUsername();
-        }}
-        onGoToRegister={() => setAuthScreen("register")}
-        onGoToForgotPassword={() => setAuthScreen("forgotPassword")}
-      />
+      <View style={[styles.root, { backgroundColor: c.background }]}>
+        {authView}
+        {floatingToggle}
+      </View>
     );
   }
 
@@ -262,14 +272,16 @@ export default function Home() {
         accessibilityRole="button"
         accessibilityLabel="Open menu"
       >
-        <View style={[styles.hamburgerLine, { backgroundColor: HAMBURGER_COLOR }]} />
-        <View style={[styles.hamburgerLine, { backgroundColor: HAMBURGER_COLOR }]} />
-        <View style={[styles.hamburgerLine, { backgroundColor: HAMBURGER_COLOR }]} />
+        <View style={[styles.hamburgerLine, { backgroundColor: c.boldText }]} />
+        <View style={[styles.hamburgerLine, { backgroundColor: c.boldText }]} />
+        <View style={[styles.hamburgerLine, { backgroundColor: c.boldText }]} />
       </Pressable>
       )}
 
       {/* Main content */}
       <View style={styles.content}>{renderScreen()}</View>
+
+      {!OWNS_TOP_LEFT.includes(screen) && floatingToggle}
 
       {/* Calendar connection warning, on every screen. At the bottom so it never sits under the
           hamburger or a screen's own full-bleed header. */}
@@ -288,7 +300,72 @@ export default function Home() {
   );
 }
 
+/**
+ * What the shell shows while it checks a stored session. That check is one request, but on a cold
+ * server it can take seconds, so it previews the screen the URL is heading to rather than one
+ * generic page: the real screen then fills in over the same layout instead of replacing it.
+ */
+function ShellSkeleton({ screen }: { screen: Screen }) {
+  const c = useTheme();
+  if (screen === "dashboard") return <DashboardSkeleton />;
+  if (screen === "calendar") return <CalendarSkeleton />;
+  if (screen === "leaderboard" || screen === "leaderboardJoin") {
+    return (
+      <SkeletonGroup label="Loading the leaderboard" style={{ flex: 1 }}>
+        <BrandField style={styles.skelField}>
+          <Skeleton width={140} height={20} tone="field" style={{ alignSelf: "center" }} />
+          <Skeleton width={110} height={12} tone="field" style={{ alignSelf: "center", marginTop: 14 }} />
+          <View style={{ marginTop: 18 }}>
+            <PodiumSkeleton />
+          </View>
+        </BrandField>
+        <View style={[styles.skelSheet, { backgroundColor: c.background }]}>
+          {["46%", "58%", "38%", "52%", "44%"].map((w) => (
+            <RankRowSkeleton key={w} handleWidth={w as `${number}%`} />
+          ))}
+        </View>
+      </SkeletonGroup>
+    );
+  }
+  // My Courses and the GPA calculator: a centred title over a stack of cards.
+  return (
+    <SkeletonGroup label="Loading" style={styles.skelPage}>
+      <Skeleton width={180} height={28} style={{ alignSelf: "center" }} />
+      <Skeleton width={260} height={14} style={{ alignSelf: "center", marginTop: 10, marginBottom: 28 }} />
+      {[0, 1, 2].map((i) => (
+        <View key={i} style={[styles.skelCard, { backgroundColor: c.surface, borderColor: c.borderSubtle }]}>
+          <Skeleton width={i === 1 ? "36%" : "44%"} height={20} />
+          <Skeleton width="62%" height={14} style={{ marginTop: 10 }} />
+        </View>
+      ))}
+    </SkeletonGroup>
+  );
+}
+
 const styles = StyleSheet.create({
+  skelField: {
+    paddingTop: Platform.OS === "ios" ? 8 : 18,
+    paddingHorizontal: 16,
+  },
+  skelSheet: {
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    marginTop: -18,
+    paddingTop: 14,
+  },
+  skelPage: {
+    padding: 24,
+    paddingTop: 36,
+    width: "100%",
+    maxWidth: 1360,
+    alignSelf: "center",
+  },
+  skelCard: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    padding: 24,
+    marginBottom: 24,
+  },
   root: {
     flex: 1,
   },
@@ -300,6 +377,12 @@ const styles = StyleSheet.create({
     padding: 8,
     gap: 4,
     borderRadius: radius.md,
+  },
+  themeToggle: {
+    position: "absolute",
+    top: Platform.OS === "ios" ? 52 : 10,
+    right: 12,
+    zIndex: 100,
   },
   hamburgerLine: {
     width: 22,
