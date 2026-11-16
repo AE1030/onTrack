@@ -12,18 +12,26 @@ import org.springframework.web.client.RestClientResponseException;
 import org.tracker.gpatracker.calendar.config.GoogleOAuthProperties;
 import org.tracker.gpatracker.calendar.dto.OAuthTokens;
 import org.tracker.gpatracker.calendar.exception.CalendarAuthorizationRevokedException;
+import org.tracker.gpatracker.calendar.exception.CalendarScopeNotGrantedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Base64;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 public class GoogleOAuthService {
 
     private static final Logger logger = LoggerFactory.getLogger(GoogleOAuthService.class);
+
+    /** Every Google Calendar scope starts with this. The bare value is full calendar access. */
+    static final String CALENDAR_SCOPE_PREFIX = "https://www.googleapis.com/auth/calendar";
 
     private final GoogleOAuthProperties properties;
     private final RestClient restClient;
@@ -61,6 +69,18 @@ public class GoogleOAuthService {
 
         if (tokenResponse == null || tokenResponse.getAccessToken() == null) {
             throw new IllegalStateException("Google token response missing access token");
+        }
+
+        if (!grantsCalendarAccess(tokenResponse.getScope(), properties.getScopes())) {
+            // Give the useless grant back rather than leave onTrack listed in the student's Google
+            // account with nothing it can do. Best effort: the student is told either way.
+            try {
+                revoke(tokenResponse.getRefreshToken() != null
+                        ? tokenResponse.getRefreshToken() : tokenResponse.getAccessToken());
+            } catch (RuntimeException ex) {
+                logger.warn("Revoking a Google grant without calendar access failed: {}", ex.getMessage());
+            }
+            throw new CalendarScopeNotGrantedException("Google consent completed without calendar access");
         }
 
         String email = fetchUserEmail(tokenResponse.getAccessToken());
@@ -150,6 +170,30 @@ public class GoogleOAuthService {
         } catch (IOException e) {
             return false;
         }
+    }
+
+    /**
+     * Whether the scopes Google granted cover every calendar scope we asked for. The full
+     * {@code calendar} scope covers any narrower one, since Google may return it for a student who
+     * granted it to this client before.
+     *
+     * <p>Google documents {@code scope} as always present on a code exchange. If it is missing we
+     * cannot tell, so the connection goes ahead and a warning is logged rather than every student
+     * being turned away over a response-format change.
+     */
+    static boolean grantsCalendarAccess(String grantedScope, List<String> requestedScopes) {
+        if (grantedScope == null) {
+            logger.warn("Google token response has no scope field; cannot confirm calendar access");
+            return true;
+        }
+        Set<String> granted = Arrays.stream(grantedScope.trim().split("\\s+")).collect(Collectors.toSet());
+        if (granted.contains(CALENDAR_SCOPE_PREFIX)) {
+            return true;
+        }
+        List<String> calendarScopes = requestedScopes.stream()
+                .filter(s -> s.startsWith(CALENDAR_SCOPE_PREFIX))
+                .toList();
+        return !calendarScopes.isEmpty() && granted.containsAll(calendarScopes);
     }
 
     private String fetchUserEmail(String accessToken) {

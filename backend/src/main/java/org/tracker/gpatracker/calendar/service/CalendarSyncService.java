@@ -185,20 +185,37 @@ public class CalendarSyncService {
         // Step 5: Apply provider operations
         List<ExportedEvent> newExportEvents = new ArrayList<>();
 
+        SyncTally tally = new SyncTally();
+
         // Remove events gone from the projection; failed deletes stay in the snapshot for a retry
-        int deleted = deleteRemovedEvents(strategy, accessToken, toDelete, previousMap, newExportEvents);
+        deleteRemovedEvents(strategy, accessToken, toDelete, previousMap, newExportEvents, tally);
 
         // Keep existing events that are still current, pushing any whose content changed
-        int updated = updateChangedEvents(strategy, accessToken, previousEvents, toDelete, currentMap, newExportEvents);
+        updateChangedEvents(strategy, accessToken, previousEvents, toDelete, currentMap, newExportEvents, tally);
 
         // Add new events
-        createNewEvents(strategy, accessToken, toAdd, currentMap, newExportEvents);
+        createNewEvents(strategy, accessToken, toAdd, currentMap, newExportEvents, tally);
 
         // Step 6: Save new export snapshot
         saveSnapshot(studentId, provider, account.getEmail(), newExportEvents);
 
-        logger.info("{} calendar sync completed for student {}: {} added, {} updated, {} deleted",
-                provider, studentId, toAdd.size(), updated, deleted);
+        // Counts are what the provider accepted, not what was attempted. The old line reported
+        // every attempted create as added, so a sync where every call failed read as a success.
+        if (tally.failed > 0) {
+            logger.warn("{} calendar sync finished with failures for student {}: {} added, {} updated, {} deleted, {} failed",
+                    provider, studentId, tally.added, tally.updated, tally.deleted, tally.failed);
+        } else {
+            logger.info("{} calendar sync completed for student {}: {} added, {} updated, {} deleted",
+                    provider, studentId, tally.added, tally.updated, tally.deleted);
+        }
+    }
+
+    /** What one sync pass got the provider to accept, and how many calls it refused. */
+    static final class SyncTally {
+        int added;
+        int updated;
+        int deleted;
+        int failed;
     }
 
     /**
@@ -210,13 +227,11 @@ public class CalendarSyncService {
      * updated once, which backfills its hash. A failed update keeps the old entry and its old hash,
      * so the next sync tries again.
      *
-     * @return how many events were updated
      */
-    private int updateChangedEvents(CalendarStrategy strategy, String accessToken,
-                                    List<ExportedEvent> previousEvents, Set<String> toDelete,
-                                    Map<String, InternalCalendarEvent> currentMap,
-                                    List<ExportedEvent> newExportEvents) {
-        int updated = 0;
+    private void updateChangedEvents(CalendarStrategy strategy, String accessToken,
+                                     List<ExportedEvent> previousEvents, Set<String> toDelete,
+                                     Map<String, InternalCalendarEvent> currentMap,
+                                     List<ExportedEvent> newExportEvents, SyncTally tally) {
         for (ExportedEvent prev : previousEvents) {
             String key = prev.getEventKey();
             if (toDelete.contains(key)) continue;
@@ -230,14 +245,14 @@ public class CalendarSyncService {
             try {
                 strategy.updateEvent(accessToken, prev.getExternalEventId(), current);
                 newExportEvents.add(toExported(current, prev.getExternalEventId()));
-                updated++;
+                tally.updated++;
                 logger.info("Updated {} calendar event: {}", strategy.provider(), key);
             } catch (Exception e) {
                 newExportEvents.add(prev);
+                tally.failed++;
                 logger.error("Failed to update {} calendar event {}: {}", strategy.provider(), key, e.getMessage());
             }
         }
-        return updated;
     }
 
     /**
@@ -284,38 +299,42 @@ public class CalendarSyncService {
      * leave the event in the external calendar with nothing left that could ever remove it. Kept,
      * it shows up as a delete again on the next sync.
      *
-     * @return how many events were deleted
      */
-    private int deleteRemovedEvents(CalendarStrategy strategy, String accessToken,
-                                    Set<String> toDelete, Map<String, ExportedEvent> previousMap,
-                                    List<ExportedEvent> newExportEvents) {
-        int deleted = 0;
+    private void deleteRemovedEvents(CalendarStrategy strategy, String accessToken,
+                                     Set<String> toDelete, Map<String, ExportedEvent> previousMap,
+                                     List<ExportedEvent> newExportEvents, SyncTally tally) {
         for (String key : toDelete) {
             ExportedEvent prev = previousMap.get(key);
             if (prev.getExternalEventId() == null) continue;
             try {
                 strategy.deleteEvent(accessToken, prev.getExternalEventId());
-                deleted++;
+                tally.deleted++;
                 logger.info("Deleted {} calendar event: {}", strategy.provider(), key);
             } catch (Exception e) {
                 newExportEvents.add(prev);
+                tally.failed++;
                 logger.error("Failed to delete {} calendar event {}, will retry: {}",
                         strategy.provider(), key, e.getMessage());
             }
         }
-        return deleted;
     }
 
+    /**
+     * A failed create is left out of the snapshot, so the event is still "new" on the next sync and
+     * is tried again then.
+     */
     private void createNewEvents(CalendarStrategy strategy, String accessToken, Set<String> toAdd,
                                  Map<String, InternalCalendarEvent> currentMap,
-                                 List<ExportedEvent> newExportEvents) {
+                                 List<ExportedEvent> newExportEvents, SyncTally tally) {
         for (String key : toAdd) {
             InternalCalendarEvent current = currentMap.get(key);
             try {
                 String externalEventId = strategy.createEvent(accessToken, current);
                 newExportEvents.add(toExported(current, externalEventId));
+                tally.added++;
                 logger.info("Created {} calendar event: {}", strategy.provider(), key);
             } catch (Exception e) {
+                tally.failed++;
                 logger.error("Failed to create {} calendar event {}: {}", strategy.provider(), key, e.getMessage());
             }
         }

@@ -11,6 +11,7 @@ import org.tracker.gpatracker.calendar.config.GoogleOAuthProperties;
 import org.tracker.gpatracker.calendar.dto.LinkTokenPayload;
 import org.tracker.gpatracker.calendar.dto.OAuthTokens;
 import org.tracker.gpatracker.calendar.event.CalendarProjectionUpdatedEvent;
+import org.tracker.gpatracker.calendar.exception.CalendarScopeNotGrantedException;
 import org.tracker.gpatracker.calendar.model.CalendarProvider;
 import org.tracker.gpatracker.calendar.service.CalendarProjectionService;
 import org.tracker.gpatracker.calendar.service.CalendarSyncService;
@@ -115,6 +116,21 @@ class GoogleCalendarControllerCallbackTest {
         assertThat(controller.callback("code", "state", null).getUrl()).isEqualTo(FAILURE + "?reason=error");
 
         assertThat(controller.callback(null, null, null).getUrl()).isEqualTo(FAILURE + "?reason=error");
+    }
+
+    @Test
+    @DisplayName("consent without calendar access lands on its own failure page and saves nothing")
+    void calendarScopeNotGranted() {
+        validState();
+        when(googleOAuthService.exchangeCode("code"))
+                .thenThrow(new CalendarScopeNotGrantedException("no calendar scope"));
+
+        assertThat(controller.callback("code", "state", null).getUrl())
+                .isEqualTo(FAILURE + "?reason=no_calendar_access");
+        verify(calendarSyncService, never()).upsertCalendarAccount(any(), any(), any());
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
+        assertThat(controller.oauthFailure("no_calendar_access").getModel().get("title"))
+                .isEqualTo("Calendar access not given");
     }
 
     @Test
