@@ -117,8 +117,8 @@ jobs:
           java -jar target/*.jar > app.log 2>&1 &
           PID=$!
           for i in $(seq 1 60); do
-            # /hello is behind auth, so 401 is expected. Any HTTP answer means the server is
-            # listening, which only happens after Flyway and schema validation succeeded.
+            # Any HTTP answer means the server is listening, which only happens after Flyway
+            # and schema validation succeeded.
             CODE=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/hello || true)
             if [ "$CODE" != "000" ] && [ -n "$CODE" ]; then
               echo "Migrated and booted cleanly."

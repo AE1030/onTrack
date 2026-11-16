@@ -1,11 +1,10 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import {
   View,
   StyleSheet,
   Pressable,
   ScrollView,
   Modal,
-  ActivityIndicator,
   LayoutChangeEvent,
   useWindowDimensions,
 } from "react-native";
@@ -20,15 +19,19 @@ import Animated, {
 } from "react-native-reanimated";
 import { Feather } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { colors } from "../src/theme/colors";
+import { Palette } from "../src/theme/colors";
+import { useTheme } from "../src/theme/ThemeContext";
 import { spacing, radius } from "../src/theme/spacing";
 import { fonts, typo } from "../src/theme/typography";
 import { qk } from "../src/cache/keys";
-import { authedFetch, authedGet, isAuthError, queryRetry } from "../src/cache/authedGet";
+import { authedFetch, authedGet, isAuthError, queryRetry, toHttpError } from "../src/cache/authedGet";
+import { toUserMessage } from "../src/utils/errorMessage";
+import { toFourPoint, toTwelvePoint } from "../src/utils/gpaScale";
 import { useTerm } from "../src/terms/TermContext";
 import GpaArc from "./components/GpaArc";
 import OnTrackLogo from "./components/OnTrackLogo";
 import LeaderboardCard from "./components/LeaderboardCard";
+import { Skeleton, SkeletonCircle, SkeletonGroup, SkeletonLines } from "../src/ui/Skeleton";
 
 type DashboardData = {
   username: string;
@@ -62,8 +65,6 @@ type CurrentCourse = {
   includeInGpa: boolean;
 };
 
-const ACCENT_COLORS = colors.courseAccents;
-
 type EventRowProps = {
   event: UpcomingEvent;
   formatDueDate: (dateStr: string) => string;
@@ -71,6 +72,8 @@ type EventRowProps = {
 };
 
 function EventRow({ event, formatDueDate, onComplete }: EventRowProps) {
+  const colors = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const checkFill = useSharedValue(0);
   const strikethrough = useSharedValue(0);
   const textFade = useSharedValue(1);
@@ -214,6 +217,89 @@ function courseRows(count: number, width: number): number[] {
   return out;
 }
 
+/**
+ * The dashboard while it loads: the same page, with the numbers not in yet.
+ *
+ * Built from the real container, rail and card styles so nothing shifts when data lands. The logo
+ * is chrome, not data, so it renders for real. Also shown by the app shell while it checks a stored
+ * session, because that check always ends on this screen.
+ */
+export function DashboardSkeleton() {
+  const colors = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const { width: windowWidth } = useWindowDimensions();
+  const wide = windowWidth >= WIDE;
+  const desktop = windowWidth >= DESKTOP;
+
+  return (
+    <ScrollView contentContainerStyle={[styles.container, !wide && styles.containerCompact]}>
+      <SkeletonGroup style={styles.page} label="Loading your dashboard">
+        <View style={[styles.topBar, !wide && styles.topBarCompact]}>
+          <OnTrackLogo size={22} />
+        </View>
+
+        <View style={[styles.header, wide && styles.headerWide]}>
+          <Skeleton width={wide ? 340 : "75%"} height={wide ? 30 : 26} />
+          <View style={styles.headerActions}>
+            <Skeleton width={150} height={38} radius={radius.md} />
+            <Skeleton width={84} height={38} radius={radius.md} />
+          </View>
+        </View>
+
+        <View style={[styles.overview, wide && styles.overviewWide]}>
+          <View style={[styles.rail, wide && { width: desktop ? 360 : 320 }]}>
+            <View style={[styles.card, !wide && styles.cardCompact]}>
+              <View style={[skel.row, { justifyContent: "space-between" }]}>
+                <Skeleton width={140} height={20} />
+                <Skeleton width={88} height={20} radius={radius.pill} />
+              </View>
+              {/* The gauge's silhouette: a half disc the width of the arc. */}
+              <View style={skel.gauge}>
+                <Skeleton width={200} height={100} radius={0} style={skel.halfDisc} />
+              </View>
+              <Skeleton width="100%" height={40} radius={radius.md} />
+            </View>
+            <View style={[styles.card, !wide && styles.cardCompact]}>
+              <Skeleton width={120} height={20} />
+              <View style={[skel.row, { marginTop: spacing.md, gap: 12 }]}>
+                <Skeleton width={56} height={40} />
+                <View style={{ flex: 1 }}>
+                  <SkeletonLines lines={2} />
+                </View>
+              </View>
+            </View>
+          </View>
+
+          <View style={[styles.card, styles.dueDatesCard, !wide && styles.cardCompact]}>
+            <View style={styles.dueDatesHeader}>
+              <Skeleton width={190} height={20} />
+              <Skeleton width={60} height={14} />
+            </View>
+            <View style={styles.eventsList}>
+              {[0, 1, 2, 3].map((i) => (
+                <View key={i} style={styles.eventRow}>
+                  <SkeletonCircle size={28} />
+                  <Skeleton width={72} height={30} radius={radius.sm} />
+                  <View style={{ flex: 1, gap: 6 }}>
+                    <Skeleton width={i % 2 ? "55%" : "70%"} height={14} />
+                    <Skeleton width="35%" height={11} />
+                  </View>
+                </View>
+              ))}
+            </View>
+          </View>
+        </View>
+      </SkeletonGroup>
+    </ScrollView>
+  );
+}
+
+const skel = StyleSheet.create({
+  row: { flexDirection: "row", alignItems: "center" },
+  gauge: { alignItems: "center", paddingTop: spacing.lg, paddingBottom: spacing.md },
+  halfDisc: { borderTopLeftRadius: 100, borderTopRightRadius: 100 },
+});
+
 export default function DashboardScreen({
   onGoToCalendar,
   onGoToMyCourses,
@@ -221,6 +307,8 @@ export default function DashboardScreen({
   onJoinLeaderboard,
   onAuthError,
 }: Props) {
+  const colors = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const queryClient = useQueryClient();
   const { currentTerm } = useTerm();
   const [use12Scale, setUse12Scale] = useState(false);
@@ -228,6 +316,9 @@ export default function DashboardScreen({
   const [targetInput4, setTargetInput4] = useState("");
   const [targetInput12, setTargetInput12] = useState("");
   const [savingTarget, setSavingTarget] = useState(false);
+  const [targetError, setTargetError] = useState<string | null>(null);
+  // Where the current press on the backdrop began and ended. See backdropHandlers below.
+  const backdropPress = useRef({ startedOn: false, endedOn: false });
   const [courseGridWidth, setCourseGridWidth] = useState(0);
 
   const { width: windowWidth } = useWindowDimensions();
@@ -298,25 +389,98 @@ export default function DashboardScreen({
   const openTargetModal = () => {
     setTargetInput4(data?.targetGpa4 != null ? String(data.targetGpa4) : "");
     setTargetInput12(data?.targetGpa12 != null ? String(data.targetGpa12) : "");
+    setTargetError(null);
     setShowTargetModal(true);
   };
 
+  // The backdrop closes the popup when it is clicked, and the browser sends a click to the element
+  // that holds both ends of a press. A press that started in a field and was let go over the
+  // backdrop (selecting the typed number, say) therefore counted as a click on the backdrop and
+  // threw away what the student had typed. Only a press that both starts and ends on the backdrop
+  // itself closes it now. onMouseDown and onMouseUp are web only, hence the cast.
+  const backdropHandlers = {
+    onMouseDown: (e: { target: unknown; currentTarget: unknown }) => {
+      backdropPress.current.startedOn = e.target === e.currentTarget;
+    },
+    onMouseUp: (e: { target: unknown; currentTarget: unknown }) => {
+      backdropPress.current.endedOn = e.target === e.currentTarget;
+    },
+  } as {};
+
+  const onBackdropPress = () => {
+    const { startedOn, endedOn } = backdropPress.current;
+    backdropPress.current = { startedOn: false, endedOn: false };
+    if (startedOn && endedOn) setShowTargetModal(false);
+  };
+
+  /**
+   * Typing on one scale fills in the other, so the two fields never disagree. A cleared field
+   * clears its partner. Anything that is not yet a number in range ("3.", "", "5") leaves the
+   * partner as it was; saving reports what is wrong with it.
+   */
+  const onTargetChange = (scale: 4 | 12, text: string) => {
+    const setOwn = scale === 4 ? setTargetInput4 : setTargetInput12;
+    const setOther = scale === 4 ? setTargetInput12 : setTargetInput4;
+    setOwn(text);
+    setTargetError(null);
+    const trimmed = text.trim();
+    if (!trimmed) {
+      setOther("");
+      return;
+    }
+    const value = Number(trimmed);
+    if (!Number.isFinite(value) || value < 0 || value > scale) return;
+    setOther(String(scale === 4 ? toTwelvePoint(value) : toFourPoint(value)));
+  };
+
+  /** The number in a target field, null when it is blank, or an error sentence. */
+  // Each message names the field and how to fix it. "Not a number" also covers half-typed input
+  // such as "." or "-", so it shows what a finished value looks like.
+  const readTarget = (raw: string, scale: "4.0" | "12.0", example: string): number | null | string => {
+    const text = raw.trim();
+    if (!text) return null;
+    const value = Number(text);
+    if (!Number.isFinite(value)) return `Enter the ${scale} target as a number, like ${example}.`;
+    if (value < 0 || value > Number(scale)) return `Keep the ${scale} target between 0 and ${scale}.`;
+    return value;
+  };
+
   const saveTargetGpa = async () => {
+    const target4 = readTarget(targetInput4, "4.0", "3.8");
+    const target12 = readTarget(targetInput12, "12.0", "11");
+    if (typeof target4 === "string" || typeof target12 === "string") {
+      setTargetError(typeof target4 === "string" ? target4 : (target12 as string));
+      return;
+    }
+    if (target4 === null && target12 === null) {
+      setTargetError("Enter a target on either scale to save.");
+      return;
+    }
+
+    setTargetError(null);
     setSavingTarget(true);
     try {
-      const body: any = {};
-      if (targetInput4.trim()) body.targetGpa4 = parseFloat(targetInput4);
-      if (targetInput12.trim()) body.targetGpa12 = parseFloat(targetInput12);
+      // A blank scale is left out and the server fills it in from the other one.
+      const body: { targetGpa4?: number; targetGpa12?: number } = {};
+      if (target4 !== null) body.targetGpa4 = target4;
+      if (target12 !== null) body.targetGpa12 = target12;
 
-      await authedFetch("/api/dashboard/target-gpa", {
+      const res = await authedFetch("/api/dashboard/target-gpa", {
         method: "PUT",
         body: JSON.stringify(body),
       });
+      // authedFetch only throws for auth failures. Without this a rejected save closed the popup
+      // as if it had worked.
+      if (!res.ok) throw await toHttpError(res);
       setShowTargetModal(false);
       // The dashboard is mounted, so this refetches immediately.
       queryClient.invalidateQueries({ queryKey: qk.dashboard });
     } catch (err) {
-      if (isAuthError(err)) onAuthError();
+      if (isAuthError(err)) {
+        onAuthError();
+        return;
+      }
+      setTargetError(toUserMessage(err, "Couldn't save your target. Please try again."));
     } finally {
       setSavingTarget(false);
     }
@@ -382,11 +546,7 @@ export default function DashboardScreen({
   };
 
   if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
-      </View>
-    );
+    return <DashboardSkeleton />;
   }
 
   const rows = courseRows(currentCourses.length, courseGridWidth);
@@ -464,7 +624,7 @@ export default function DashboardScreen({
           </Text>
           <View style={styles.headerActions}>
             <Pressable style={styles.addAssignmentButton} onPress={onGoToMyCourses}>
-              <Feather name="arrow-up-right" size={16} color={colors.onField} style={{ marginRight: 6 }} />
+              <Feather name="arrow-up-right" size={16} color={colors.onPrimary} style={{ marginRight: 6 }} />
               <Text style={styles.addAssignmentText}>Add Assignment</Text>
             </Pressable>
             <Pressable style={styles.syncButton} onPress={onGoToCalendar}>
@@ -535,7 +695,7 @@ export default function DashboardScreen({
                   <View key={r} style={styles.semesterRow}>
                     {currentCourses.slice(start, start + count).map((course, i) => {
                       const index = start + i;
-                      const accent = ACCENT_COLORS[index % ACCENT_COLORS.length];
+                      const accent = colors.courseAccents[index % colors.courseAccents.length];
                       const gradeDisplay = course.grade != null
                         ? `${course.grade.toFixed(2)}%`
                         : "No grade";
@@ -581,8 +741,9 @@ export default function DashboardScreen({
       >
         <Pressable
           {...noHover}
+          {...backdropHandlers}
           style={styles.modalBackdrop}
-          onPress={() => setShowTargetModal(false)}
+          onPress={onBackdropPress}
         >
           <Pressable {...noHover} style={styles.modalContent} onPress={() => {}}>
             <Text style={styles.modalTitle}>Set Target GPA</Text>
@@ -591,7 +752,8 @@ export default function DashboardScreen({
             <TextInput
               style={styles.input}
               value={targetInput4}
-              onChangeText={setTargetInput4}
+              onChangeText={(v) => onTargetChange(4, v)}
+              accessibilityLabel="Target GPA, 4.0 scale"
               keyboardType="decimal-pad"
               placeholder="e.g. 3.8"
               placeholderTextColor={colors.placeholder}
@@ -601,11 +763,22 @@ export default function DashboardScreen({
             <TextInput
               style={styles.input}
               value={targetInput12}
-              onChangeText={setTargetInput12}
+              onChangeText={(v) => onTargetChange(12, v)}
+              accessibilityLabel="Target GPA, 12.0 scale"
               keyboardType="decimal-pad"
               placeholder="e.g. 11.0"
               placeholderTextColor={colors.placeholder}
             />
+
+            <Text style={styles.targetHint}>
+              Enter either scale and we fill in the other.
+            </Text>
+
+            {targetError && (
+              <Text style={styles.targetError} accessibilityRole="alert">
+                {targetError}
+              </Text>
+            )}
 
             <View style={styles.modalButtons}>
               <Pressable
@@ -631,13 +804,8 @@ export default function DashboardScreen({
   );
 }
 
-const styles = StyleSheet.create({
-  loadingContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: colors.background,
-  },
+const makeStyles = (colors: Palette) =>
+  StyleSheet.create({
   container: {
     // Top padding lines the logo up with the shell's floating hamburger (10pt down, 32pt tall).
     paddingTop: 10,
@@ -702,7 +870,7 @@ const styles = StyleSheet.create({
   },
   addAssignmentText: {
     ...typo.label,
-    color: colors.onField,
+    color: colors.onPrimary,
   },
   syncButton: {
     flexDirection: "row",
@@ -766,7 +934,7 @@ const styles = StyleSheet.create({
     color: colors.faintText,
   },
   toggleLabelActive: {
-    color: colors.primary,
+    color: colors.primaryInk,
   },
   toggleTrack: {
     width: 44,
@@ -780,7 +948,7 @@ const styles = StyleSheet.create({
     width: 18,
     height: 18,
     borderRadius: 9,
-    backgroundColor: colors.primary,
+    backgroundColor: colors.primaryInk,
   },
   setTargetButton: {
     alignSelf: "center",
@@ -793,7 +961,7 @@ const styles = StyleSheet.create({
   setTargetText: {
     ...typo.label,
     fontSize: 13,
-    color: colors.primary,
+    color: colors.primaryInk,
   },
   targetLockedNote: {
     alignSelf: "center",
@@ -825,7 +993,7 @@ const styles = StyleSheet.create({
   },
   viewAllText: {
     ...typo.label,
-    color: colors.primary,
+    color: colors.primaryInk,
     textDecorationLine: "underline",
   },
   emptyState: {
@@ -874,7 +1042,7 @@ const styles = StyleSheet.create({
   completeCheck: {
     fontFamily: fonts.display,
     fontSize: 14,
-    color: colors.onField,
+    color: colors.onPrimary,
   },
   eventDateBadge: {
     backgroundColor: colors.primarySoft,
@@ -888,7 +1056,7 @@ const styles = StyleSheet.create({
     ...typo.caption,
     fontFamily: fonts.bodyMedium,
     fontVariant: ["tabular-nums"],
-    color: colors.primary,
+    color: colors.primaryInk,
   },
   eventDetails: {
     flex: 1,
@@ -908,7 +1076,7 @@ const styles = StyleSheet.create({
     left: 0,
     top: "50%",
     height: 1.5,
-    backgroundColor: colors.primary,
+    backgroundColor: colors.primaryInk,
     borderRadius: 1,
   },
   eventCourse: {
@@ -1017,6 +1185,18 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     color: colors.boldText,
   },
+  targetHint: {
+    ...typo.body,
+    fontSize: 13,
+    color: colors.bodyText,
+    marginTop: -8,
+    marginBottom: 12,
+  },
+  targetError: {
+    ...typo.body,
+    color: colors.danger,
+    marginBottom: 12,
+  },
   modalButtons: {
     flexDirection: "row",
     justifyContent: "flex-end",
@@ -1040,6 +1220,6 @@ const styles = StyleSheet.create({
   },
   saveText: {
     ...typo.label,
-    color: colors.onField,
+    color: colors.onPrimary,
   },
 });

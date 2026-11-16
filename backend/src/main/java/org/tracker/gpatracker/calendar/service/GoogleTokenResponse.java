@@ -7,6 +7,8 @@ public class GoogleTokenResponse {
     private String refreshToken;
     private long expiresIn;
     private String idToken;
+    /** Space-separated scopes the student actually granted, which can be fewer than requested. */
+    private String scope;
 
     public GoogleTokenResponse() {
         // Required by Jackson for JSON deserialization
@@ -46,5 +48,14 @@ public class GoogleTokenResponse {
     @JsonProperty("id_token")
     public void setIdToken(String idToken) {
         this.idToken = idToken;
+    }
+
+    public String getScope() {
+        return scope;
+    }
+
+    @JsonProperty("scope")
+    public void setScope(String scope) {
+        this.scope = scope;
     }
 }

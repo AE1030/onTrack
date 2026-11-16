@@ -108,6 +108,17 @@ public class MyCoursesController {
         return ResponseEntity.ok().build();
     }
 
+    /**
+     * Every past course this student has, in one request. Clearing the GPA calculator one row
+     * at a time spent a request per course and ran into the rate limit on long transcripts.
+     */
+    @DeleteMapping("/past-courses/all")
+    public ResponseEntity<Void> deleteAllPastCourses() {
+        logger.info("DELETE /api/my-courses/past-courses/all");
+        studentService.clearPastCourses();
+        return ResponseEntity.ok().build();
+    }
+
     @GetMapping("/remaining-uploads")
     public ResponseEntity<Integer> getRemainingUploads() {
         // Refund anything stuck first, so the count never shows an upload that should have come back.

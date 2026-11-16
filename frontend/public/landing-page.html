@@ -6,6 +6,15 @@
   <meta name="description" content="Track your GPA on the 4.0 and 12.0 scales, pull assessment weights out of your syllabus, and compete on a leaderboard built for McMaster students." />
   <meta name="theme-color" content="#7A003C" />
   <title>onTrack: GPA tracker and leaderboard for McMaster students</title>
+  <script>
+    // Before first paint, so a stored choice never flashes the other theme. Same key the app uses.
+    (function () {
+      try {
+        var v = localStorage.getItem('ontrack.theme');
+        if (v === 'light' || v === 'dark') document.documentElement.dataset.theme = v;
+      } catch (e) {}
+    })();
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <!-- DESIGN.md: Space Grotesk shouts (headings, numbers, labels), IBM Plex Sans reads (body). -->
@@ -42,9 +51,26 @@
 
       color-scheme: light dark;
     }
+    /* Dark: the visitor's explicit choice (data-theme, shared with the app under the same
+       localStorage key) wins; with no choice stored, the system setting decides. */
+    :root[data-theme="light"] { color-scheme: light; }
+    :root[data-theme="dark"] {
+      --primary: #C97895;
+      --primary-soft: #3A1526;
+      --background: #140A10;
+      --surface: #1E121A;
+      --surface-alt: #261722;
+      --bold-text: #F6EAF0;
+      --body-text: #A99AA2;
+      --faint-text: #96858F;
+      --border: #3A2733;
+      --border-subtle: #2E1E28;
+      --shadow: rgba(0, 0, 0, 0.5);
+      color-scheme: dark;
+    }
     @media (prefers-color-scheme: dark) {
-      :root {
-        --primary: #EE86AC;
+      :root:not([data-theme="light"]) {
+        --primary: #C97895;
         --primary-soft: #3A1526;
         --background: #140A10;
         --surface: #1E121A;
@@ -55,6 +81,7 @@
         --border: #3A2733;
         --border-subtle: #2E1E28;
         --shadow: rgba(0, 0, 0, 0.5);
+        color-scheme: dark;
       }
     }
 
@@ -114,6 +141,37 @@
     }
     .nav-link:hover { color: var(--on-field); background: rgba(255, 255, 255, 0.08); }
     .nav .btn { padding: 10px 18px; min-height: 40px; font-size: 14px; }
+    .theme-toggle {
+      display: inline-grid; place-items: center;
+      width: 40px; height: 40px; border: 0; border-radius: var(--radius-md);
+      background: transparent; color: var(--on-field-muted); cursor: pointer;
+      transition: color 160ms var(--ease-out), background-color 160ms var(--ease-out);
+    }
+    .theme-toggle:hover { color: var(--on-field); background: rgba(255, 255, 255, 0.08); }
+    .theme-toggle svg { width: 18px; height: 18px; }
+    /* The icon shows where the button takes you: a moon on light, a sun on dark. */
+    .theme-toggle .icon-sun { display: none; }
+    :root[data-theme="dark"] .theme-toggle .icon-sun { display: block; }
+    :root[data-theme="dark"] .theme-toggle .icon-moon { display: none; }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) .theme-toggle .icon-sun { display: block; }
+      :root:not([data-theme="light"]) .theme-toggle .icon-moon { display: none; }
+    }
+    /* The theme switch dissolves rather than cuts. Matches the app. */
+    ::view-transition-old(root),
+    ::view-transition-new(root) {
+      animation-duration: 380ms;
+      animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    @media (prefers-reduced-motion: reduce) {
+      ::view-transition-old(root),
+      ::view-transition-new(root) { animation-duration: 140ms; }
+    }
+    @media (prefers-reduced-motion: no-preference) {
+      .theme-toggle.turned svg { animation: turn 320ms var(--ease-out); }
+    }
+    @keyframes turn { from { transform: rotate(-90deg); opacity: 0.4; } to { transform: none; opacity: 1; } }
+    ::selection { background: var(--accent); color: #3B0A1D; }
 
     /* ── Hero: the brand field, as on the leaderboard header ── */
     .hero {
@@ -228,6 +286,16 @@
       .features-head { position: static; }
       .board-shot { order: 2; }
     }
+    .nav-link, .nav .btn { white-space: nowrap; }
+    @media (max-width: 420px) {
+      /* Logo, theme switch, Sign in and Create account on one line at phone width. */
+      .nav .container { gap: 8px; }
+      .nav-links { gap: 0; }
+      .logo { font-size: 22px; }
+      .nav-link { padding: 10px 8px; }
+      .theme-toggle { width: 36px; }
+      .nav .btn { padding: 10px 12px; }
+    }
     @media (max-width: 600px) {
       .nav-link--hide-sm { display: none; }
       .feature { grid-template-columns: minmax(0, 1fr); padding: 22px 0; }
@@ -244,6 +312,10 @@
       <div class="nav-links">
         <a href="#features" class="nav-link nav-link--hide-sm">Features</a>
         <a href="#leaderboard" class="nav-link nav-link--hide-sm">Leaderboard</a>
+        <button type="button" class="theme-toggle" aria-label="Switch to dark theme">
+          <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        </button>
         <a href="/dashboard?auth=login" class="nav-link">Sign in</a>
         <a href="/dashboard?auth=register" class="btn btn--gold">Create account</a>
       </div>
@@ -385,6 +457,31 @@
   </main>
 
   <script>
+    // Light/dark switch. Writes the same key the app reads, so the choice follows the visitor in.
+    (function () {
+      var root = document.documentElement;
+      var btn = document.querySelector('.theme-toggle');
+      var media = window.matchMedia('(prefers-color-scheme: dark)');
+      function current() { return root.dataset.theme || (media.matches ? 'dark' : 'light'); }
+      function label() {
+        btn.setAttribute('aria-label', current() === 'dark' ? 'Switch to light theme' : 'Switch to dark theme');
+      }
+      btn.addEventListener('click', function () {
+        var next = current() === 'dark' ? 'light' : 'dark';
+        // Crossfade where the browser supports it; an instant switch everywhere else.
+        if (document.startViewTransition) {
+          document.startViewTransition(function () { root.dataset.theme = next; });
+        } else {
+          root.dataset.theme = next;
+        }
+        try { localStorage.setItem('ontrack.theme', next); } catch (e) {}
+        btn.classList.remove('turned'); void btn.offsetWidth; btn.classList.add('turned');
+        label();
+      });
+      media.addEventListener('change', label);
+      label();
+    })();
+
     // Respect reduced motion for the walkthrough too: show the first frame instead of looping.
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
       const v = document.querySelector('.video-frame video');

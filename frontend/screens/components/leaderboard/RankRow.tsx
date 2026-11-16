@@ -1,5 +1,5 @@
 import React from "react";
-import { StyleSheet, View } from "react-native";
+import { DimensionValue, StyleSheet, View } from "react-native";
 import { Text } from "../../../src/ui/Text";
 import { useTheme } from "../../../src/theme/ThemeContext";
 import { LeaderboardRow } from "../../../src/leaderboard/types";
@@ -8,6 +8,7 @@ import { fmtScore } from "../../../src/leaderboard/scoring";
 import PlayerAvatar from "./PlayerAvatar";
 import { ModePill, MovementArrow } from "./Indicators";
 import { radius } from "../../../src/theme/spacing";
+import { Skeleton, SkeletonCircle } from "../../../src/ui/Skeleton";
 
 /**
  * One ranked row, from fourth place down.
@@ -76,6 +77,24 @@ export default function RankRow({
       <Text style={[styles.score, { color: c.boldText }]}>
         {fmtScore(row.score)}
       </Text>
+    </View>
+  );
+}
+
+/** A board row before the board arrives. Same paddings and columns as the real row. */
+export function RankRowSkeleton({ handleWidth = "50%" }: { handleWidth?: DimensionValue }) {
+  const c = useTheme();
+  return (
+    <View style={[styles.row, { borderBottomColor: c.borderSubtle }]}>
+      <View style={[styles.rankCell, { justifyContent: "flex-end" }]}>
+        <Skeleton width={18} height={16} />
+      </View>
+      <SkeletonCircle size={30} />
+      <View style={styles.identity}>
+        <Skeleton width={handleWidth} height={13} />
+        <Skeleton width={56} height={14} radius={radius.pill} />
+      </View>
+      <Skeleton width={56} height={16} />
     </View>
   );
 }

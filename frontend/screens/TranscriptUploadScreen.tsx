@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { View, Pressable, StyleSheet, Platform } from "react-native";
 import { Text } from "../src/ui/Text";
 import * as DocumentPicker from "expo-document-picker";
@@ -8,7 +9,8 @@ import {
   useQueryClient,
   type MutationState,
 } from "@tanstack/react-query";
-import { colors } from "../src/theme/colors";
+import { Palette } from "../src/theme/colors";
+import { useTheme } from "../src/theme/ThemeContext";
 import { spacing, radius } from "../src/theme/spacing";
 import { getToken } from "../src/utils/tokenStorage";
 import { API_BASE_URL } from "../src/config/api";
@@ -81,6 +83,8 @@ export default function TranscriptUploadScreen({
   onAuthError,
   onUploadSuccess,
 }: Props) {
+  const colors = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const queryClient = useQueryClient();
 
   const { mutate } = useMutation({
@@ -116,8 +120,9 @@ export default function TranscriptUploadScreen({
       return;
     }
 
+    // PDF only: the server reads the transcript's text layer and refuses anything else.
     const picked = await DocumentPicker.getDocumentAsync({
-      type: ["application/pdf", "image/*"],
+      type: ["application/pdf"],
       copyToCacheDirectory: true,
     });
 
@@ -143,11 +148,11 @@ export default function TranscriptUploadScreen({
 
         <View style={styles.uploadBox}>
           <View style={styles.iconCircle}>
-            <Feather name="upload" size={24} color={colors.primary} />
+            <Feather name="upload" size={24} color={colors.primaryInk} />
           </View>
 
           <Text style={styles.uploadSub}>
-            Supported formats: PDF, JPG, PNG
+            Supported format: PDF
           </Text>
 
           <Pressable
@@ -158,7 +163,7 @@ export default function TranscriptUploadScreen({
             <Feather
               name="file"
               size={16}
-              color={colors.onField}
+              color={colors.onPrimary}
               style={{ marginRight: 6 }}
             />
             <Text style={styles.browseText}>
@@ -200,7 +205,8 @@ export default function TranscriptUploadScreen({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Palette) =>
+  StyleSheet.create({
   container: {
     padding: spacing.lg,
     backgroundColor: colors.background,
@@ -263,7 +269,7 @@ const styles = StyleSheet.create({
   },
   browseText: {
     ...typo.label,
-    color: colors.onField,
+    color: colors.onPrimary,
     fontFamily: fonts.display,
   },
   fileName: {
@@ -272,7 +278,7 @@ const styles = StyleSheet.create({
     color: colors.bodyText,
   },
   resultCard: {
-    backgroundColor: colors.primary,
+    backgroundColor: colors.fieldA,
     padding: spacing.lg,
     borderRadius: radius.lg,
     alignItems: "center",

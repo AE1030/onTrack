@@ -75,7 +75,7 @@ class TranscriptUploadServiceTest {
                 "--- 2026 Winter ---",
                 "BIOLOGY 4F06B Senior Project 6.00/0.00");
 
-        service.processTranscriptForGetCurrentCourses(file);
+        service.processTranscriptForGPACalc(file);
 
         verify(studentService).addCurrentCourses(thesis, null);
         verify(assessmentTableService).createFromSyllabus("BIOLOGY 4F06 A/B S");
@@ -90,7 +90,7 @@ class TranscriptUploadServiceTest {
                 "--- 2026 Winter ---",
                 "INNOVATE 4EX6A Experiential Project 0.00/0.00");
 
-        service.processTranscriptForGetCurrentCourses(file);
+        service.processTranscriptForGPACalc(file);
 
         verify(studentService).addCurrentCourses(plain, null);
         verify(repo, never()).findBycourseCode("INNOVATE 4EX6 A/B S");
@@ -105,8 +105,24 @@ class TranscriptUploadServiceTest {
                 "--- 2026 Winter ---",
                 "BIOLOGY 4F06AS Senior Project 0.00/0.00");
 
-        service.processTranscriptForGetCurrentCourses(file);
+        service.processTranscriptForGPACalc(file);
 
         verify(studentService).addCurrentCourses(thesis, null);
+    }
+
+    @Test
+    @DisplayName("a transcript upload replaces past courses but never overwrites the stored GPA")
+    void uploadLeavesTheGpaToTheListener() throws IOException {
+        transcript(
+                "--- 2025 Fall ---",
+                "COMPSCI 2C03 Data Structures 3.00/3.00 B");
+
+        assertThat(service.processTranscriptForGPACalc(file).getGpa()).isNotNull();
+
+        verify(studentService).clearPastCourses();
+        verify(studentService).addPastCourse(any());
+        // The transcript-only GPA left out graded current-term courses. The stored value is the
+        // listener's, which clearPastCourses and addPastCourse have already triggered.
+        verify(studentService, never()).setGPA(any(), any());
     }
 }

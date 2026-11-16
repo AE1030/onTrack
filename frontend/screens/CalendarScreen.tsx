@@ -1,5 +1,5 @@
 //imports
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import {
   View,
   StyleSheet,
@@ -15,7 +15,9 @@ import { Calendar, DateData } from "react-native-calendars";
 import * as WebBrowser from "expo-web-browser";
 import { Feather } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { colors } from "../src/theme/colors";
+import { Palette } from "../src/theme/colors";
+import { Skeleton, SkeletonGroup } from "../src/ui/Skeleton";
+import { useTheme } from "../src/theme/ThemeContext";
 import { spacing, radius } from "../src/theme/spacing";
 import { API_BASE_URL } from "../src/config/api";
 import { getToken } from "../src/utils/tokenStorage";
@@ -80,10 +82,6 @@ const PROVIDER_LABEL: Record<CalendarProvider, string> = {
   GOOGLE: "Google Calendar",
 };
 
-// Google has not finished verifying the OAuth app, so the export button opens a coming-soon
-// notice instead of the connect flow. Flip this once the consent screen is approved.
-const GOOGLE_EXPORT_AVAILABLE = false;
-
 // Shown inside the export modal. Alert.alert does nothing on web, so results are rendered inline.
 type ExportStatus = { tone: "success" | "info" | "error"; text: string };
 
@@ -92,12 +90,65 @@ type Props = {
   onBack: () => void;
 };
 
+/**
+ * The month grid, empty: real title, real cell borders, a quiet block where each day number and
+ * the month label will land. A few cells carry a chip so it reads as a calendar with events. Also
+ * shown by the app shell while it checks a stored session on a deep link to this screen.
+ */
+export function CalendarSkeleton() {
+  const colors = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const { width } = useWindowDimensions();
+  const listMode = width < LIST_BREAKPOINT;
+
+  return (
+    <ScrollView contentContainerStyle={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.title}>Calendar</Text>
+        <View style={styles.headerActions}>
+          <Skeleton width={170} height={38} radius={radius.md} />
+        </View>
+      </View>
+      <SkeletonGroup style={styles.card} label="Loading your calendar">
+        <View style={styles.monthNav}>
+          <View style={{ flex: 1 }}>
+            <Skeleton width={150} height={22} />
+          </View>
+          <Skeleton width={32} height={32} radius={radius.md} />
+          <Skeleton width={64} height={32} radius={radius.md} />
+          <Skeleton width={32} height={32} radius={radius.md} />
+        </View>
+        <View style={skel.weekRow}>
+          {Array.from({ length: 7 }).map((_, d) => (
+            <View key={d} style={skel.weekCell}>
+              <Skeleton width={24} height={10} />
+            </View>
+          ))}
+        </View>
+        {Array.from({ length: 5 }).map((_, w) => (
+          <View key={w} style={skel.weekRow}>
+            {Array.from({ length: 7 }).map((_, d) => (
+              <View key={d} style={[styles.dayCell, listMode && styles.dayCellCompact, skel.weekCell]}>
+                <Skeleton width={14} height={10} />
+                {!listMode && (w * 7 + d) % 5 === 2 && (
+                  <Skeleton height={14} radius={radius.sm} style={{ marginTop: 6 }} />
+                )}
+              </View>
+            ))}
+          </View>
+        ))}
+      </SkeletonGroup>
+    </ScrollView>
+  );
+}
+
 export default function CalendarScreen({ onAuthError, onBack }: Props) {
+  const colors = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [exportModalVisible, setExportModalVisible] = useState(false);
   const [email, setEmail] = useState("");
   const [exporting, setExporting] = useState(false);
   const [exportStatus, setExportStatus] = useState<ExportStatus | null>(null);
-  const [comingSoonVisible, setComingSoonVisible] = useState(false);
   const [disconnectTarget, setDisconnectTarget] = useState<CalendarAccountStatus | null>(null);
   const [removeEvents, setRemoveEvents] = useState(true);
   const [disconnecting, setDisconnecting] = useState(false);
@@ -276,7 +327,7 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
   // Build marked dates for react-native-calendars
   const markedDates: Record<string, { marked: boolean; dotColor: string }> = {};
   for (const date of Object.keys(eventsByDate)) {
-    markedDates[date] = { marked: true, dotColor: colors.primary };
+    markedDates[date] = { marked: true, dotColor: colors.primaryInk };
   }
 
   // One colour per course, stable for the session: assigned in alphabetical order of course code.
@@ -342,11 +393,7 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
   };
 
   if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
-      </View>
-    );
+    return <CalendarSkeleton />;
   }
 
   return (
@@ -357,11 +404,9 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
         <View style={styles.headerActions}>
           <Pressable
             style={styles.exportButton}
-            onPress={
-              GOOGLE_EXPORT_AVAILABLE ? openExportModal : () => setComingSoonVisible(true)
-            }
+            onPress={openExportModal}
           >
-            <Feather name="upload-cloud" size={16} color={colors.primary} style={{ marginRight: 6 }} />
+            <Feather name="upload-cloud" size={16} color={colors.primaryInk} style={{ marginRight: 6 }} />
             <Text style={styles.exportButtonText}>Export to Google</Text>
           </Pressable>
         </View>
@@ -411,7 +456,7 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
         </View>
 
         <Calendar
-          key={currentDate}
+          key={`${currentDate}-${colors.background}`}
           current={currentDate}
           markedDates={markedDates}
           hideArrows
@@ -571,7 +616,7 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
 
       <EventDetailSheet
         event={selectedEvent}
-        accent={selectedEvent ? accentFor(selectedEvent.courseCode) : colors.primary}
+        accent={selectedEvent ? accentFor(selectedEvent.courseCode) : colors.primaryInk}
         term={selectedTerm && knownTerms.has(selectedTerm) ? selectedTerm : null}
         onClose={() => setSelectedEvent(null)}
       />
@@ -634,7 +679,7 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
                 disabled={exporting}
               >
                 {exporting ? (
-                  <ActivityIndicator size="small" color={colors.onField} />
+                  <ActivityIndicator size="small" color={colors.onPrimary} />
                 ) : (
                   <Text style={styles.exportSubmitText}>Export</Text>
                 )}
@@ -674,7 +719,7 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
                     <Feather
                       name={removeEvents ? "check-square" : "square"}
                       size={20}
-                      color={colors.primary}
+                      color={colors.primaryInk}
                     />
                     <Text style={styles.checkboxLabel}>
                       Also remove the assessments onTrack added to{" "}
@@ -712,7 +757,7 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
                         disabled={disconnecting}
                       >
                         {disconnecting ? (
-                          <ActivityIndicator size="small" color={colors.onField} />
+                          <ActivityIndicator size="small" color={colors.onPrimary} />
                         ) : (
                           <Text style={styles.exportSubmitText}>Disconnect</Text>
                         )}
@@ -725,50 +770,21 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
           </Pressable>
         </Pressable>
       </Modal>
-
-      {/* Google export coming-soon notice, shown until the OAuth app is verified */}
-      <Modal
-        visible={comingSoonVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setComingSoonVisible(false)}
-      >
-        <Pressable
-          {...noHover}
-          style={styles.modalOverlay}
-          onPress={() => setComingSoonVisible(false)}
-        >
-          <Pressable {...noHover} style={styles.modalContent} onPress={() => {}}>
-            <Text style={styles.modalTitle}>Coming Soon</Text>
-            <Text style={styles.modalSubtitle}>
-              Google Calendar export is waiting on approval from Google. It will be available here soon.
-            </Text>
-            <View style={styles.modalActions}>
-              <Pressable
-                style={styles.exportSubmitButton}
-                onPress={() => setComingSoonVisible(false)}
-              >
-                <Text style={styles.exportSubmitText}>Got it</Text>
-              </Pressable>
-            </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
     </ScrollView>
   );
 }
 
-const styles = StyleSheet.create({
+const skel = StyleSheet.create({
+  weekRow: { flexDirection: "row" },
+  weekCell: { flex: 1, width: "auto", minWidth: 0, alignItems: "flex-start", paddingVertical: 6, paddingHorizontal: 4 },
+});
+
+const makeStyles = (colors: Palette) =>
+  StyleSheet.create({
   container: {
     padding: spacing.lg,
     backgroundColor: colors.background,
     flexGrow: 1,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: colors.background,
   },
   header: {
     // Clears the shell's hamburger, which floats over the top-left corner.
@@ -787,7 +803,7 @@ const styles = StyleSheet.create({
   },
   exportButton: {
     borderWidth: 1,
-    borderColor: colors.primary,
+    borderColor: colors.primaryInk,
     paddingVertical: 10,
     paddingHorizontal: spacing.md,
     borderRadius: radius.md,
@@ -796,7 +812,7 @@ const styles = StyleSheet.create({
   },
   exportButtonText: {
     ...typo.label,
-    color: colors.primary,
+    color: colors.primaryInk,
   },
   connectedRow: {
     flexDirection: "row",
@@ -829,7 +845,7 @@ const styles = StyleSheet.create({
     color: colors.boldText,
   },
   disconnectButton: {
-    backgroundColor: colors.danger,
+    backgroundColor: colors.dangerFill,
     paddingVertical: 10,
     paddingHorizontal: 20,
     borderRadius: radius.md,
@@ -886,7 +902,7 @@ const styles = StyleSheet.create({
     fontVariant: ["tabular-nums"],
   },
   todayNumber: {
-    color: colors.primary,
+    color: colors.primaryInk,
     fontFamily: fonts.display,
   },
   moreChip: {
@@ -901,7 +917,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 14,
     fontFamily: fonts.bodyMedium,
-    color: colors.primary,
+    color: colors.primaryInk,
   },
   daySheet: {
     maxWidth: 440,
@@ -998,7 +1014,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   agendaDateToday: {
-    color: colors.primary,
+    color: colors.primaryInk,
   },
   agendaCard: {
     flexDirection: "row",
@@ -1099,7 +1115,7 @@ const styles = StyleSheet.create({
   },
   exportSubmitText: {
     ...typo.label,
-    color: colors.onField,
+    color: colors.onPrimary,
     fontFamily: fonts.display,
   },
   disabledButton: {

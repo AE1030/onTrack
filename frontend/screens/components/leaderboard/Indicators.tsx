@@ -141,7 +141,7 @@ export function RankSparkline({
   onField?: boolean;
 }) {
   const c = useTheme();
-  const stroke = onField ? c.accent : c.primary;
+  const stroke = onField ? c.accent : c.primaryInk;
 
   if (history.length < 2) {
     return (

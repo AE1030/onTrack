@@ -32,7 +32,7 @@ public class CourseSearchController {
             @RequestParam(value = "q", required = false) String query,
             @RequestParam(value = "page", defaultValue = "0") @Min(0) int page,
             @RequestParam(value = "size", defaultValue = "20") @Min(1) @Max(100) int size) {
-        logger.info("GET /api/courses/search — query: '{}', page: {}", query, page);
+        logger.info("GET /api/courses/search — page: {}", page);
         Page<CourseLookupDTO> results = courseSearchService.searchCourses(query, page, size);
         logger.info("GET /api/courses/search — returned {} results", results.getTotalElements());
         return ResponseEntity.ok(results);

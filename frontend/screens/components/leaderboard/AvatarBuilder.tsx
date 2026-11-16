@@ -50,8 +50,8 @@ export default function AvatarBuilder({
           onPress={shuffle}
           style={[styles.shuffle, { borderColor: c.border, backgroundColor: c.surface }]}
         >
-          <Feather name="shuffle" size={14} color={c.primary} />
-          <Text style={[styles.shuffleText, { color: c.primary }]}>Shuffle</Text>
+          <Feather name="shuffle" size={14} color={c.primaryInk} />
+          <Text style={[styles.shuffleText, { color: c.primaryInk }]}>Shuffle</Text>
         </Pressable>
       </View>
 
@@ -127,7 +127,7 @@ function SwatchRow({
           style={[
             styles.swatch,
             { backgroundColor: color, borderColor: c.border },
-            selected === i && { borderColor: c.primary, borderWidth: 3 },
+            selected === i && { borderColor: c.primaryInk, borderWidth: 3 },
           ]}
         />
       ))}
@@ -156,13 +156,13 @@ function ChipRow({
             style={[
               styles.chip,
               { borderColor: c.border, backgroundColor: c.surface },
-              active && { borderColor: c.primary, backgroundColor: c.primarySoft },
+              active && { borderColor: c.primaryInk, backgroundColor: c.primarySoft },
             ]}
           >
             <Text
               style={[
                 styles.chipText,
-                { color: active ? c.primary : c.bodyText },
+                { color: active ? c.primaryInk : c.bodyText },
               ]}
             >
               {label}

@@ -17,6 +17,7 @@ import { normalizeAvatar } from "../../../src/leaderboard/avatar";
 import { POINTS_SHORT, fmtScore } from "../../../src/leaderboard/scoring";
 import PlayerAvatar from "./PlayerAvatar";
 import { radius } from "../../../src/theme/spacing";
+import { Skeleton, SkeletonCircle } from "../../../src/ui/Skeleton";
 
 /**
  * The top three, as 2 · 1 · 3 with the centre raised.
@@ -53,6 +54,33 @@ export default function Podium({ rows }: { rows: LeaderboardRow[] }) {
       <Place row={second} height={64} avatar={48} order={1} />
       <Place row={first} height={88} avatar={58} order={2} crown />
       <Place row={third} height={52} avatar={48} order={0} />
+    </View>
+  );
+}
+
+/**
+ * The podium before the board arrives: the same three plinths at their real heights, standing
+ * still, with a place-holder avatar and two lines above each. Drawn on the field, so the blocks use
+ * the on-field tone. Wrap in a SkeletonGroup so the three breathe together.
+ */
+export function PodiumSkeleton() {
+  const places: [number, number][] = [
+    [64, 48],
+    [88, 58],
+    [52, 48],
+  ];
+  return (
+    <View style={styles.podium}>
+      {places.map(([height, avatar], i) => (
+        <View key={i} style={styles.place}>
+          <View style={styles.top}>
+            <SkeletonCircle size={avatar} tone="field" />
+            <Skeleton width={64} height={11} tone="field" style={{ marginTop: 8 }} />
+            <Skeleton width={48} height={16} tone="field" style={{ marginTop: 6, marginBottom: 6 }} />
+          </View>
+          <View style={[styles.plinth, styles.plinthEmpty, { height }]} />
+        </View>
+      ))}
     </View>
   );
 }

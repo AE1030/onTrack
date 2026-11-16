@@ -73,7 +73,7 @@ public class ManualUploadService {
         BigDecimal result12 = gpaCalc.getGPA(courseGPAList, gradeDict.getMacGradeDict());
         studentService.setGPA(result4, result12);
 
-        logger.info("calculateGPA — GPA calculated: 4.0={}, 12.0={}", result4, result12);
+        logger.info("calculateGPA — GPA calculated");
         GPACalculatorResponse response = new GPACalculatorResponse();
         response.setGpa(result4);
         response.setTotalCredits(totalCredits);

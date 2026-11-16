@@ -97,6 +97,6 @@ public class GpaRecalculationListener {
         student.setGpa12(gpa12);
         studentRepo.save(student);
 
-        logger.info("Updated GPA for student {}: 4.0={}, 12.0={}", studentId, gpa4, gpa12);
+        logger.info("Updated GPA for student {}", studentId);
     }
 }

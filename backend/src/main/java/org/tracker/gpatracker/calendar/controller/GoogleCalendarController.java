@@ -18,6 +18,7 @@ import org.tracker.gpatracker.calendar.dto.CalendarConnectRequest;
 import org.tracker.gpatracker.calendar.dto.OAuthTokens;
 import org.tracker.gpatracker.calendar.dto.LinkTokenPayload;
 import org.tracker.gpatracker.calendar.exception.CalendarReconnectRequiredException;
+import org.tracker.gpatracker.calendar.exception.CalendarScopeNotGrantedException;
 import org.tracker.gpatracker.calendar.exception.CalendarSyncUnavailableException;
 import org.tracker.gpatracker.calendar.model.CalendarProvider;
 import org.tracker.gpatracker.accounts.service.StudentService;
@@ -122,6 +123,9 @@ public class GoogleCalendarController {
         OAuthTokens tokens;
         try {
             tokens = googleOAuthService.exchangeCode(code);
+        } catch (CalendarScopeNotGrantedException ex) {
+            logger.info("Google connect for user {} declined calendar access", payload.userId());
+            return failure(FailureReason.NO_CALENDAR_ACCESS);
         } catch (RuntimeException ex) {
             logger.error("Google token exchange failed for user {}: {}", payload.userId(), ex.getMessage());
             return failure(FailureReason.ERROR);
@@ -187,6 +191,9 @@ public class GoogleCalendarController {
     enum FailureReason {
         CANCELLED("Connection cancelled",
                 "Google Calendar was not connected. Return to the app and try again when you're ready."),
+        NO_CALENDAR_ACCESS("Calendar access not given",
+                "onTrack needs permission to add events to your Google Calendar. Return to the app, "
+                        + "connect again, and tick the calendar box on Google's screen."),
         EXPIRED("Link expired",
                 "This connection link has expired. Return to the app and start the export again."),
         ERROR("Couldn't connect Google Calendar",

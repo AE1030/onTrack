@@ -9,7 +9,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { Text, TextInput } from "../src/ui/Text";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import * as DocumentPicker from "expo-document-picker";
 import Animated, {
   useSharedValue,
@@ -23,7 +23,9 @@ import Animated, {
 } from "react-native-reanimated";
 import { Feather } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { colors } from "../src/theme/colors";
+import { Palette } from "../src/theme/colors";
+import { Skeleton, SkeletonGroup } from "../src/ui/Skeleton";
+import { useTheme } from "../src/theme/ThemeContext";
 import { spacing, radius } from "../src/theme/spacing";
 import { getToken } from "../src/utils/tokenStorage";
 import { API_BASE_URL } from "../src/config/api";
@@ -141,6 +143,8 @@ function ExpandPanel({
   style?: object;
   children: React.ReactNode;
 }) {
+  const colors = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const reduceMotion = useReducedMotion();
   const [mounted, setMounted] = useState(expanded);
   const open = useSharedValue(expanded && reduceMotion ? 1 : 0);
@@ -194,6 +198,8 @@ function ExpandPanel({
 
 /** Turns over rather than swapping icons, so the toggle reads as the same control changing state. */
 function ExpandChevron({ expanded }: { expanded: boolean }) {
+  const colors = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const reduceMotion = useReducedMotion();
   const turn = useSharedValue(expanded ? 1 : 0);
 
@@ -213,7 +219,51 @@ function ExpandChevron({ expanded }: { expanded: boolean }) {
   );
 }
 
+// The course search dropdown used to close on a 150ms timer after the input blurred. The input
+// blurs on mousedown but a row is only selected on click (after mouseup), so any press held longer
+// than 150ms lost the race: the row unmounted before the release and the selection went nowhere.
+// Two changes replace the timer:
+//
+// 1. Pressing inside the dropdown cancels mousedown's default action, which is what moves focus.
+//    The input never blurs, so the list stays mounted until the row's click selects it.
+// 2. A press anywhere else still blurs the input, but the dropdown waits for the pointer to be
+//    released before closing. Closing it collapses the 230px of room the open list reserves under
+//    its row, and doing that mid-press slid whatever button was being pressed out from under the
+//    pointer, so its click was lost too.
+const keepInputFocus = {
+  onMouseDown: (e: { preventDefault: () => void }) => e.preventDefault(),
+} as {};
+
+let pointerIsDown = false;
+if (typeof window !== "undefined") {
+  window.addEventListener("pointerdown", () => { pointerIsDown = true; }, true);
+  window.addEventListener("pointerup", () => { pointerIsDown = false; }, true);
+  window.addEventListener("pointercancel", () => { pointerIsDown = false; }, true);
+}
+
+/**
+ * Runs `fn` once the current press, if any, has finished, including the click it produces. The
+ * click is dispatched in the same task as the pointerup, so a zero timeout lands after it. With no
+ * press in progress (tabbing away, or a tap, where the blur arrives after the finger lifts) the
+ * timeout alone is enough.
+ */
+function afterPointerRelease(fn: () => void) {
+  if (!pointerIsDown) {
+    setTimeout(fn, 0);
+    return;
+  }
+  const onRelease = () => {
+    window.removeEventListener("pointerup", onRelease, true);
+    window.removeEventListener("pointercancel", onRelease, true);
+    setTimeout(fn, 0);
+  };
+  window.addEventListener("pointerup", onRelease, true);
+  window.addEventListener("pointercancel", onRelease, true);
+}
+
 export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdowns, onHighlightComplete }: Props) {
+  const colors = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const { width } = useWindowDimensions();
   const isCompact = width < COMPACT_BREAKPOINT;
   // Wide enough to set the add-courses heading beside its form instead of above it.
@@ -223,6 +273,7 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
   // term it is showing and whether that term accepts writes.
   const { selectedTerm, editable: termEditable, loading: termsLoading } = useTerm();
   const [deletingCourse, setDeletingCourse] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [mode, setMode] = useState<"manual" | "transcript">("manual");
   const [rows, setRows] = useState<CourseRow[]>([
     { id: "1", courseCode: "", grade: "" },
@@ -252,9 +303,6 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
     Record<string, any>
   >({});
   const [externalVersionByCourse, setExternalVersionByCourse] = useState<
-    Record<string, number>
-  >({});
-  const [autoSaveVersionByCourse, setAutoSaveVersionByCourse] = useState<
     Record<string, number>
   >({});
   const [assessmentLoadingByCourse, setAssessmentLoadingByCourse] = useState<
@@ -732,12 +780,7 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
             courseCode,
             term
           );
-          if (success) {
-            setAutoSaveVersionByCourse((prev) => ({
-              ...prev,
-              [key]: (prev[key] ?? 0) + 1,
-            }));
-          }
+          if (success) syllabusReplacedGrade(key, term);
         }
       } catch (err) {
         updateUploadState(key, {
@@ -746,6 +789,23 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
         stopPolling(key);
       }
     }, 2000);
+  };
+
+  /**
+   * A finished syllabus upload replaces the course's table with one that has no marks, and the
+   * server clears the course's grade to match. The card's grade is dropped here (the course-list
+   * sync only ever adds grades, so a cleared one would otherwise linger), and the course list and
+   * dashboard are re-read so the cleared grade and the GPA it changed show up.
+   */
+  const syllabusReplacedGrade = (key: string, term: string) => {
+    setBestGradesByCourse((prev) => {
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+    queryClient.invalidateQueries({ queryKey: qk.currentCourses(term) });
+    queryClient.invalidateQueries({ queryKey: qk.dashboard });
   };
 
   /**
@@ -786,6 +846,7 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
         queryClient.invalidateQueries({
           queryKey: qk.assessmentTable(job.courseCode, job.term),
         });
+        syllabusReplacedGrade(key, job.term);
       } else if (job.status === "FAILED") {
         updateUploadState(key, {
           job,
@@ -946,6 +1007,11 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
   const deleteCurrentCourse = async (courseCode: string, term: string) => {
     if (deletingCourse) return;
     setDeletingCourse(courseCode);
+    setDeleteError(null);
+    // Set once the request has gone out. From then on the server may have changed even if the
+    // response says it failed (the course row can go before a later step throws), so the list
+    // is re-read whatever the outcome rather than trusted.
+    let sent = false;
     try {
       const token = await getToken();
       if (!token) {
@@ -955,6 +1021,7 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
 
       const encodedCourse = encodeURIComponent(courseCode);
       const encodedTerm = encodeURIComponent(term);
+      sent = true;
       const res = await fetch(
         `${API_BASE_URL.replace(/\/$/, "")}/api/my-courses/delete-course?courseCode=${encodedCourse}&term=${encodedTerm}`,
         {
@@ -966,16 +1033,22 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
       );
 
       if (res.status === 401 || res.status === 403) {
+        sent = false;
         onAuthError();
         return;
       }
 
-      if (res.ok) {
+      if (!res.ok) {
+        setDeleteError(`${courseCode} could not be deleted. Try again in a moment.`);
+      }
+    } catch {
+      setDeleteError(`${courseCode} could not be deleted. Check your connection and try again.`);
+    } finally {
+      if (sent) {
         // Removing a course changes the GPA the dashboard shows.
-        await refetchCurrentCourses();
+        refetchCurrentCourses();
         queryClient.invalidateQueries({ queryKey: qk.dashboard });
       }
-    } finally {
       setDeletingCourse(null);
     }
   };
@@ -1042,8 +1115,9 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
       return;
     }
 
+    // PDF only: the server reads the transcript's text layer and refuses anything else.
     const result = await DocumentPicker.getDocumentAsync({
-      type: ["application/pdf", "image/*"],
+      type: ["application/pdf"],
       copyToCacheDirectory: true,
     });
 
@@ -1207,19 +1281,47 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
             accessibilityRole="button"
             accessibilityLabel="Jump to add courses"
           >
-            <Feather name="plus" size={16} color={colors.primary} />
+            <Feather name="plus" size={16} color={colors.primaryInk} />
             <Text style={styles.jumpToAddText}>Add courses</Text>
           </Pressable>
         )}
 
         {loadingCourses && (
-          <View style={styles.loadingRow}>
-            <ActivityIndicator size="small" color={colors.primary} />
-          </View>
+          // Three course cards with the accent bar still neutral: the course colours belong to
+          // real courses, so the placeholder does not borrow them.
+          <SkeletonGroup label="Loading your courses">
+            {[0, 1, 2].map((i) => (
+              <View key={i} style={styles.courseCard}>
+                <View style={[styles.courseAccent, { backgroundColor: colors.skeleton }]} />
+                <View style={[styles.courseContent, isCompact && styles.courseContentCompact]}>
+                  <View style={[styles.courseLeft, isCompact && styles.courseLeftCompact, { gap: 8 }]}>
+                    <View style={[styles.courseHeader, { gap: 10 }]}>
+                      <Skeleton width={96} height={20} />
+                      <Skeleton width={84} height={20} radius={radius.pill} />
+                    </View>
+                    <Skeleton width={i === 1 ? "50%" : "68%"} height={14} />
+                    <Skeleton width={150} height={12} />
+                  </View>
+                  <View style={[styles.courseRight, isCompact && styles.courseRightCompact, { gap: 24 }]}>
+                    {[0, 1, 2].map((k) => (
+                      <View key={k} style={[styles.courseStat, { gap: 8 }]}>
+                        <Skeleton width={56} height={10} />
+                        <Skeleton width={48} height={18} />
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              </View>
+            ))}
+          </SkeletonGroup>
         )}
 
         {coursesError && (
           <Text style={styles.errorText}>{coursesError}</Text>
+        )}
+
+        {deleteError && (
+          <Text style={styles.errorText} accessibilityRole="alert">{deleteError}</Text>
         )}
 
         {currentCourses.map((course, index) => {
@@ -1381,12 +1483,11 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
                   </Text>
 
                   {isAssessmentLoading && (
-                    <View style={styles.jobRow}>
-                      <Text style={styles.syllabusMeta}>
-                        Loading assessment data...
-                      </Text>
-                      <ActivityIndicator size="small" color={colors.primary} />
-                    </View>
+                    // Where the syllabus heading and its line will land.
+                    <SkeletonGroup label="Loading assessment data" style={{ gap: 8, marginBottom: spacing.sm }}>
+                      <Skeleton width={140} height={18} />
+                      <Skeleton width="80%" height={13} />
+                    </SkeletonGroup>
                   )}
 
                   {uploadState.error && (
@@ -1401,7 +1502,7 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
                         Status: {uploadState.job.status}
                       </Text>
                       {isPolling && (
-                        <ActivityIndicator size="small" color={colors.primary} />
+                        <ActivityIndicator size="small" color={colors.primaryInk} />
                       )}
                     </View>
                   )}
@@ -1418,7 +1519,7 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
                                 ? colors.danger
                                 : jobStatus === "DONE"
                                   ? colors.success
-                                  : colors.primary,
+                                  : colors.primaryInk,
                           },
                         ]}
                       />
@@ -1470,7 +1571,6 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
                   externalResponse={externalResponseByCourse[key]}
                   externalVersion={externalVersionByCourse[key]}
                   skipFetch={true}
-                  autoSaveVersion={autoSaveVersionByCourse[key]}
                   onSaved={() =>
                     queryClient.invalidateQueries({
                       queryKey: qk.assessmentTable(course.courseCode, effectiveTerm),
@@ -1577,7 +1677,7 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
                           }
                         }}
                         onBlur={() => {
-                          setTimeout(() => {
+                          afterPointerRelease(() => {
                             setActiveRowId((current) => {
                               if (current === row.id) {
                                 setQuery("");
@@ -1586,20 +1686,22 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
                               }
                               return current;
                             });
-                          }, 150);
+                          });
                         }}
                         style={styles.input}
                       />
 
                       {activeRowId === row.id && canSearch && (
-                        <View style={styles.dropdown}>
+                        <View style={styles.dropdown} {...keepInputFocus}>
                           {searching && results.length === 0 ? (
-                            <View style={styles.loadingRow}>
-                              <ActivityIndicator
-                                size="small"
-                                color={colors.primary}
-                              />
-                            </View>
+                            <SkeletonGroup label="Searching courses">
+                              {[0, 1, 2].map((i) => (
+                                <View key={i} style={[styles.dropdownItem, { gap: 6 }]}>
+                                  <Skeleton width={84} height={14} />
+                                  <Skeleton width={i === 1 ? "45%" : "62%"} height={12} />
+                                </View>
+                              ))}
+                            </SkeletonGroup>
                           ) : (
                             <FlatList
                               data={results}
@@ -1626,12 +1728,12 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
                               )}
                               ListFooterComponent={
                                 searching && results.length > 0 ? (
-                                  <View style={styles.loadingRow}>
-                                    <ActivityIndicator
-                                      size="small"
-                                      color={colors.primary}
-                                    />
-                                  </View>
+                                  <SkeletonGroup label="Loading more courses">
+                                    <View style={[styles.dropdownItem, { gap: 6, borderBottomWidth: 0 }]}>
+                                      <Skeleton width={84} height={14} />
+                                      <Skeleton width="55%" height={12} />
+                                    </View>
+                                  </SkeletonGroup>
                                 ) : null
                               }
                             />
@@ -1667,7 +1769,7 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
                 ))}
 
                 <Pressable style={styles.addRowButton} onPress={addRow}>
-                  <Feather name="plus" size={16} color={colors.primary} />
+                  <Feather name="plus" size={16} color={colors.primaryInk} />
                   <Text style={styles.addRowText}>Add another course</Text>
                 </Pressable>
 
@@ -1700,14 +1802,14 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
               <View style={styles.form}>
                 <View style={styles.uploadBox}>
                   <View style={styles.iconCircle}>
-                    <Feather name="upload" size={24} color={colors.primary} />
+                    <Feather name="upload" size={24} color={colors.primaryInk} />
                   </View>
 
                   <Text style={styles.uploadTitle}>Choose your transcript</Text>
 
                   <Text style={styles.uploadSub}>
-                    We read this term's courses from it and add them to your list. PDF, JPG or
-                    PNG.
+                    We add this term's courses to your list and replace your past courses with
+                    the ones on your transcript. PDF only.
                   </Text>
 
                   <Pressable
@@ -1718,7 +1820,7 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
                     <Feather
                       name="file"
                       size={16}
-                      color={colors.onField}
+                      color={colors.onPrimary}
                       style={{ marginRight: 6 }}
                     />
                     <Text style={styles.browseText}>
@@ -1733,7 +1835,7 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
 
                 <Animated.View style={[styles.savedCard, { marginTop: spacing.sm }, uploadSuccessAnimatedStyle]} pointerEvents="none">
                   <Feather name="check" size={13} color={colors.success} style={{ marginRight: 4 }} />
-                  <Text style={styles.savedText}>Courses added from your transcript</Text>
+                  <Text style={styles.savedText}>Transcript uploaded. Courses and GPA updated</Text>
                 </Animated.View>
 
                 {uploadError && (
@@ -1750,7 +1852,8 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Palette) =>
+  StyleSheet.create({
   screen: {
     flex: 1,
     position: "relative",
@@ -1883,7 +1986,7 @@ const styles = StyleSheet.create({
   },
   courseLink: {
     ...typo.label,
-    color: colors.primary,
+    color: colors.primaryInk,
     fontSize: 13,
   },
   courseRight: {
@@ -1906,7 +2009,7 @@ const styles = StyleSheet.create({
   courseGrade: {
     ...typo.data,
     fontSize: 18,
-    color: colors.primary,
+    color: colors.primaryInk,
     fontFamily: fonts.bodyMedium,
     letterSpacing: 0.36,
   },
@@ -1937,7 +2040,7 @@ const styles = StyleSheet.create({
   },
   gpaPillText: {
     ...typo.caption,
-    color: colors.primary,
+    color: colors.primaryInk,
     fontFamily: fonts.bodyMedium,
   },
   dropdownToggleWrap: {
@@ -2001,7 +2104,7 @@ const styles = StyleSheet.create({
   },
   uploadButtonText: {
     ...typo.label,
-    color: colors.onField,
+    color: colors.onPrimary,
     fontSize: 13,
     fontFamily: fonts.display,
   },
@@ -2117,7 +2220,7 @@ const styles = StyleSheet.create({
   },
   addRowText: {
     ...typo.label,
-    color: colors.primary,
+    color: colors.primaryInk,
   },
   formFooter: {
     flexDirection: "row",
@@ -2149,7 +2252,7 @@ const styles = StyleSheet.create({
   },
   jumpToAddText: {
     ...typo.label,
-    color: colors.primary,
+    color: colors.primaryInk,
   },
   inputWithDropdown: {
     flex: 1,
@@ -2214,7 +2317,7 @@ const styles = StyleSheet.create({
   },
   saveText: {
     ...typo.label,
-    color: colors.onField,
+    color: colors.onPrimary,
     fontFamily: fonts.display,
   },
   uploadBox: {
@@ -2254,7 +2357,7 @@ const styles = StyleSheet.create({
   },
   browseText: {
     ...typo.label,
-    color: colors.onField,
+    color: colors.onPrimary,
     fontFamily: fonts.display,
   },
   fileName: {

@@ -3,7 +3,6 @@ import {
   View,
   ScrollView,
   StyleSheet,
-  ActivityIndicator,
   Pressable,
   Platform,
 } from "react-native";
@@ -11,7 +10,9 @@ import { Text, TextInput } from "../src/ui/Text";
 import { Feather } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { colors } from "../src/theme/colors";
+import { Palette } from "../src/theme/colors";
+import { Skeleton, SkeletonGroup } from "../src/ui/Skeleton";
+import { useTheme } from "../src/theme/ThemeContext";
 import { getToken } from "../src/utils/tokenStorage";
 import { API_BASE_URL } from "../src/config/api";
 import { qk } from "../src/cache/keys";
@@ -90,7 +91,6 @@ type Props = {
   externalResponse?: BackendResponse | null;
   externalVersion?: number;
   skipFetch?: boolean;
-  autoSaveVersion?: number;
   /** Fired after a successful save (autosave included) so the parent can evict its cache. */
   onSaved?: () => void;
 };
@@ -105,9 +105,10 @@ export default function CourseCalculatorScreen({
   externalResponse,
   externalVersion,
   skipFetch = false,
-  autoSaveVersion,
   onSaved,
 }: Props) {
+  const colors = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const queryClient = useQueryClient();
   // Start from the data the caller already has, so an inline panel opened on a cache hit draws
   // its table on the first frame instead of a spinner that the hydrate effect replaces a frame
@@ -139,7 +140,6 @@ export default function CourseCalculatorScreen({
   // The state above already holds the first externalResponse, so the hydrate effect's mount run
   // would only parse it a second time.
   const skipFirstHydrate = useRef(externalResponse !== undefined);
-  const autoSavePending = useRef(false);
 
   // The term is whatever the caller selected. It used to be pinned to a literal here, which
   // collapsed every term onto one cache entry and made a term picker impossible.
@@ -169,11 +169,6 @@ export default function CourseCalculatorScreen({
     setError(null);
     setLoading(false);
   }, [externalResponse, externalVersion]);
-
-  useEffect(() => {
-    if (autoSaveVersion === undefined) return;
-    autoSavePending.current = true;
-  }, [autoSaveVersion]);
 
   const formatTime = (value?: string | null) => {
     if (!value) return "-";
@@ -877,8 +872,10 @@ export default function CourseCalculatorScreen({
     const unchanged =
       previousGrade !== null && round2(bestGrade) === round2(previousGrade);
 
-    // Omitting an unchanged grade keeps a due-date edit from touching Postgres at all.
-    const grade = unchanged ? null : bestGrade;
+    // Omitting an unchanged grade keeps a due-date edit from touching Postgres at all. With
+    // nothing graded, bestGrade is the placeholder 0, not a grade: sending it stored a failing
+    // mark, including over a grade entered by hand when the course was added.
+    const grade = unchanged || !hasGradedAssessment ? null : bestGrade;
 
     saveMutation.mutate({ ...buildSavePayload(), grade });
   };
@@ -910,25 +907,42 @@ export default function CourseCalculatorScreen({
     };
   }, [schemes, dirty, allFieldsValid, editable]);
 
-  useEffect(() => {
-    if (!autoSavePending.current) return;
-    if (!editable) {
-      // Drop the request rather than holding it: switching back to the current term must not
-      // flush a save that was queued while a past term was on screen.
-      autoSavePending.current = false;
-      return;
-    }
-    if (loading) return;
-    if (!allFieldsValid) return;
-    autoSavePending.current = false;
-    saveAssessmentTable();
-  }, [schemes, loading, allFieldsValid, editable]);
 
   if (loading) {
+    // One marking scheme's table, empty: the real column header so the student sees what is
+    // coming, and four rows whose blocks sit in the same columns the values will.
+    const COLS: [number, number][] = [[2, 70], [1, 80], [1, 50], [1, 50], [2, 55], [1, 40], [1, 40]];
     return (
-      <View style={[styles.center, variant === "inline" && styles.inlineCenter]}>
-        <ActivityIndicator />
-      </View>
+      <SkeletonGroup
+        label="Loading the assessment table"
+        style={[styles.container, variant === "inline" && styles.inlineContainer]}
+      >
+        <View style={styles.schemeBox}>
+          <View style={styles.schemeHeader}>
+            <Skeleton width={160} height={20} />
+          </View>
+          <View style={styles.headerRow}>
+            <Text style={[styles.col, styles.col2]}>Assignment</Text>
+            <Text style={styles.col}>Due Date (YYYY-MM-DD)</Text>
+            <Text style={styles.col}>Start (HH:mm)</Text>
+            <Text style={styles.col}>End (HH:mm)</Text>
+            <Text style={[styles.col, styles.col2]}>Location</Text>
+            <Text style={styles.col}>Weight</Text>
+            <Text style={styles.col}>Grade</Text>
+            <View style={styles.colDelete} />
+          </View>
+          {[0, 1, 2, 3].map((r) => (
+            <View key={r} style={styles.row}>
+              {COLS.map(([flex, pct], ci) => (
+                <View key={ci} style={{ flex, paddingRight: 8 }}>
+                  <Skeleton width={`${Math.max(30, pct - ((r * 13 + ci * 7) % 25))}%`} height={14} />
+                </View>
+              ))}
+              <View style={styles.colDelete} />
+            </View>
+          ))}
+        </View>
+      </SkeletonGroup>
     );
   }
 
@@ -1641,7 +1655,8 @@ function parseBackendResponse(
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Palette) =>
+  StyleSheet.create({
   container: {
     flex: 1,
     padding: 16,
@@ -1795,7 +1810,7 @@ const styles = StyleSheet.create({
   schemeGrade: {
     ...typo.h3,
     marginTop: 12,
-    color: colors.primary,
+    color: colors.primaryInk,
     fontVariant: ["tabular-nums"],
   },
   saveRow: {
@@ -1815,7 +1830,7 @@ const styles = StyleSheet.create({
   },
   saveButtonText: {
     ...typo.label,
-    color: colors.onField,
+    color: colors.onPrimary,
     fontSize: 13,
     fontFamily: fonts.display,
   },
@@ -1837,14 +1852,14 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: colors.primary,
+    borderColor: colors.primaryInk,
   },
   addSchemeButtonDisabled: {
     opacity: 0.5,
   },
   addSchemeButtonText: {
     ...typo.label,
-    color: colors.primary,
+    color: colors.primaryInk,
     fontSize: 13,
   },
   addButton: {
@@ -1855,11 +1870,11 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: colors.primary,
+    borderColor: colors.primaryInk,
   },
   addButtonText: {
     ...typo.label,
-    color: colors.primary,
+    color: colors.primaryInk,
     fontSize: 13,
   },
   deleteButton: {

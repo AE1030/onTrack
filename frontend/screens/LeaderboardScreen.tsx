@@ -26,8 +26,10 @@ import { useHandleAvailability } from "../src/leaderboard/useHandleAvailability"
 import { AvatarConfig, normalizeAvatar } from "../src/leaderboard/avatar";
 import { useBackfillLocalAvatar } from "../src/leaderboard/useBackfillLocalAvatar";
 import BrandField from "./components/leaderboard/BrandField";
-import Podium from "./components/leaderboard/Podium";
-import RankRow from "./components/leaderboard/RankRow";
+import Podium, { PodiumSkeleton } from "./components/leaderboard/Podium";
+import RankRow, { RankRowSkeleton } from "./components/leaderboard/RankRow";
+import { SkeletonGroup } from "../src/ui/Skeleton";
+import ThemeToggle from "../src/ui/ThemeToggle";
 import PlayerAvatar from "./components/leaderboard/PlayerAvatar";
 import StandingsReveal from "./components/leaderboard/StandingsReveal";
 import { radius } from "../src/theme/spacing";
@@ -122,20 +124,26 @@ export default function LeaderboardScreen({ onBack, onJoin, onAuthError }: Props
       >
         <BrandField style={styles.header}>
           <View style={styles.headerTop}>
-            <Pressable onPress={onBack} hitSlop={10} style={styles.headerButton}>
-              <Feather name="arrow-left" size={20} color={c.onField} />
-            </Pressable>
+            {/* Both sides are the same width so the title stays centred. */}
+            <View style={styles.headerSide}>
+              <Pressable onPress={onBack} hitSlop={10} style={styles.headerButton}>
+                <Feather name="arrow-left" size={20} color={c.onField} />
+              </Pressable>
+            </View>
 
             <Text style={[styles.headerTitle, { color: c.onField }]}>Leaderboard</Text>
 
-            <Pressable
-              onPress={() => setSettingsOpen(true)}
-              hitSlop={10}
-              style={[styles.headerButton, !onBoard && styles.hidden]}
-              disabled={!onBoard}
-            >
-              <Feather name="settings" size={18} color={c.onFieldMuted} />
-            </Pressable>
+            <View style={[styles.headerSide, styles.headerSideEnd]}>
+              <ThemeToggle tone="field" size={18} style={styles.headerButton} />
+              <Pressable
+                onPress={() => setSettingsOpen(true)}
+                hitSlop={10}
+                style={[styles.headerButton, !onBoard && styles.hidden]}
+                disabled={!onBoard}
+              >
+                <Feather name="settings" size={18} color={c.onFieldMuted} />
+              </Pressable>
+            </View>
           </View>
 
           <View style={styles.seasonRow}>
@@ -150,7 +158,9 @@ export default function LeaderboardScreen({ onBack, onJoin, onAuthError }: Props
 
           <View style={styles.podiumWrap}>
             {loading ? (
-              <ActivityIndicator color={c.onField} style={styles.podiumLoading} />
+              <SkeletonGroup label="Loading the podium">
+                <PodiumSkeleton />
+              </SkeletonGroup>
             ) : (
               <Podium rows={podiumRows} />
             )}
@@ -159,7 +169,11 @@ export default function LeaderboardScreen({ onBack, onJoin, onAuthError }: Props
 
         <View style={[styles.sheet, { backgroundColor: c.background }]}>
           {loading ? (
-            <ActivityIndicator color={c.primary} style={styles.listLoading} />
+            <SkeletonGroup label="Loading the board">
+              {["46%", "58%", "38%", "52%", "44%", "62%", "40%"].map((w, i) => (
+                <RankRowSkeleton key={i} handleWidth={w as `${number}%`} />
+              ))}
+            </SkeletonGroup>
           ) : boardQuery.isError ? (
             <EmptyState
               icon="wifi-off"
@@ -477,9 +491,9 @@ function SettingsSheet({
                       ]}
                     >
                       {saving ? (
-                        <ActivityIndicator color={c.onField} size="small" />
+                        <ActivityIndicator color={c.onPrimary} size="small" />
                       ) : (
-                        <Text style={styles.primaryButtonText}>Save handle</Text>
+                        <Text style={[styles.primaryButtonText, { color: c.onPrimary }]}>Save handle</Text>
                       )}
                     </Pressable>
                   </View>
@@ -492,7 +506,7 @@ function SettingsSheet({
                     shedding recognition, so it is the only one.
                   </Text>
                   <Pressable onPress={() => setEditing(true)} hitSlop={8}>
-                    <Text style={[styles.textButton, { color: c.primary }]}>Change handle</Text>
+                    <Text style={[styles.textButton, { color: c.primaryInk }]}>Change handle</Text>
                   </Pressable>
                 </>
               )
@@ -533,12 +547,12 @@ function SettingsSheet({
                   <Pressable
                     onPress={leave}
                     disabled={leaving}
-                    style={[styles.primaryButton, { backgroundColor: c.danger }, leaving && { opacity: 0.5 }]}
+                    style={[styles.primaryButton, { backgroundColor: c.dangerFill }, leaving && { opacity: 0.5 }]}
                   >
                     {leaving ? (
-                      <ActivityIndicator color={c.onField} size="small" />
+                      <ActivityIndicator color={c.onPrimary} size="small" />
                     ) : (
-                      <Text style={styles.primaryButtonText}>Leave the board</Text>
+                      <Text style={[styles.primaryButtonText, { color: c.onPrimary }]}>Leave the board</Text>
                     )}
                   </Pressable>
                 </View>
@@ -593,6 +607,15 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 16,
   },
+  headerSide: {
+    width: 72,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  headerSideEnd: {
+    justifyContent: "flex-end",
+    gap: 8,
+  },
   headerButton: {
     width: 32,
     height: 32,
@@ -621,9 +644,6 @@ const styles = StyleSheet.create({
   podiumWrap: {
     marginTop: 6,
   },
-  podiumLoading: {
-    paddingVertical: 40,
-  },
   sheet: {
     borderTopLeftRadius: radius.lg,
     borderTopRightRadius: radius.lg,
@@ -645,9 +665,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bodyMedium,
     textTransform: "uppercase",
     letterSpacing: 0.72,
-  },
-  listLoading: {
-    paddingVertical: 40,
   },
   empty: {
     alignItems: "center",
@@ -816,7 +833,6 @@ const styles = StyleSheet.create({
   },
   primaryButtonText: {
     ...typo.label,
-    color: "#FFFFFF",
     fontFamily: fonts.display,
   },
   divider: {

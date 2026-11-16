@@ -189,12 +189,11 @@ public class GeminiSyllabusExtractionService {
         }
 
         String responseText = response.text();
-        logger.info("Gemini raw response: {}", responseText);
         logger.info("extractAndSaveInternal received response. empty={}", responseText == null || responseText.isBlank());
         if (responseText == null || responseText.isBlank()) {
             throw new IllegalStateException("Empty response from Gemini.");
         }
-        logger.info("extractAndSaveInternal response content. responseText={}", responseText);
+        logger.info("extractAndSaveInternal response length={}", responseText.length());
 
 
         Assessments assessments = parseAssessments(responseText);

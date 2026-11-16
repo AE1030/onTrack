@@ -467,4 +467,45 @@ class AssessmentTableServiceTest {
         assertThat(essay.getFirstGradedAt()).isEqualTo(ESSAY_GRADED);
         verifyNoInteractions(syllabusAssessmentService);
     }
+
+    // ------------------------------------------------------ syllabus re-upload
+
+    private Map<String, List<AssessmentTableDTO>> extractedItems() {
+        AssessmentTableDTO midterm = new AssessmentTableDTO();
+        midterm.setAssessmentName("Midterm");
+        midterm.setWeights(new BigDecimal[]{new BigDecimal("40")});
+        Map<String, List<AssessmentTableDTO>> items = new LinkedHashMap<>();
+        items.put("Standard", List.of(midterm));
+        return items;
+    }
+
+    @Test
+    void refreshFromSyllabus_replacesTheTableAndClearsTheCourseGrade() {
+        SyllabusDocument syllabusDoc = new SyllabusDocument();
+        when(studentService.getStudentID()).thenReturn(1L);
+        when(syllabusAssessmentService.getSyllabusDocument("COMP101", "Winter 2026")).thenReturn(syllabusDoc);
+        when(syllabusAssessmentService.getNormalizedAssessmentItems(syllabusDoc)).thenReturn(extractedItems());
+        when(repository.findByOwnerIdAndCourseCodeAndTerm(1L, "COMP101", "Winter 2026")).thenReturn(Optional.empty());
+        when(repository.save(any(AssessmentTableDocument.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.refreshFromSyllabus("COMP101");
+
+        verify(repository).save(any(AssessmentTableDocument.class));
+        // Cleared, never written as 0: a 0 would count toward the GPA as a failing grade.
+        verify(studentService).clearCourseGrade("COMP101", "Winter 2026");
+        verify(studentService, never()).updateCourseGrade(anyString(), anyString(), any());
+    }
+
+    @Test
+    void refreshFromSyllabus_withNothingExtracted_leavesTableAndGradeAlone() {
+        SyllabusDocument syllabusDoc = new SyllabusDocument();
+        when(studentService.getStudentID()).thenReturn(1L);
+        when(syllabusAssessmentService.getSyllabusDocument("COMP101", "Winter 2026")).thenReturn(syllabusDoc);
+        when(syllabusAssessmentService.getNormalizedAssessmentItems(syllabusDoc)).thenReturn(Map.of());
+
+        service.refreshFromSyllabus("COMP101");
+
+        verify(repository, never()).save(any());
+        verify(studentService, never()).clearCourseGrade(anyString(), anyString());
+    }
 }

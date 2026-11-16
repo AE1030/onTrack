@@ -102,8 +102,10 @@ public class TranscriptUploadService {
 
         logger.info("processTranscriptForGPACalc — {} courses extracted", courseList.size());
         BigDecimal result4 = gpaCalc.getGPA(courseList, gradeDict.getStandardGradeDict());
-        BigDecimal result12 = gpaCalc.getGPA(courseList, gradeDict.getMacGradeDict());
-        studentService.setGPA(result4, result12);
+        // Returned for the response only, never stored. This number is the transcript's courses
+        // alone, so writing it to the student overwrote the GPA the listener had just worked out
+        // from past courses plus graded current-term courses. clearPastCourses and every
+        // addPastCourse above already published GpaRecalculationEvent, so the stored GPA is current.
         GPACalculatorResponse response = new GPACalculatorResponse();
         response.setGpa(result4);
         response.setTotalCredits(totalCredits);
@@ -251,22 +253,5 @@ public class TranscriptUploadService {
         courseList.add(gpaBuilder);
 
         return totalCredits.add(new BigDecimal(units));
-    }
-
-    public void processTranscriptForGetCurrentCourses(MultipartFile file) throws IOException {
-        String[] line = convertToString(file);
-        boolean termFoundLocal = false;
-
-        for (int i = 0; i < line.length; i++) {
-            String currentLine = line[i];
-            if (termFinder.containsTerm(currentLine)) {
-                termFoundLocal = termFinder.containsCurrentTerm(currentLine, currentTermYear, currentTermSeason);
-                continue;
-            }
-
-            if (termFoundLocal && codeFinder.containsCourse(currentLine)) {
-                enrollCurrentTermCourse(codeFinder.normalizeMultiYearCourse(codeFinder.getCourse(currentLine)));
-            }
-        }
     }
 }

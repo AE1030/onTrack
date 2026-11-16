@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Text } from "../../src/ui/Text";
 import { noHover } from "../../src/ui/hover";
@@ -11,7 +11,9 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 
-import { colors } from "../../src/theme/colors";
+import { Skeleton, SkeletonGroup } from "../../src/ui/Skeleton";
+import { Palette } from "../../src/theme/colors";
+import { useTheme } from "../../src/theme/ThemeContext";
 import { spacing } from "../../src/theme/spacing";
 import { useTerm } from "../../src/terms/TermContext";
 
@@ -30,17 +32,8 @@ import { useTerm } from "../../src/terms/TermContext";
  *
  * It owns no state. Selecting a term goes through {@link useTerm}, which is what the course list
  * is keyed on, so pressing an arrow re-runs exactly the fetch the old chips did.
- *
- * Reads the flat light `colors` rather than `useTheme()`, to match MyCoursesScreen. Convert both
- * together when that screen moves onto the themed palette.
  */
 
-/**
- * colors.bodyText (#888888) is only 3.5:1 on the white surface, under the 4.5:1 floor for text
- * this size. The meta line uses the ink colour at reduced opacity instead, which measures about
- * 6.5:1 and still reads as secondary to the term name above it.
- */
-const META_INK = "rgba(59,10,29,0.72)";
 
 /** How far the label travels as it crossfades. Small enough to read as a shift, not a slide. */
 const TRAVEL = 10;
@@ -53,6 +46,8 @@ function courseCountLabel(count: number): string {
 }
 
 export default function TermPicker() {
+  const colors = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const { selectedTerm, terms, editable, loading, setSelectedTerm } = useTerm();
   const reduceMotion = useReducedMotion();
 
@@ -123,10 +118,10 @@ export default function TermPicker() {
           ) : (
             // A pair of bars rather than a spinner: the control keeps its height and position, so
             // nothing below it moves when the real term arrives.
-            <View accessibilityLabel="Loading terms">
-              <View style={[styles.bar, styles.barTerm]} />
-              <View style={[styles.bar, styles.barMeta]} />
-            </View>
+            <SkeletonGroup label="Loading terms" style={{ alignItems: "center", gap: 4 }}>
+              <Skeleton width={104} height={15} />
+              <Skeleton width={78} height={10} />
+            </SkeletonGroup>
           )}
         </View>
 
@@ -161,6 +156,8 @@ function Arrow({
   disabled: boolean;
   onPress: () => void;
 }) {
+  const colors = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
 
@@ -190,13 +187,14 @@ function Arrow({
       <Feather
         name={icon}
         size={20}
-        color={disabled ? colors.muted : colors.primary}
+        color={disabled ? colors.muted : colors.primaryInk}
       />
     </Pressable>
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Palette) =>
+  StyleSheet.create({
   wrapper: {
     alignItems: "center",
     marginBottom: spacing.md,
@@ -236,7 +234,7 @@ const styles = StyleSheet.create({
   meta: {
     fontSize: 12,
     fontWeight: "500",
-    color: META_INK,
+    color: colors.bodyText,
     textAlign: "center",
     marginTop: 1,
   },
@@ -255,20 +253,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceSunken,
   },
   arrowFocused: {
-    borderColor: colors.primary,
-  },
-  bar: {
-    backgroundColor: colors.surfaceSunken,
-    borderRadius: 4,
-    alignSelf: "center",
-  },
-  barTerm: {
-    width: 104,
-    height: 15,
-  },
-  barMeta: {
-    width: 78,
-    height: 10,
-    marginTop: 4,
+    borderColor: colors.primaryInk,
   },
 });

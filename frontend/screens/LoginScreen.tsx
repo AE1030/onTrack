@@ -6,9 +6,10 @@ import {
   Platform,
 } from "react-native";
 import { Text, TextInput } from "../src/ui/Text";
-import { useRef, useState } from "react";
+import { useRef, useState, useMemo } from "react";
 import { Feather } from "@expo/vector-icons";
-import { colors } from "../src/theme/colors";
+import { Palette } from "../src/theme/colors";
+import { useTheme } from "../src/theme/ThemeContext";
 import { spacing, radius } from "../src/theme/spacing";
 import { startSession } from "../src/utils/tokenStorage";
 import { API_BASE_URL } from "../src/config/api";
@@ -25,6 +26,8 @@ type Props = {
 };
 
 export default function LoginScreen({ onLoginSuccess, onGoToRegister, onGoToForgotPassword }: Props) {
+  const colors = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -264,7 +267,8 @@ export default function LoginScreen({ onLoginSuccess, onGoToRegister, onGoToForg
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Palette) =>
+  StyleSheet.create({
   screen: {
     flex: 1,
     justifyContent: "center",
@@ -329,7 +333,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   inputFocused: {
-    borderColor: colors.primary,
+    borderColor: colors.primaryInk,
     borderWidth: 1.5,
   },
   inputError: {
@@ -352,7 +356,7 @@ const styles = StyleSheet.create({
   },
   buttonText: {
     ...typo.label,
-    color: colors.onField,
+    color: colors.onPrimary,
     fontSize: 16,
     fontFamily: fonts.display,
     letterSpacing: 0.32,
@@ -395,7 +399,7 @@ const styles = StyleSheet.create({
     color: colors.bodyText,
   },
   linkBold: {
-    color: colors.primary,
+    color: colors.primaryInk,
     fontFamily: fonts.bodyMedium,
   },
 });

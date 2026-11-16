@@ -7,9 +7,10 @@ import {
   ScrollView,
 } from "react-native";
 import { Text, TextInput } from "../src/ui/Text";
-import { useRef, useState } from "react";
+import { useRef, useState, useMemo } from "react";
 import { Feather } from "@expo/vector-icons";
-import { colors } from "../src/theme/colors";
+import { Palette } from "../src/theme/colors";
+import { useTheme } from "../src/theme/ThemeContext";
 import { spacing, radius } from "../src/theme/spacing";
 import { API_BASE_URL } from "../src/config/api";
 import { toHttpError } from "../src/cache/authedGet";
@@ -25,6 +26,8 @@ const MCMASTER_REGEX = /@mcmaster\.ca$/i;
 const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
 
 export default function RegisterScreen({ onGoToLogin }: Props) {
+  const colors = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -355,7 +358,8 @@ export default function RegisterScreen({ onGoToLogin }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Palette) =>
+  StyleSheet.create({
   screen: {
     flex: 1,
     justifyContent: "center",
@@ -424,7 +428,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   inputFocused: {
-    borderColor: colors.primary,
+    borderColor: colors.primaryInk,
     borderWidth: 1.5,
   },
   inputError: {
@@ -454,7 +458,7 @@ const styles = StyleSheet.create({
   },
   buttonText: {
     ...typo.label,
-    color: colors.onField,
+    color: colors.onPrimary,
     fontSize: 16,
     fontFamily: fonts.display,
     letterSpacing: 0.32,
@@ -474,7 +478,7 @@ const styles = StyleSheet.create({
     color: colors.bodyText,
   },
   linkBold: {
-    color: colors.primary,
+    color: colors.primaryInk,
     fontFamily: fonts.bodyMedium,
   },
   resendMessage: {

@@ -54,12 +54,21 @@ public class DashboardService {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Your target is locked while you are on the leaderboard.");
         }
-        if (dto.getTargetGpa4() != null) {
-            student.setTargetGpa4(dto.getTargetGpa4());
+        BigDecimal target4 = dto.getTargetGpa4();
+        BigDecimal target12 = dto.getTargetGpa12();
+        if (target4 == null && target12 == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Enter a target on either scale to save.");
         }
-        if (dto.getTargetGpa12() != null) {
-            student.setTargetGpa12(dto.getTargetGpa12());
+        // One scale on its own still sets both, so the dashboard has a target on whichever scale
+        // the student is viewing.
+        if (target12 == null) {
+            target12 = GpaScale.toTwelvePoint(target4);
+        } else if (target4 == null) {
+            target4 = GpaScale.toFourPoint(target12);
         }
+        student.setTargetGpa4(target4);
+        student.setTargetGpa12(target12);
         studentRepo.save(student);
     }
 }
