@@ -276,6 +276,16 @@
     @keyframes rise-back { from { opacity: 0; transform: translateY(calc(-14% + 48px)); } to { opacity: 0.96; transform: translateY(-14%); } }
 
     /* ── Responsive ──────────────────────────────── */
+    /* ── Footer ──────────────────────────────────── */
+    .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+    .footer { border-top: 1px solid var(--border); padding: 32px 0 40px; }
+    .footer .container { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 32px; }
+    .footer p, .footer a { font-size: 14px; line-height: 1.5; letter-spacing: 0.02em; color: var(--body-text); }
+    .footer a { text-decoration: underline; text-decoration-color: var(--border); text-underline-offset: 4px; transition: color 160ms var(--ease-out), text-decoration-color 160ms var(--ease-out); }
+    .footer a:hover { color: var(--primary); text-decoration-color: currentColor; }
+    .footer-links { display: flex; flex-wrap: wrap; gap: 4px 24px; }
+    .footer-links a { display: inline-block; padding: 8px 0; }
+
     @media (max-width: 900px) {
       .hero .container, .features .container, .board .container { grid-template-columns: minmax(0, 1fr); }
       .hero-copy { padding-bottom: 0; }
@@ -455,6 +465,16 @@
     </section>
 
   </main>
+
+  <footer class="footer">
+    <div class="container">
+      <p>&copy; 2026 onTrack. Built by
+        <a href="https://www.linkedin.com/in/ahmed-elmanufi-866906283/" target="_blank" rel="noopener noreferrer">Ahmed Elmanufi<span class="visually-hidden"> (opens LinkedIn in a new tab)</span></a>.</p>
+      <nav class="footer-links" aria-label="Legal">
+        <a href="privacy-policy.html">Privacy policy</a>
+      </nav>
+    </div>
+  </footer>
 
   <script>
     // Light/dark switch. Writes the same key the app reads, so the choice follows the visitor in.
