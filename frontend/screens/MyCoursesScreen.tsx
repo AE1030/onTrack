@@ -30,6 +30,7 @@ import { spacing, radius } from "../src/theme/spacing";
 import { getToken } from "../src/utils/tokenStorage";
 import { API_BASE_URL } from "../src/config/api";
 import { qk } from "../src/cache/keys";
+import { invalidateDueDates } from "../src/cache/invalidateDueDates";
 import { authedFetch, authedGet, isAuthError, queryRetry } from "../src/cache/authedGet";
 import { toUserMessage } from "../src/utils/errorMessage";
 import { useCourseSearch } from "../src/hooks/useCourseSearch";
@@ -806,6 +807,8 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
     });
     queryClient.invalidateQueries({ queryKey: qk.currentCourses(term) });
     queryClient.invalidateQueries({ queryKey: qk.dashboard });
+    // A syllabus import replaces the whole table, due dates included.
+    invalidateDueDates(queryClient);
   };
 
   /**
@@ -1045,9 +1048,10 @@ export default function MyCoursesScreen({ onAuthError, onBack, highlightDropdown
       setDeleteError(`${courseCode} could not be deleted. Check your connection and try again.`);
     } finally {
       if (sent) {
-        // Removing a course changes the GPA the dashboard shows.
+        // Removing a course changes the GPA the dashboard shows, and takes its due dates with it.
         refetchCurrentCourses();
         queryClient.invalidateQueries({ queryKey: qk.dashboard });
+        invalidateDueDates(queryClient);
       }
       setDeletingCourse(null);
     }
