@@ -1,5 +1,7 @@
 package org.tracker.gpatracker.security.controller;
 
+import org.tracker.gpatracker.exception.UserFacingMessage;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -62,11 +64,16 @@ public class EmailVerificationController {
             userService.resendVerificationEmail(email);
             return ResponseEntity.ok("Verification email sent");
         } catch (EmailAlreadyVerifiedException e) {
-            return ResponseEntity.status(409).body(e.getMessage());
+            return ResponseEntity.status(409).body(UserFacingMessage.of(e, "This email is already verified"));
         } catch (IllegalStateException e) {
-            return ResponseEntity.status(429).body(e.getMessage());
+            // Our own throw is the resend cooldown. Anything else (a mail failure) is not a 429.
+            String message = UserFacingMessage.of(e, null);
+            if (message == null) {
+                throw e;
+            }
+            return ResponseEntity.status(429).body(message);
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(e.getMessage());
+            return ResponseEntity.badRequest().body(UserFacingMessage.of(e, "Invalid request"));
         }
     }
 
@@ -81,7 +88,11 @@ public class EmailVerificationController {
             userService.forgotPassword(email);
             return ResponseEntity.ok("If an account exists with that email, a reset link has been sent.");
         } catch (IllegalStateException e) {
-            return ResponseEntity.status(429).body(e.getMessage());
+            String message = UserFacingMessage.of(e, null);
+            if (message == null) {
+                throw e;
+            }
+            return ResponseEntity.status(429).body(message);
         }
     }
 

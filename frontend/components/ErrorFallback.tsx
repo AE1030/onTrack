@@ -53,9 +53,9 @@ export default function ErrorFallback({ error, retry }: ErrorBoundaryProps) {
         ]}
       >
         {retrying ? (
-          <ActivityIndicator color={c.background} />
+          <ActivityIndicator color={c.onPrimary} />
         ) : (
-          <Text style={[styles.buttonText, { color: c.background }]}>Try again</Text>
+          <Text style={[styles.buttonText, { color: c.onPrimary }]}>Try again</Text>
         )}
       </Pressable>
     </View>

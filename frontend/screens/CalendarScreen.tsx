@@ -1,5 +1,6 @@
 //imports
 import { useEffect, useState, useMemo } from "react";
+import { toUserMessage } from "../src/utils/errorMessage";
 import {
   View,
   StyleSheet,
@@ -228,9 +229,11 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
         return;
       }
 
-      const data = await res.json();
+      // A proxy or crash page answers with HTML, not JSON; that is a failed sync, not a dropped
+      // connection, so it must not fall through to the catch below.
+      const data = await res.json().catch(() => null);
 
-      if (res.status === 409 && data.action === "connect") {
+      if (res.status === 409 && data?.action === "connect") {
         setExportModalVisible(false);
         // The backend runs the first sync itself once OAuth completes, and the page Google
         // redirects to tells the student how it went. No retry here: openBrowserAsync resolves
@@ -240,7 +243,7 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
       }
 
       if (res.ok) {
-        const count: number = data.eventCount ?? 0;
+        const count: number = data?.eventCount ?? 0;
         setExportStatus(
           count === 0
             ? { tone: "info", text: "No assessments with due dates to export yet." }
@@ -250,7 +253,9 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
               },
         );
       } else {
-        setExportStatus({ tone: "error", text: data.error ?? "Sync failed. Please try again." });
+        // Only a 4xx carries a sentence written for the student; a 5xx body is developer text.
+        const serverText = res.status < 500 && typeof data?.error === "string" ? data.error : null;
+        setExportStatus({ tone: "error", text: serverText ?? "Sync failed. Please try again." });
       }
     } catch {
       setExportStatus({ tone: "error", text: "Could not connect to server." });
@@ -306,9 +311,7 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
       }
       setDisconnectStatus({
         tone: "error",
-        text:
-          (err instanceof HttpError && err.serverMessage) ||
-          "Couldn't disconnect. Please try again.",
+        text: toUserMessage(err, "Couldn't disconnect. Please try again."),
       });
     } finally {
       setDisconnecting(false);
