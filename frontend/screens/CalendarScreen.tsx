@@ -34,6 +34,8 @@ import {
 import { fonts, typo } from "../src/theme/typography";
 import { useTerm } from "../src/terms/TermContext";
 import EventDetailSheet, { formatTime } from "./components/EventDetailSheet";
+import ServiceNoticeModal from "./components/ServiceNoticeModal";
+import { GOOGLE_CALENDAR_SYNC_ENABLED } from "../src/config/features";
 
 // Below this the grid's columns are too narrow to hold a readable label, so cells show coloured
 // marks and the month's events are listed under the grid instead.
@@ -147,6 +149,7 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
   const colors = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [exportModalVisible, setExportModalVisible] = useState(false);
+  const [syncPausedVisible, setSyncPausedVisible] = useState(false);
   const [email, setEmail] = useState("");
   const [exporting, setExporting] = useState(false);
   const [exportStatus, setExportStatus] = useState<ExportStatus | null>(null);
@@ -197,6 +200,10 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
   }, [eventsQuery.error, onAuthError]);
 
   const openExportModal = () => {
+    if (!GOOGLE_CALENDAR_SYNC_ENABLED) {
+      setSyncPausedVisible(true);
+      return;
+    }
     setExportStatus(null);
     const google = accounts.find((a) => a.provider === "GOOGLE");
     if (!email.trim() && google?.email) setEmail(google.email);
@@ -622,6 +629,13 @@ export default function CalendarScreen({ onAuthError, onBack }: Props) {
         accent={selectedEvent ? accentFor(selectedEvent.courseCode) : colors.primaryInk}
         term={selectedTerm && knownTerms.has(selectedTerm) ? selectedTerm : null}
         onClose={() => setSelectedEvent(null)}
+      />
+
+      <ServiceNoticeModal
+        visible={syncPausedVisible}
+        title="Google Calendar sync is paused"
+        message="Google is currently verifying our API access. Sync will be back up shortly."
+        onClose={() => setSyncPausedVisible(false)}
       />
 
       {/* Export Modal */}
