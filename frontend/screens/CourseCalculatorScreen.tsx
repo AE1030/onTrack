@@ -16,6 +16,7 @@ import { useTheme } from "../src/theme/ThemeContext";
 import { getToken } from "../src/utils/tokenStorage";
 import { API_BASE_URL } from "../src/config/api";
 import { qk } from "../src/cache/keys";
+import { invalidateDueDates } from "../src/cache/invalidateDueDates";
 import { toUserMessage } from "../src/utils/errorMessage";
 import { DATE_MASK, TIME_MASK, formatMasked } from "../src/utils/maskedInput";
 import {
@@ -848,6 +849,8 @@ export default function CourseCalculatorScreen({
       if (grade !== null && includeInGpa) {
         queryClient.invalidateQueries({ queryKey: qk.dashboard });
       }
+      // Due dates can change on any save, whatever happened to the grade.
+      invalidateDueDates(queryClient);
 
       onSaved?.();
     },

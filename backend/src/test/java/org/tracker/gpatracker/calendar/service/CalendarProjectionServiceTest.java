@@ -96,7 +96,31 @@ class CalendarProjectionServiceTest {
         verify(eventsRepository, never()).save(any());
     }
 
+    @Test
+    @DisplayName("upcoming events come back soonest first across courses, timed after all-day on the same day")
+    void upcomingIsInDateOrder() {
+        String year = String.valueOf(java.time.LocalDate.now().getYear() + 1);
+        existingProjection(
+                event("Lab", year + "-01-20", null),
+                event("Quiz", year + "-03-05", null),
+                event("Midterm", year + "-01-10", "14:00"),
+                event("Reading", year + "-01-10", null),
+                event("Essay", year + "-02-01", null));
+
+        assertThat(service.getUpcomingEvents(STUDENT))
+                .extracting(InternalCalendarEvent::getAssessmentName)
+                .containsExactly("Reading", "Midterm", "Lab", "Essay", "Quiz");
+    }
+
     // ------------------------------------------------------------------ fixtures
+
+    private static InternalCalendarEvent event(String name, String dueDate, String startTime) {
+        InternalCalendarEvent e = new InternalCalendarEvent();
+        e.setAssessmentName(name);
+        e.setDueDate(dueDate);
+        e.setStartTime(startTime);
+        return e;
+    }
 
     private void table(String courseCode, SchemeAssessment... assessments) {
         AssessmentScheme scheme = new AssessmentScheme();
