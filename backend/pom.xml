@@ -28,6 +28,11 @@
     </scm>
     <properties>
         <java.version>21</java.version>
+        <!-- Spring Boot 3.5.5 manages 1.21.3, whose Docker client always speaks API 1.32. The
+             ubuntu-26.04 GitHub runners ship a Docker that refuses anything below 1.40, so every
+             Testcontainers test failed in CI. 1.21.4 negotiates the API version with the daemon.
+             Drop this once the Spring Boot parent manages 1.21.4 or later. -->
+        <testcontainers.version>1.21.4</testcontainers.version>
     </properties>
 <dependencies>
         <dependency>
